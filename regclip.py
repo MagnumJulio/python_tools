@@ -52,7 +52,7 @@ def main() -> None:
     group.add_argument("--stdin", action="store_true", help="Read text from stdin")
     group.add_argument("--clipboard", "-c", action="store_true", help="Read text from clipboard (explicit)")
     p.add_argument("--pattern", "-p",
-                   default=r'"[a-zA-Z0-9]+_[a-zA-Z0-9]+_[a-zA-Z0-9]+(?:_[a-zA-Z0-9]+)?"',
+                   default=r'"[a-zA-Z0-9]+_[a-zA-Z0-9]+(?:_[a-zA-Z0-9]+){0,2}"',
                    help="Regex pattern to capture identifiers (default matches uppercase+digits+_/- inside double quotes)")
     p.add_argument("--copy", action="store_true", help="Copy results back to clipboard")
     args = p.parse_args()
