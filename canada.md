@@ -59,10 +59,15 @@ Canada’s economic outlook is heavily influenced by its relationship with the U
 
 ## V. Comparative Forecast Summary Table
 
-| Metric | Deutsche Bank | Rabobank | Morgan Stanley | UBS |
-| :--- | :---: | :---: | :---: | :---: |
-| **2026 GDP Growth** | 0.9% | 0.9% | 1.3% | 1.8% |
-| **2026 Inflation** | 2.0% | Near Target | 2.0% | 2.1% |
-| **End-2026 Rate** | N/A | ~3.0% (Mkt) | 2.25% | 3.33% |
-| **2026 Deficit** | 2.3% | N/A | 2.0% | N/A |
-| **USDCAD (Dec-26)** | N/A | N/A | 1.39 | 1.35 |
+| Fator / Casa | Barclays | Morgan Stanley | UBS | Deutsche Bank | Goldman Sachs | Rabobank |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **EUA: Crescimento (PIB)** | 2,0% | 1,7% | 1,7% | 2,4% | ~2,0% | 1,8% |
+| **EUA: Inflação (CPI)** | 3,0% | 2,8% | 3,0% | 2,8% | N/A | N/A |
+| **EUA: Fed Rate (Final)** | ~3,0% | 3,125% | 3,33% | 3,38% | 3,0-3,25% | ~3,0% |
+| **EUA: Déficit Gov. (%PIB)** | ~7,0% | 6,3% | ~4 a 6% | 6,7% | N/A | N/A |
+| **CAN: Crescimento (PIB)** | N/A | 1,3% | 1,8% | 0,9% | N/A | 0,9% |
+| **CAN: Inflação (CPI)** | N/A | 2,0% | 2,1% | 2,0% | N/A | N/A |
+| **CAN: BoC Rate (Final)** | N/A | 2,25% | N/A | 2,25% | ~3,0% | N/A |
+| **CAN: Déficit Gov. (%PIB)** | N/A | 2,0% | N/A | 2,3% | N/A | N/A |
+| **Petróleo Brent (USD/bbl)** | N/A | $60 | $67 | $55 | N/A | N/A |
+| **Petróleo WTI (USD/bbl)** | N/A | N/A | $64 | $53 | N/A | N/A |
