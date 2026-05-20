@@ -17,6 +17,16 @@
 #
 # Uso: cd backend && Rscript scripts/build_pareto_indice.R
 
+# Auto-cwd: se chamado via Rscript de qualquer pasta, descobre a raiz do projeto
+# (pai de scripts/) e seta como cwd. Evita "no such file" por wd errado.
+.argv <- commandArgs(trailingOnly = FALSE)
+.farg <- grep("^--file=", .argv, value = TRUE)
+if (length(.farg)) {
+  .root <- dirname(dirname(normalizePath(sub("^--file=", "", .farg[1]))))
+  setwd(.root)
+  cat(sprintf("[CWD] %s\n", .root))
+}
+
 PARETO_VAR_CSV  <- "data/ipca_pareto_recon.csv"
 PARETO_IDX_CSV  <- "data/ipca_pareto_indice.csv"
 dir.create(dirname(PARETO_IDX_CSV), showWarnings = FALSE, recursive = TRUE)

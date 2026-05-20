@@ -25,6 +25,16 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
+# Auto-cwd: se chamado via Rscript de qualquer pasta, descobre a raiz do projeto
+# (pai de scripts/) e seta como cwd. Evita "no such file" por wd errado.
+.argv <- commandArgs(trailingOnly = FALSE)
+.farg <- grep("^--file=", .argv, value = TRUE)
+if (length(.farg)) {
+  .root <- dirname(dirname(normalizePath(sub("^--file=", "", .farg[1]))))
+  setwd(.root)
+  cat(sprintf("[CWD] %s\n", .root))
+}
+
 # Carrega config de proxy se existir (rede institucional). Sem o arquivo
 # (rodando em casa), este source vira no-op.
 if (file.exists("scripts/proxy_config.R")) source("scripts/proxy_config.R")
