@@ -44,6 +44,10 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
+# Carrega config de proxy se existir (rede institucional). Sem o arquivo
+# (rodando em casa), este source vira no-op.
+if (file.exists("scripts/proxy_config.R")) source("scripts/proxy_config.R")
+
 # ---------------------------------------------------------------------------
 # Configuração
 

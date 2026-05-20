@@ -25,6 +25,10 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
+# Carrega config de proxy se existir (rede institucional). Sem o arquivo
+# (rodando em casa), este source vira no-op.
+if (file.exists("scripts/proxy_config.R")) source("scripts/proxy_config.R")
+
 PARETO_BASE_CSV <- "data/ipca_pareto_recon.csv"
 
 # Default cobre até 2019-12. Flag --until-now estende até o último período BCB
