@@ -5,6 +5,7 @@ Remove spaces and newlines from text in the clipboard.
 Usage:
   - From clipboard (default): python cutclip.py
 """
+
 from __future__ import annotations
 import sys
 import argparse
