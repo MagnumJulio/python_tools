@@ -57,6 +57,7 @@ MASK_CLASS_PATH <- Sys.getenv("MASK_CLASS_PATH_OVR",
 OUT_DIR         <- Sys.getenv("OUT_DIR_OVR", unset = "scripts/outputs")
 PARETO_BASE_CSV <- Sys.getenv("PARETO_BASE_CSV_OVR",
                               unset = "data/ipca_pareto_recon.csv")
+dir.create(dirname(PARETO_BASE_CSV), showWarnings = FALSE, recursive = TRUE)
 SIDRA_AGG       <- as.integer(Sys.getenv("SIDRA_AGG_ID", unset = "7060"))
 SKIP_PARETO_UPDATE <- nzchar(Sys.getenv("SKIP_PARETO_UPDATE", unset = ""))
 SIDRA_VAR_VAR   <- 63L    # variação mensal

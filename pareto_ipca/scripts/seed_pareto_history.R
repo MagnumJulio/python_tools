@@ -30,6 +30,7 @@ suppressPackageStartupMessages({
 if (file.exists("scripts/proxy_config.R")) source("scripts/proxy_config.R")
 
 PARETO_BASE_CSV <- "data/ipca_pareto_recon.csv"
+dir.create(dirname(PARETO_BASE_CSV), showWarnings = FALSE, recursive = TRUE)
 
 # Default cobre até 2019-12. Flag --until-now estende até o último período BCB
 # disponível (útil pra bootstrap sem rodar reconstruct_ipca.R primeiro).

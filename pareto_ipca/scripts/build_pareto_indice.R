@@ -19,6 +19,7 @@
 
 PARETO_VAR_CSV  <- "data/ipca_pareto_recon.csv"
 PARETO_IDX_CSV  <- "data/ipca_pareto_indice.csv"
+dir.create(dirname(PARETO_IDX_CSV), showWarnings = FALSE, recursive = TRUE)
 
 if (!file.exists(PARETO_VAR_CSV)) {
   stop(sprintf("CSV de variação não existe: %s — rode seed_pareto_history.R + reconstruct_ipca.R primeiro",
