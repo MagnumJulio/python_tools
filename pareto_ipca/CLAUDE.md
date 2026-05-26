@@ -53,7 +53,7 @@ python script_itau/load_pareto_to_sql.py             # NSA: var + idx das 20 sé
 python script_itau/load_pareto_to_sql.py --sa        # adiciona versão SA (X-13)
 python script_itau/load_pareto_to_sql.py --dry-run   # só lista o que faria
 ```
-Grava em `OPT_Macro_Series_2` (metadados) + `OPT_Macro_Data_2` (long EAV: `date, series_id, value, release_date, vintage_date`), mesmo padrão do `sidra_itau.ipynb`. Cada categoria vira 2 séries (variação + índice); com `--sa`, vira 4 (NSA + SA pra cada). Proveniência fica em `sidra_code = PARETO_IPCA:<cat>/V63/RECON-<git-sha>`.
+Grava em `OPT_Macro_Series_2` (metadados) + `OPT_Macro_Series_Data_2` (long EAV: `date, series_id, value, release_date, vintage_date`), mesmo padrão do `sidra_itau.ipynb`. Cada categoria vira 2 séries (variação + índice); com `--sa`, vira 4 (NSA + SA pra cada). Proveniência fica em `haver_code = PARETO_IPCA:<cat>/V63/RECON-<git-sha>`.
 
 Simulação local (sem `opt_utils`/SQL — útil pra testar mapping em casa):
 ```bash

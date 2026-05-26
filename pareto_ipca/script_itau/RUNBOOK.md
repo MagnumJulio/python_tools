@@ -8,7 +8,7 @@ sem ter sujado o banco.
 
 - `opt_utils.database.SQLConnector` disponível (mesmo módulo do `sidra_itau.ipynb`)
 - ODBC driver SQL Server configurado (mesmo que o notebook usa)
-- Permissão de INSERT/DELETE em `OPT_Macro_Series_2` e `OPT_Macro_Data_2`
+- Permissão de INSERT/DELETE em `OPT_Macro_Series_2` e `OPT_Macro_Series_Data_2`
 - Diretório de trabalho: `pareto_ipca/`
 - CSVs gerados pelo pipeline R existem em `data/`:
   - `data/ipca_pareto_recon.csv` (variação mensal)
@@ -44,7 +44,7 @@ em `CATEGORY_LABELS` (faltaram códigos).
 **Objetivo:** abrir conexão SQL e validar que: (a) o `SQLConnector` realmente
 funciona com `connector="pyodbc"` (b) as 2 tabelas existem (c) a coluna
 `description` aguenta nosso pior caso (~95 chars) (d) listar séries com
-`sidra_code LIKE 'PARETO_IPCA:%'` que já existam (de runs anteriores).
+`haver_code LIKE 'PARETO_IPCA:%'` que já existam (de runs anteriores).
 
 ```bash
 python script_itau/load_pareto_to_sql.py --check
@@ -74,28 +74,28 @@ Pergunta `Confirma gravacao de ate 4 series no SQL? [s/N]` — responda `s`.
 
 **Verificação no SSMS:**
 ```sql
-SELECT * FROM OPT_Macro_Series_2 WHERE sidra_code LIKE 'PARETO_IPCA:%';
+SELECT * FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
 -- esperado: 4 linhas (livres var/idx + nucleo_ex0 var/idx)
 
-SELECT series_id, COUNT(*) AS n FROM OPT_Macro_Data_2
+SELECT series_id, COUNT(*) AS n FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
-                    WHERE sidra_code LIKE 'PARETO_IPCA:%')
+                    WHERE haver_code LIKE 'PARETO_IPCA:%')
 GROUP BY series_id;
 -- esperado: 4 linhas, cada uma com n=238 (jul/2006 a abr/2026)
 
-SELECT TOP 5 * FROM OPT_Macro_Data_2 WHERE series_id = <id_da_livres_var>
+SELECT TOP 5 * FROM OPT_Macro_Series_Data_2 WHERE series_id = <id_da_livres_var>
 ORDER BY date;
 -- esperado: 2006-07-01 valor=0.130644, 2006-08-01 valor=0.085540, etc.
--- (esses valores estão em sim_output/OPT_Macro_Data_2.csv pra conferência)
+-- (esses valores estão em sim_output/OPT_Macro_Series_Data_2.csv pra conferência)
 ```
 
 **Se algo estiver errado aqui, ANTES de continuar:**
 ```sql
 -- rollback do smoke test (apaga só as 4 séries inseridas):
-DELETE FROM OPT_Macro_Data_2
+DELETE FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
-                    WHERE sidra_code LIKE 'PARETO_IPCA:%');
-DELETE FROM OPT_Macro_Series_2 WHERE sidra_code LIKE 'PARETO_IPCA:%';
+                    WHERE haver_code LIKE 'PARETO_IPCA:%');
+DELETE FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
 ```
 
 ---
@@ -114,12 +114,12 @@ Confirma `Confirma gravacao de ate 50 series no SQL? [s/N]` → `s`.
 
 **Verificação:**
 ```sql
-SELECT COUNT(*) FROM OPT_Macro_Series_2 WHERE sidra_code LIKE 'PARETO_IPCA:%';
+SELECT COUNT(*) FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
 -- esperado: 50
 
-SELECT COUNT(*) FROM OPT_Macro_Data_2
+SELECT COUNT(*) FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
-                    WHERE sidra_code LIKE 'PARETO_IPCA:%');
+                    WHERE haver_code LIKE 'PARETO_IPCA:%');
 -- esperado: 11900  (50 séries × 238 obs)
 ```
 
@@ -141,7 +141,7 @@ Se uma categoria falhar no X-13, o loader imprime `[WARN]` e segue —
 não bloqueia as outras. Verifique no fim:
 ```sql
 SELECT data_type, COUNT(*) FROM OPT_Macro_Series_2
-WHERE sidra_code LIKE 'PARETO_IPCA:%'
+WHERE haver_code LIKE 'PARETO_IPCA:%'
 GROUP BY data_type;
 -- esperado: NSA=50, SA<=50 (quantas dessazonalizaram OK)
 ```
@@ -151,15 +151,15 @@ GROUP BY data_type;
 ## Rollback completo (se precisar desfazer tudo)
 
 ```sql
-DELETE FROM OPT_Macro_Data_2
+DELETE FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
-                    WHERE sidra_code LIKE 'PARETO_IPCA:%');
+                    WHERE haver_code LIKE 'PARETO_IPCA:%');
 
-DELETE FROM OPT_Macro_Series_2 WHERE sidra_code LIKE 'PARETO_IPCA:%';
+DELETE FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
 ```
 
 Isso só remove o que esse loader inseriu (filtra pelo prefixo
-`PARETO_IPCA:` no sidra_code) — não afeta as séries SIDRA inseridas pelo
+`PARETO_IPCA:` no haver_code) — não afeta as séries SIDRA inseridas pelo
 `sidra_itau.ipynb`.
 
 ---
@@ -181,18 +181,18 @@ log de gravação no stdout pra auditoria.
 
 ## Comparação contra simulação local
 
-Os valores esperados estão em `script_itau/sim_output/OPT_Macro_Data_2.csv`
+Os valores esperados estão em `script_itau/sim_output/OPT_Macro_Series_Data_2.csv`
 (gerado por `simulate_pareto_to_sql.py --save`). Se uma linha qualquer no
 SQL não bater com a equivalente no CSV simulado, há discrepância no
 write — investigar `sidra_to_sql`.
 
 ```sql
-SELECT TOP 10 series_id, date, value FROM OPT_Macro_Data_2
+SELECT TOP 10 series_id, date, value FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
-                    WHERE sidra_code LIKE 'PARETO_IPCA:livres/V63%')
+                    WHERE haver_code LIKE 'PARETO_IPCA:livres/V63%')
 ORDER BY series_id, date;
 ```
 Compare com:
 ```bash
-head -15 script_itau/sim_output/OPT_Macro_Data_2.csv | grep -E "^2006|series_id"
+head -15 script_itau/sim_output/OPT_Macro_Series_Data_2.csv | grep -E "^2006|series_id"
 ```

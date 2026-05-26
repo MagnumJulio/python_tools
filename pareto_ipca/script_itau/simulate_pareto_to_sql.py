@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 # simulate_pareto_to_sql.py
 # Simulacao do load_pareto_to_sql.py SEM tocar em SQL/opt_utils. Usa um
-# MockSQLConnector que guarda OPT_Macro_Series_2 e OPT_Macro_Data_2 em
+# MockSQLConnector que guarda OPT_Macro_Series_2 e OPT_Macro_Series_Data_2 em
 # pandas DataFrames em memoria, imitando exatamente o schema/contrato do
 # loader corp. Util pra testar mapping/labels/proveniencia em casa.
 #
 # Saidas em pareto_ipca/script_itau/sim_output/:
 #   OPT_Macro_Series_2.csv  - metadados (1 linha por serie cadastrada)
-#   OPT_Macro_Data_2.csv    - long EAV (1 linha por (serie, mes))
+#   OPT_Macro_Series_Data_2.csv    - long EAV (1 linha por (serie, mes))
 #
 # Uso:
 #   cd pareto_ipca
@@ -55,7 +55,7 @@ SIDRA_CODE_VAR = "PARETO_IPCA:{cat}/V63/RECON-{sha}"
 SIDRA_CODE_IDX = "PARETO_IPCA:{cat}/V63/Index/RECON-{sha}"
 
 SERIES_COLS = ["series_id", "country", "subject", "indicator", "series_name",
-               "data_type", "frequency", "description", "sidra_code"]
+               "data_type", "frequency", "description", "haver_code"]
 DATA_COLS = ["date", "series_id", "value", "release_date", "vintage_date"]
 
 
@@ -77,7 +77,7 @@ class MockSQLConnector:
     def __init__(self):
         self.tables = {
             "OPT_Macro_Series_2": pd.DataFrame(columns=SERIES_COLS),
-            "OPT_Macro_Data_2":   pd.DataFrame(columns=DATA_COLS),
+            "OPT_Macro_Series_Data_2":   pd.DataFrame(columns=DATA_COLS),
         }
         self._next_id = 1
         self.conn = self  # placeholder pra pd.read_sql(..., self.conn) fora; nao usado
@@ -102,12 +102,12 @@ class MockSQLConnector:
         return row["series_id"]
 
     def delete_data(self, series_id: int):
-        t = self.tables["OPT_Macro_Data_2"]
-        self.tables["OPT_Macro_Data_2"] = t[t.series_id != series_id].reset_index(drop=True)
+        t = self.tables["OPT_Macro_Series_Data_2"]
+        self.tables["OPT_Macro_Series_Data_2"] = t[t.series_id != series_id].reset_index(drop=True)
 
     def insert_data(self, df: pd.DataFrame):
-        self.tables["OPT_Macro_Data_2"] = self._append(
-            self.tables["OPT_Macro_Data_2"], df[DATA_COLS]
+        self.tables["OPT_Macro_Series_Data_2"] = self._append(
+            self.tables["OPT_Macro_Series_Data_2"], df[DATA_COLS]
         )
 
     def close(self):
@@ -118,7 +118,7 @@ def sim_sidra_to_sql(
     series: pd.Series,
     country: str, subject: str, indicator: str,
     series_name: str, data_type: str, frequency: str,
-    description: str, sidra_code: str,
+    description: str, haver_code: str,
     session: MockSQLConnector, replace: bool = True,
 ) -> int:
     series_id = session._find_series_id(country, subject, indicator, series_name, data_type)
@@ -126,7 +126,7 @@ def sim_sidra_to_sql(
         series_id = session.insert_meta({
             "country": country, "subject": subject, "indicator": indicator,
             "series_name": series_name, "data_type": data_type,
-            "frequency": frequency, "description": description, "sidra_code": sidra_code,
+            "frequency": frequency, "description": description, "haver_code": haver_code,
         })
 
     if replace:
@@ -197,19 +197,19 @@ def main():
             series=sv, country="BR", subject="Prices", indicator="IPCA",
             series_name=label, data_type="NSA", frequency="M",
             description=f"{label} - Variacao mensal (%) - recon IBGE-only via Tab.5 RI Dez/2019",
-            sidra_code=SIDRA_CODE_VAR.format(cat=c, sha=sha),
+            haver_code=SIDRA_CODE_VAR.format(cat=c, sha=sha),
             session=session,
         )
         sim_sidra_to_sql(
             series=si, country="BR", subject="Prices", indicator="IPCA",
             series_name=f"{label} (Indice)", data_type="NSA", frequency="M",
             description=f"{label} - Indice (dez/2006=100) - recon IBGE-only via Tab.5 RI Dez/2019",
-            sidra_code=SIDRA_CODE_IDX.format(cat=c, sha=sha),
+            haver_code=SIDRA_CODE_IDX.format(cat=c, sha=sha),
             session=session,
         )
 
     meta = session.tables["OPT_Macro_Series_2"]
-    data = session.tables["OPT_Macro_Data_2"]
+    data = session.tables["OPT_Macro_Series_Data_2"]
 
     print("\n" + "=" * 70)
     print(f"OPT_Macro_Series_2 — {len(meta)} séries cadastradas")
@@ -218,7 +218,7 @@ def main():
         print(meta.head(args.preview).to_string(index=False))
 
     print("\n" + "=" * 70)
-    print(f"OPT_Macro_Data_2 — {len(data)} linhas (long EAV)")
+    print(f"OPT_Macro_Series_Data_2 — {len(data)} linhas (long EAV)")
     print("=" * 70)
     with pd.option_context("display.max_columns", None, "display.width", 200):
         print(data.head(args.preview).to_string(index=False))
@@ -232,7 +232,7 @@ def main():
     if args.save:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         meta.to_csv(OUT_DIR / "OPT_Macro_Series_2.csv", index=False)
-        data.to_csv(OUT_DIR / "OPT_Macro_Data_2.csv", index=False)
+        data.to_csv(OUT_DIR / "OPT_Macro_Series_Data_2.csv", index=False)
         print(f"\n[OK] Salvo em {OUT_DIR.relative_to(ROOT)}/")
 
 

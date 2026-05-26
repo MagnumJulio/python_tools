@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # load_pareto_to_sql.py
 # Carrega as 20 categorias do pareto_ipca (variacao + indice) na base SQL
-# corp (OPT_Macro_Series_2 / OPT_Macro_Data_2), seguindo o mesmo padrao do
+# corp (OPT_Macro_Series_2 / OPT_Macro_Series_Data_2), seguindo o mesmo padrao do
 # sidra_itau.ipynb. Pre-requisito: pipeline R ja rodou e gerou
 # data/ipca_pareto_recon.csv e data/ipca_pareto_indice.csv.
 #
@@ -83,7 +83,7 @@ def sidra_to_sql(
     data_type: str,
     frequency: str,
     description: str,
-    sidra_code: str,
+    haver_code: str,
     session: SQLConnector,
     replace: bool = True,
 ) -> int:
@@ -107,7 +107,7 @@ def sidra_to_sql(
             "data_type": data_type,
             "frequency": frequency,
             "description": description,
-            "sidra_code": sidra_code,
+            "haver_code": haver_code,
         }])
         session.write_sql_table_from_dataframe("OPT_Macro_Series_2", df_meta, chunksize=50)
         df_new = pd.read_sql(
@@ -125,7 +125,7 @@ def sidra_to_sql(
 
     if replace:
         session.execute_sql(
-            "DELETE FROM OPT_Macro_Data_2 WHERE series_id = ?",
+            "DELETE FROM OPT_Macro_Series_Data_2 WHERE series_id = ?",
             params=[series_id],
         )
 
@@ -139,7 +139,7 @@ def sidra_to_sql(
         "vintage_date": today,
     })
     session.write_sql_table_from_dataframe(
-        "OPT_Macro_Data_2",
+        "OPT_Macro_Series_Data_2",
         df_data[["date", "series_id", "value", "release_date", "vintage_date"]],
         chunksize=5_000,
     )
@@ -180,12 +180,12 @@ def _load_csv_long(path: Path, value_col: str) -> dict[str, pd.Series]:
 def _preflight(session, max_desc_len: int) -> bool:
     """Roda checagens read-only antes de escrever: conexao, existencia das
     tabelas, largura da coluna description, e lista series pre-existentes
-    com nossa proveniencia (sidra_code LIKE 'PARETO_IPCA:%')."""
+    com nossa proveniencia (haver_code LIKE 'PARETO_IPCA:%')."""
     print("\n[preflight] Validando ambiente SQL...")
     ok = True
 
     # 1. Conexao + tabelas existem
-    for tbl in ("OPT_Macro_Series_2", "OPT_Macro_Data_2"):
+    for tbl in ("OPT_Macro_Series_2", "OPT_Macro_Series_Data_2"):
         try:
             n = pd.read_sql(f"SELECT COUNT(*) AS n FROM {tbl}", session.conn).iloc[0]["n"]
             print(f"  [OK] {tbl:22s} acessivel ({n} linhas)")
@@ -216,9 +216,9 @@ def _preflight(session, max_desc_len: int) -> bool:
     # 3. Series ja cadastradas com nossa proveniencia
     try:
         df = pd.read_sql(
-            """SELECT series_id, series_name, data_type, sidra_code
+            """SELECT series_id, series_name, data_type, haver_code
                FROM OPT_Macro_Series_2
-               WHERE sidra_code LIKE 'PARETO_IPCA:%'
+               WHERE haver_code LIKE 'PARETO_IPCA:%'
                ORDER BY series_id""",
             session.conn,
         )
@@ -307,7 +307,7 @@ def main():
                 series=sv, country="BR", subject="Prices", indicator="IPCA",
                 series_name=label, data_type="NSA", frequency="M",
                 description=f"{label} - Variacao mensal (%) - recon IBGE-only via NT_57/Dez-2025",
-                sidra_code=SIDRA_CODE_VAR.format(cat=c, sha=sha),
+                haver_code=SIDRA_CODE_VAR.format(cat=c, sha=sha),
                 session=session, replace=True,
             )
             # 2) Indice NSA
@@ -315,7 +315,7 @@ def main():
                 series=si, country="BR", subject="Prices", indicator="IPCA",
                 series_name=f"{label} (Indice)", data_type="NSA", frequency="M",
                 description=f"{label} - Indice (dez/2006=100) - recon IBGE-only via NT_57/Dez-2025",
-                sidra_code=SIDRA_CODE_IDX.format(cat=c, sha=sha),
+                haver_code=SIDRA_CODE_IDX.format(cat=c, sha=sha),
                 session=session, replace=True,
             )
 
@@ -326,7 +326,7 @@ def main():
                         series=sv_sa, country="BR", subject="Prices", indicator="IPCA",
                         series_name=label, data_type="SA", frequency="M",
                         description=f"{label} - Variacao mensal (%) - dessazonalizada X-13",
-                        sidra_code=SIDRA_CODE_VAR.format(cat=c, sha=sha) + "/SA",
+                        haver_code=SIDRA_CODE_VAR.format(cat=c, sha=sha) + "/SA",
                         session=session, replace=True,
                     )
                     si_sa = _try_sa(si)
@@ -334,7 +334,7 @@ def main():
                         series=si_sa, country="BR", subject="Prices", indicator="IPCA",
                         series_name=f"{label} (Indice)", data_type="SA", frequency="M",
                         description=f"{label} - Indice (dez/2006=100) - dessazonalizada X-13",
-                        sidra_code=SIDRA_CODE_IDX.format(cat=c, sha=sha) + "/SA",
+                        haver_code=SIDRA_CODE_IDX.format(cat=c, sha=sha) + "/SA",
                         session=session, replace=True,
                     )
                 except Exception as e:
@@ -342,7 +342,7 @@ def main():
     finally:
         session.close()
 
-    print(f"\n[OK] {len(cats)} categorias carregadas em OPT_Macro_Series_2 / OPT_Macro_Data_2.")
+    print(f"\n[OK] {len(cats)} categorias carregadas em OPT_Macro_Series_2 / OPT_Macro_Series_Data_2.")
 
 
 if __name__ == "__main__":
