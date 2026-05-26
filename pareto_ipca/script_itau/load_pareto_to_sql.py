@@ -149,16 +149,27 @@ def sidra_to_sql(
 def _try_sa(series: pd.Series):
     # X-13 e dependencia pesada (corp-only). Importa preguicoso pra nao quebrar
     # o load NSA caso x13as nao esteja disponivel.
+    #
+    # x13as eh vendored em script_itau/x13as/ (mesmo dir deste script). Tanto
+    # o pacote Python (x13_custom) quanto o binario + specs estao la dentro.
+    # Resolvemos tudo via __file__ pra funcionar independentemente do cwd.
+    script_dir = Path(__file__).resolve().parent
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
+    x13_dir = script_dir / "x13as"
+    spec_main = str(x13_dir / "specs" / "Haver_Spec.spc")
+    spec_addv = str(x13_dir / "specs" / "Haver_Spec_Additive.spc")
+
     from x13as.x13_custom import x13_arima_analysis as x13_custom
     try:
         s = series.dropna().iloc[-1019:]
         s = s[s.index.year >= 1950]
-        sa = x13_custom(s, x12path=r"x13as",
-                        custom_spec=r"x13as/specs/Haver_Spec.spc", retspec=True)
+        sa = x13_custom(s, x12path=str(x13_dir),
+                        custom_spec=spec_main, retspec=True)
     except Exception as e:
         if "zero or negative" in str(e).lower() or "Multiplicative" in str(e):
-            sa = x13_custom(s, x12path=r"x13as",
-                            custom_spec=r"x13as/specs/Haver_Spec_Additive.spc", retspec=True)
+            sa = x13_custom(s, x12path=str(x13_dir),
+                            custom_spec=spec_addv, retspec=True)
         else:
             raise
     return sa.seasadj
