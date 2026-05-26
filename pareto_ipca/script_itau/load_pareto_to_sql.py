@@ -29,7 +29,9 @@ ROOT = Path(__file__).resolve().parent.parent
 VAR_CSV = ROOT / "data" / "ipca_pareto_recon.csv"
 IDX_CSV = ROOT / "data" / "ipca_pareto_indice.csv"
 
-# 25 category_code -> nome legivel (mesma estetica do sidra_itau).
+# 27 category_code -> nome legivel (mesma estetica do sidra_itau).
+# NOTA: ex3_serv (estrito, sem alim_fora) é distinto de servicos_subj (subjacente
+# tradicional, COM alim_fora). SGS 29683 do BCB bate com servicos_subj, não ex3_serv.
 CATEGORY_LABELS = {
     "administrados":   "IPCA: Monitorados",
     "livres":          "IPCA: Livres",
@@ -41,7 +43,7 @@ CATEGORY_LABELS = {
     "duraveis":        "IPCA: Bens Duraveis",
     "semiduraveis":    "IPCA: Bens Semiduraveis",
     "ndur_industr":    "IPCA: Bens Nao-Duraveis Industriais",
-    "servicos_subj":   "IPCA: Servicos Subjacentes",
+    "servicos_subj":   "IPCA: Servicos Subjacentes (tradicional, c/ alim fora)",
     "servicos_exsubj": "IPCA: Servicos Ex-Subjacentes",
     "alim_in_natura":  "IPCA: Alimentos In Natura",
     "alim_semi_elab":  "IPCA: Alimentos Semi-Elaborados",
@@ -54,9 +56,11 @@ CATEGORY_LABELS = {
     # NT_57/Dez-2025 — núcleos novos
     "nucleo_exfe":     "IPCA: Nucleo EX-FE",
     "nucleo_ex1":      "IPCA: Nucleo EX1",
-    "ex3_serv":        "IPCA: Nucleo EX3 Servicos",
+    "ex3_serv":        "IPCA: Nucleo EX3 Servicos (estrito, ex alim fora)",
     "ex3_ind":         "IPCA: Nucleo EX3 Industriais",
     "difusao":         "IPCA: Indice de Difusao",
+    "nucleo_p55":      "IPCA: Nucleo P55 (Percentil 55)",
+    "nucleo_medio":    "IPCA: Nucleo Medio (media dos 5)",
 }
 
 # Proveniencia: aponta pra documentacao oficial da metodologia (BCB Tab.5)

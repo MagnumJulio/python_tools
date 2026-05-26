@@ -39,7 +39,7 @@ CATEGORY_LABELS = {
     "duraveis":        "IPCA: Bens Duraveis",
     "semiduraveis":    "IPCA: Bens Semiduraveis",
     "ndur_industr":    "IPCA: Bens Nao-Duraveis Industriais",
-    "servicos_subj":   "IPCA: Servicos Subjacentes",
+    "servicos_subj":   "IPCA: Servicos Subjacentes (tradicional, c/ alim fora)",
     "servicos_exsubj": "IPCA: Servicos Ex-Subjacentes",
     "alim_in_natura":  "IPCA: Alimentos In Natura",
     "alim_semi_elab":  "IPCA: Alimentos Semi-Elaborados",
@@ -49,6 +49,14 @@ CATEGORY_LABELS = {
     "nucleo_ma":       "IPCA: Nucleo MA",
     "nucleo_ms":       "IPCA: Nucleo MS",
     "nucleo_dp":       "IPCA: Nucleo DP",
+    # NT_57/Dez-2025
+    "nucleo_exfe":     "IPCA: Nucleo EX-FE",
+    "nucleo_ex1":      "IPCA: Nucleo EX1",
+    "ex3_serv":        "IPCA: Nucleo EX3 Servicos (estrito, ex alim fora)",
+    "ex3_ind":         "IPCA: Nucleo EX3 Industriais",
+    "difusao":         "IPCA: Indice de Difusao",
+    "nucleo_p55":      "IPCA: Nucleo P55 (Percentil 55)",
+    "nucleo_medio":    "IPCA: Nucleo Medio (media dos 5)",
 }
 
 SIDRA_CODE_VAR = "PARETO_IPCA:{cat}/V63/RECON-{sha}"

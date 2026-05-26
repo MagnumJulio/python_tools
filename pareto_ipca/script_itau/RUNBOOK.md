@@ -32,8 +32,8 @@ está correta. Não toca SQL, não importa `opt_utils`.
 python script_itau/load_pareto_to_sql.py --dry-run
 ```
 
-**Sucesso:** imprime "25 categorias" duas vezes e lista 25 itens
-(IPCA: Monitorados, IPCA: Livres, ..., IPCA: Indice de Difusao).
+**Sucesso:** imprime "27 categorias" duas vezes e lista 27 itens
+(IPCA: Monitorados, IPCA: Livres, ..., IPCA: Indice de Difusao, IPCA: Nucleo P55, IPCA: Nucleo Medio).
 **Se falhar aqui:** problema é nos CSVs (rode o pipeline R) ou nos labels
 em `CATEGORY_LABELS` (faltaram códigos).
 
@@ -102,7 +102,7 @@ DELETE FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
 
 ## Estágio 4 — carga completa NSA (25 categorias)
 
-**Objetivo:** gravar as 50 séries (25 var + 25 idx) com `data_type='NSA'`.
+**Objetivo:** gravar as 54 séries (27 var + 27 idx) com `data_type='NSA'`.
 Re-roda séries já cadastradas no Estágio 3 — `replace=True` apaga dados
 antigos antes do reinsert, sem duplicar.
 
@@ -110,31 +110,32 @@ antigos antes do reinsert, sem duplicar.
 python script_itau/load_pareto_to_sql.py
 ```
 
-Confirma `Confirma gravacao de ate 50 series no SQL? [s/N]` → `s`.
+Confirma `Confirma gravacao de ate 54 series no SQL? [s/N]` → `s`.
 
 **Verificação:**
 ```sql
 SELECT COUNT(*) FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
--- esperado: 50
+-- esperado: 54
 
 SELECT COUNT(*) FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
                     WHERE haver_code LIKE 'PARETO_IPCA:%');
--- esperado: 11900  (50 séries × 238 obs)
+-- esperado: ~12816  (26 séries × 2 × 238 + nucleo_medio var/idx × 220 = 12376 + 440)
+-- (nucleo_medio tem só 220 obs por conta do warm-up DP; resto 238)
 ```
 
 ---
 
 ## Estágio 5 (opcional) — versão dessazonalizada (X-13)
 
-**Objetivo:** gerar e gravar `data_type='SA'` pras 50 séries (total: 100).
+**Objetivo:** gerar e gravar `data_type='SA'` pras 54 séries (total: 108).
 Só faz sentido se `x13as` está instalado no ambiente.
 
 ```bash
 python script_itau/load_pareto_to_sql.py --sa
 ```
 
-Pergunta confirmação pra 100 séries. Cada série pode levar alguns segundos
+Pergunta confirmação pra 108 séries. Cada série pode levar alguns segundos
 no X-13 (pode demorar 5-10min total).
 
 Se uma categoria falhar no X-13, o loader imprime `[WARN]` e segue —
@@ -143,7 +144,7 @@ não bloqueia as outras. Verifique no fim:
 SELECT data_type, COUNT(*) FROM OPT_Macro_Series_2
 WHERE haver_code LIKE 'PARETO_IPCA:%'
 GROUP BY data_type;
--- esperado: NSA=50, SA<=50 (quantas dessazonalizaram OK)
+-- esperado: NSA=54, SA<=54 (quantas dessazonalizaram OK)
 ```
 
 ---

@@ -94,9 +94,13 @@ BCB_SGS_NUC_DP  <- 16122L # Núcleo DP (Dupla Ponderação)
 # Onda 5 — Núcleos por exclusão NT_57/Dez-2025
 BCB_SGS_NUC_EXFE <- 28751L # Núcleo EX-FE (ex food and energy, COICOP)
 BCB_SGS_NUC_EX1  <- 16121L # Núcleo EX1 (ex combustíveis + 10 itens alim. voláteis)
-BCB_SGS_EX3_SERV <- 29683L # EX3 Serviços (serviços subjacentes)
+BCB_SGS_NUC_SERV_SUBJ <- 29683L # Núcleo Subjacente de Serviços BCB (COM alim_fora).
+                                # Apesar do nome, esse SGS bate com a definição
+                                # tradicional (serviços + alim_fora subjacentes),
+                                # não com a regra estrita EX3 (que excluiria alim_fora).
 BCB_SGS_EX3_IND  <- 29684L # EX3 Industriais (bens industriais subjacentes)
 BCB_SGS_DIFUSAO  <- 21379L # Índice de Difusão (% subitens com var > 0)
+BCB_SGS_NUC_P55  <- 28750L # Núcleo P55 (Percentil 55 ponderado, EE102/2021)
 TOL_VALIDACAO   <- 0.05   # divergência aceitável em pp/mês na recomposição do IPCA
 
 # Lista de ITENS (nchar=4) com variação suavizada no MS — NT_57/Dez-2025
@@ -654,12 +658,15 @@ nucleo_ex1_subi <- subi[!ex1_excl, ]
 agg_nucleo_ex1  <- calc_agg(nucleo_ex1_subi)
 names(agg_nucleo_ex1)[2:3] <- c("var_nucleo_ex1", "peso_nucleo_ex1")
 
-# EX3 Serviços = núcleo de serviços = nosso serv_subj (já calculado acima como
-# agg_serv_subj). Aliás aqui pra clareza de nome de saída.
-agg_ex3_serv <- data.frame(periodo = agg_serv_subj$periodo,
-                           var_ex3_serv = agg_serv_subj$var_serv_subj,
-                           peso_ex3_serv = agg_serv_subj$peso_serv_subj,
-                           stringsAsFactors = FALSE)
+# EX3 Serviços — subjacente de serviços EXCLUINDO alim_fora (estrito EX3:
+# EX3 exclui todo alimento, e alim_fora é alimento). Distinto do nosso
+# `serv_subj` (Núcleo Subjacente de Serviços tradicional do BCB, que INCLUI
+# alim_fora). Sem alim_fora, fica restrito a classe `servico` com flag
+# subjacente=TRUE.
+ex3_serv_subi <- subi[!is.na(subi$classe) & subi$classe == "servico" &
+                      !is.na(subi$subjacente) & subi$subjacente, ]
+agg_ex3_serv  <- calc_agg(ex3_serv_subi)
+names(agg_ex3_serv)[2:3] <- c("var_ex3_serv", "peso_ex3_serv")
 
 # EX3 Industriais = bens industriais EX (aparelhos eletro, auto novo/usado,
 # etanol, cigarro/fumo) — mesma exclusão do EX3 atual restrita ao universo
@@ -684,6 +691,27 @@ agg_difusao <- data.frame(
   stringsAsFactors = FALSE
 )
 
+# P55 — Percentil 55 ponderado da distribuição cross-section dos subitens.
+# EE102/2021 (núcleo do conjunto novo BCB, SGS 28750): ordenar subitens em
+# ordem crescente de var; calcular pesos acumulados normalizados; pegar var
+# do primeiro subitem cuja proporção acumulada >= 0.55. Razão de 55 (vs 50):
+# mediana subestima por assimetria à direita da distribuição cross-section.
+agg_nucleo_p55 <- data.frame(
+  periodo = sort(unique(subi$periodo)),
+  var_nucleo_p55 = sapply(sort(unique(subi$periodo)), function(p) {
+    x <- subi[subi$periodo == p &
+              !is.na(subi$var_mm) & !is.na(subi$peso_mm) & subi$peso_mm > 0,
+              c("var_mm", "peso_mm")]
+    if (!nrow(x)) return(NA_real_)
+    x <- x[order(x$var_mm), ]
+    cumw <- cumsum(x$peso_mm) / sum(x$peso_mm)
+    k <- which(cumw >= 0.55)[1]
+    if (is.na(k)) return(NA_real_)
+    x$var_mm[k]
+  }),
+  stringsAsFactors = FALSE
+)
+
 # Versão alternativa: livres via álgebra residual (controle de consistência)
 out <- Reduce(function(a, b) merge(a, b, by = "periodo"),
               list(agg_admin, agg_livres, agg_industr, agg_serv, agg_alim_dom,
@@ -695,10 +723,22 @@ out <- Reduce(function(a, b) merge(a, b, by = "periodo"),
                    agg_nucleo_ma, agg_nucleo_ms, agg_nucleo_dp,
                    agg_nucleo_exfe, agg_nucleo_ex1,
                    agg_ex3_serv, agg_ex3_ind, agg_difusao,
+                   agg_nucleo_p55,
                    ipca_geral))
 out$var_livres_alg <- (out$ipca_oficial * (out$peso_admin + out$peso_livres) -
                        out$var_admin * out$peso_admin) / out$peso_livres
 out$diff_livres_metodos <- out$var_livres - out$var_livres_alg
+
+# Média dos 5 núcleos do conjunto NOVO BCB (EE102/2021): EX0, EX3, MS, DP, P55.
+# É a referência primária acompanhada pelo Copom no RPM ("média dos núcleos").
+# BCB não publica SGS único pra ela — calcula-se a partir dos componentes.
+# NOTA: o MA foi SUBSTITUÍDO pelo P55 no conjunto novo (jun/2020); não entra mais
+# na média oficial.
+out$var_nucleo_medio <- rowMeans(
+  out[, c("var_nucleo_ex0", "var_nucleo_ex3", "var_nucleo_ms",
+          "var_nucleo_dp", "var_nucleo_p55")],
+  na.rm = FALSE
+)
 
 # Sanity: industriais + serviços + alim_dom + admin deve cobrir ~100 do peso
 out$peso_total_classes <- out$peso_admin + out$peso_industr +
@@ -739,9 +779,10 @@ sgs_nucleo_ms  <- fetch_bcb_sgs(BCB_SGS_NUC_MS)
 sgs_nucleo_dp  <- fetch_bcb_sgs(BCB_SGS_NUC_DP)
 sgs_nucleo_exfe <- fetch_bcb_sgs(BCB_SGS_NUC_EXFE)
 sgs_nucleo_ex1  <- fetch_bcb_sgs(BCB_SGS_NUC_EX1)
-sgs_ex3_serv    <- fetch_bcb_sgs(BCB_SGS_EX3_SERV)
+sgs_serv_subj   <- fetch_bcb_sgs(BCB_SGS_NUC_SERV_SUBJ)
 sgs_ex3_ind     <- fetch_bcb_sgs(BCB_SGS_EX3_IND)
 sgs_difusao     <- fetch_bcb_sgs(BCB_SGS_DIFUSAO)
+sgs_nucleo_p55  <- fetch_bcb_sgs(BCB_SGS_NUC_P55)
 # NOTA: SGS 1635/1636/1637 (alim in-nat/semi-el/industr BCB) e 10841
 # (bens não-dur BCB) NÃO somam pra alim_dom — possivelmente usam pesos
 # POF antigos ou universo diferente. Não usamos como validação direta.
@@ -762,9 +803,10 @@ names(sgs_nucleo_ms)[2]  <- "bcb_nucleo_ms"
 names(sgs_nucleo_dp)[2]  <- "bcb_nucleo_dp"
 names(sgs_nucleo_exfe)[2] <- "bcb_nucleo_exfe"
 names(sgs_nucleo_ex1)[2]  <- "bcb_nucleo_ex1"
-names(sgs_ex3_serv)[2]    <- "bcb_ex3_serv"
+names(sgs_serv_subj)[2]   <- "bcb_serv_subj"
 names(sgs_ex3_ind)[2]     <- "bcb_ex3_ind"
 names(sgs_difusao)[2]     <- "bcb_difusao"
+names(sgs_nucleo_p55)[2]  <- "bcb_nucleo_p55"
 
 val <- out[, c("periodo", "var_admin", "var_livres",
                "var_industr", "var_serv", "var_alim_dom",
@@ -780,14 +822,16 @@ val <- out[, c("periodo", "var_admin", "var_livres",
                "var_ncomerc", "peso_ncomerc",
                "var_nucleo_ma", "var_nucleo_ms", "var_nucleo_dp",
                "var_nucleo_exfe", "var_nucleo_ex1",
-               "var_ex3_serv", "var_ex3_ind", "var_difusao")]
+               "var_ex3_serv", "var_ex3_ind", "var_difusao",
+               "var_nucleo_p55")]
 val <- Reduce(function(a, b) merge(a, b, by = "periodo", all.x = TRUE),
               list(val, sgs_admin, sgs_livres, sgs_industr, sgs_serv,
                    sgs_alim_dom, sgs_nucleo_ex0, sgs_nucleo_ex3,
                    sgs_duravel, sgs_semidur, sgs_comerc, sgs_ncomerc,
                    sgs_nucleo_ma, sgs_nucleo_ms, sgs_nucleo_dp,
                    sgs_nucleo_exfe, sgs_nucleo_ex1,
-                   sgs_ex3_serv, sgs_ex3_ind, sgs_difusao))
+                   sgs_serv_subj, sgs_ex3_ind, sgs_difusao,
+                   sgs_nucleo_p55))
 val$diff_admin      <- val$var_admin      - val$bcb_admin
 val$diff_livres     <- val$var_livres     - val$bcb_livres
 val$diff_industr    <- val$var_industr    - val$bcb_industr
@@ -810,9 +854,10 @@ val$diff_nucleo_ms  <- val$var_nucleo_ms  - val$bcb_nucleo_ms
 val$diff_nucleo_dp  <- val$var_nucleo_dp  - val$bcb_nucleo_dp
 val$diff_nucleo_exfe <- val$var_nucleo_exfe - val$bcb_nucleo_exfe
 val$diff_nucleo_ex1  <- val$var_nucleo_ex1  - val$bcb_nucleo_ex1
-val$diff_ex3_serv    <- val$var_ex3_serv    - val$bcb_ex3_serv
+val$diff_serv_subj   <- val$var_serv_subj   - val$bcb_serv_subj
 val$diff_ex3_ind     <- val$var_ex3_ind     - val$bcb_ex3_ind
 val$diff_difusao     <- val$var_difusao     - val$bcb_difusao
+val$diff_nucleo_p55  <- val$var_nucleo_p55  - val$bcb_nucleo_p55
 # Identidade: peso_comerc + peso_ncomerc deve dar ~100
 val$peso_comerc_total <- val$peso_comerc + val$peso_ncomerc
 # Consistency: SUBJ + EXSUBJ ponderado deve recompor SERV total.
@@ -873,10 +918,12 @@ cat(sprintf("    erro absoluto médio núc. EX-FE: %.4f pp\n",
             mean(abs(val$diff_nucleo_exfe), na.rm = TRUE)))
 cat(sprintf("    erro absoluto médio núc. EX1:  %.4f pp\n",
             mean(abs(val$diff_nucleo_ex1), na.rm = TRUE)))
-cat(sprintf("    erro absoluto médio EX3 Serv:  %.4f pp\n",
-            mean(abs(val$diff_ex3_serv), na.rm = TRUE)))
+cat(sprintf("    erro absoluto médio Serv.Subj: %.4f pp\n",
+            mean(abs(val$diff_serv_subj), na.rm = TRUE)))
 cat(sprintf("    erro absoluto médio EX3 Ind:   %.4f pp\n",
             mean(abs(val$diff_ex3_ind), na.rm = TRUE)))
+cat(sprintf("    erro absoluto médio P55:       %.4f pp\n",
+            mean(abs(val$diff_nucleo_p55), na.rm = TRUE)))
 cat(sprintf("    erro absoluto médio Difusão:   %.4f pp\n",
             mean(abs(val$diff_difusao), na.rm = TRUE)))
 
@@ -1003,7 +1050,9 @@ recon_long <- rbind(
   stack_class("nucleo_ex1",     "var_nucleo_ex1"),
   stack_class("ex3_serv",       "var_ex3_serv"),
   stack_class("ex3_ind",        "var_ex3_ind"),
-  stack_class("difusao",        "var_difusao")
+  stack_class("difusao",        "var_difusao"),
+  stack_class("nucleo_p55",     "var_nucleo_p55"),
+  stack_class("nucleo_medio",   "var_nucleo_medio")
 )
 recon_long <- recon_long[!is.na(recon_long$value), ]
 

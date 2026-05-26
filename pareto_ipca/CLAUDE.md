@@ -1,6 +1,6 @@
 # pareto_ipca — pipeline R IBGE-only para reconstrução de agregações IPCA
 
-Reconstrói, em R, as **25 séries** derivadas do IPCA que o BCB publica (administrados, livres, industriais, serviços, alimentação no domicílio, núcleos, decomposições por processamento e por comercialização), **100% a partir de IBGE/SIDRA**. BCB SGS é usado apenas em scripts de auditoria pra validar a recon. Objetivo: entregar os números no mesmo dia do release IBGE (BCB só publica D+1) com metodologia única em toda a janela disponível.
+Reconstrói, em R, as **27 séries** derivadas do IPCA que o BCB publica (administrados, livres, industriais, serviços, alimentação no domicílio, núcleos, decomposições por processamento e por comercialização), **100% a partir de IBGE/SIDRA**. BCB SGS é usado apenas em scripts de auditoria pra validar a recon. Objetivo: entregar os números no mesmo dia do release IBGE (BCB só publica D+1) com metodologia única em toda a janela disponível.
 
 **Metodologia base**: BCB NT_57/Dez-2025 ("Núcleos de inflação, séries por exclusão e outras agregações analíticas do IPCA"). É a nota consolidada mais recente publicada pelo BC. Implementação fiel das fórmulas das Seções 2.1.1, 2.2, 2.3, 2.4, 2.6 (apenas EX2 ainda não implementado por exigir listas dos RIs set/2016 e jun/2018).
 
@@ -148,7 +148,10 @@ Com o pipeline IBGE-only atual, todas as séries começam em jul/2006, então a 
 - **DP**: σ global do var_item → σ rolling 48m de `(var_item − var_ipca)` (Sec 2.2). `mean|d|` caiu de 0.037 → 0.017 (redução 2×).
 - **+5 novos núcleos NT_57**: EX-FE (28751), EX1 (16121), EX3 Serv (29683), EX3 Ind (29684), Difusão (21379). Todos com `mean|d|` < 0.025pp.
 - **Pendentes**: EX2 (SGS 27838) — exige listas dos núcleos componentes (alim_dom, serv, ind) dos RIs set/2016 + jun/2018. Vetor de agregação NT_57 (`Vetores_NT_57.xlsx`) ainda não auditado.
-- Total: 25 séries cobrindo 2006-07 → atual.
+- **+P55** (SGS 28750, EE102/2021) — percentil 55 ponderado da distribuição cross-section dos subitens. **Núcleo MAIS importante do conjunto novo BCB** (jun/2020): melhor previsor IPCA 12m à frente (REQM 1.74 amostra 2004-19). Bate `mean|d|=0.0000pp` na primeira tentativa.
+- **+nucleo_medio** corrigido: média dos 5 do conjunto NOVO (EX0+EX3+MS+DP+**P55**)/5. MA NÃO entra mais (foi substituído pelo P55 em jun/2020). Sem SGS BCB direto. Começa 2007-01 (warm-up DP).
+- **ex3_serv** desambiguado: agora é estrito (sem alim_fora), distinto de `servicos_subj` (tradicional, com alim_fora). SGS 29683 bate com servicos_subj (`mean|d|=0.0078pp`), não com ex3_serv estrito.
+- Total: 27 séries cobrindo 2006-07 → atual (nucleo_medio: 2007-01 → atual).
 
 **2026-05-25** — Migração de BCB-seed para IBGE-only:
 - **Antes**: `seed_pareto_history.R` baixava 12 séries do BCB SGS pra 1991-01 → 2019-12; `reconstruct_ipca.R` cobria 2020-01 → atual via T7060. 8 séries tinham gap pré-2020 (universo BCB divergente ou sem SGS).
