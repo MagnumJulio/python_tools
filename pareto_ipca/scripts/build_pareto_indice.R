@@ -50,13 +50,24 @@ build_idx <- function(df) {
   for (i in 2:nrow(df)) {
     df$index[i] <- df$index[i-1] * (1 + df$value[i] / 100)
   }
-  # Rescale pra dez/1993=100 — todas as 5 séries começam em 1991-01,
-  # então a referência sempre existe.
-  ref <- df$index[df$date == as.Date("1993-12-01")]
-  if (length(ref) == 1 && !is.na(ref) && ref > 0) {
-    df$index <- df$index / ref * 100
-  } else {
-    warning(sprintf("[%s] sem dez/1993; mantém base 100 em %s",
+  # Rescaling: tenta dez/1993 (legado BCB seed) → dez/2006 (primeira dez/ comum
+  # no recon IBGE-only, jul/2006 em diante) → fallback base 100 no 1º mês.
+  # dez/2006 é a base padrão do pipeline IBGE-only (todas as 20 séries têm).
+  ref_candidates <- list(
+    list(date = as.Date("1993-12-01"), label = "dez/1993"),
+    list(date = as.Date("2006-12-01"), label = "dez/2006")
+  )
+  applied <- FALSE
+  for (rc in ref_candidates) {
+    ref <- df$index[df$date == rc$date]
+    if (length(ref) == 1 && !is.na(ref) && ref > 0) {
+      df$index <- df$index / ref * 100
+      applied <- TRUE
+      break
+    }
+  }
+  if (!applied) {
+    warning(sprintf("[%s] sem dez/1993 nem dez/2006; mantém base 100 em %s",
                     df$category_code[1], format(min(df$date), "%Y-%m")))
   }
   df

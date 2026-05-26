@@ -91,36 +91,58 @@ BCB_SGS_NCOMERC <- 4448L  # IPCA - Não-comercializáveis (validado)
 BCB_SGS_NUC_MS  <- 4466L  # Núcleo MS (Médias Aparadas com Suavização)
 BCB_SGS_NUC_MA  <- 11426L # Núcleo MA (Médias Aparadas sem Suavização)
 BCB_SGS_NUC_DP  <- 16122L # Núcleo DP (Dupla Ponderação)
+# Onda 5 — Núcleos por exclusão NT_57/Dez-2025
+BCB_SGS_NUC_EXFE <- 28751L # Núcleo EX-FE (ex food and energy, COICOP)
+BCB_SGS_NUC_EX1  <- 16121L # Núcleo EX1 (ex combustíveis + 10 itens alim. voláteis)
+BCB_SGS_EX3_SERV <- 29683L # EX3 Serviços (serviços subjacentes)
+BCB_SGS_EX3_IND  <- 29684L # EX3 Industriais (bens industriais subjacentes)
+BCB_SGS_DIFUSAO  <- 21379L # Índice de Difusão (% subitens com var > 0)
 TOL_VALIDACAO   <- 0.05   # divergência aceitável em pp/mês na recomposição do IPCA
 
-# Lista de subitens suavizados pelo BCB no MS (Figueiredo & Silva 2002,
-# atualizada em Notas Técnicas BCB de 2014/2018). São itens com coleta
-# anual ou reajuste concentrado em meses específicos — a média móvel 12m
-# distribui o choque ao longo do ano antes da truncagem.
-# Cobertura intencionalmente abrangente; itens não-presentes em T7060 são
-# ignorados pelo subset (sem erro).
-MS_SUAVIZADOS <- c(
-  # Habitação — aluguel/condomínio/serviços de utilidade pública
-  "3101001",  # Aluguel residencial
-  "3101002",  # Condomínio
-  "3201001",  # Taxa de água e esgoto
-  "3201002",  # Taxa de água e esgoto - taxa
-  "3301001",  # Energia elétrica residencial
-  "3301002",  # Gás encanado / canalizado
-  # Despesas pessoais — empregada doméstica
-  "4501007",  # Empregado doméstico (mensalista)
-  "4501009",  # Diarista
-  # Saúde — planos
-  "6201002", "6201013", "6201018",  # Plano de saúde (variantes históricas)
-  # Educação — mensalidades escolares (todos os 8101*)
-  "8101001", "8101002", "8101003", "8101004", "8101005",
-  "8101006", "8101007", "8101008", "8101009", "8101010",
-  "8101011", "8101012", "8101013",
-  # Despesas pessoais — jogos/loterias
-  "7401001", "7401002",
-  # Tributos/taxas com reajuste anual
-  "3102001",  # IPTU (admin)
-  "5202005"   # IPVA (admin)
+# Lista de ITENS (nchar=4) com variação suavizada no MS — NT_57/Dez-2025
+# Tabela 5, estrutura vigente desde jan/2020: BCB substitui a variação mensal
+# desses 9 ITENS pela média geométrica dos últimos 12 meses antes de aplicar
+# o trim 20/80 a nível ITEM. Fórmula (nota 11): π_i^12m = 100·[Π(1+π/100)]^(1/12) − 1
+MS_ITEMS_SUAV <- c(
+  "2201",  # Combustíveis (domésticos)
+  "2202",  # Energia elétrica residencial
+  "5101",  # Transporte público
+  "5104",  # Combustíveis (veículos)
+  "7101",  # Serviços pessoais
+  "7202",  # Fumo
+  "8101",  # Cursos regulares
+  "8104",  # Cursos diversos
+  "9101"   # Comunicação
+)
+
+# NT_57 Sec 2.1.1 — EX-FE (ex food and energy, COICOP). Exclui:
+#   - subgrupo 11 (Alimentação no domicílio), exceto bebidas alcoólicas
+#   - subgrupo 22 (Combustíveis e energia)
+#   - subitem 5102007 (Óleo lubrificante)
+#   - item    5104    (Combustíveis veículos)
+# Bebidas alcoólicas no IPCA: subitens 1114003 (Bebidas alcoólicas) +
+# possivelmente outros. Mantemos no EX-FE.
+EXFE_EXCL_SUBGRUPOS  <- c("11", "22")
+EXFE_EXCL_SUBITENS   <- c("5102007")
+EXFE_EXCL_ITENS      <- c("5104")
+EXFE_KEEP_SUBITENS   <- c("1114003")  # bebidas alcoólicas — não excluir
+# Lista oficial em SIDRA pode usar subitens diferentes pra bebida alcoólica;
+# refinar empiricamente se diff vs SGS 28751 ficar > 0.05pp.
+
+# NT_57 Sec 2.1.1 — EX1. Exclui 12 ITENS (combustíveis + alimentos voláteis):
+EX1_EXCL_ITENS <- c(
+  "1101",  # Cereais, leguminosas e oleaginosas
+  "1103",  # Tubérculos, raízes e legumes
+  "1104",  # Açúcares e derivados
+  "1105",  # Hortaliças e verduras
+  "1106",  # Frutas
+  "1107",  # Carnes
+  "1108",  # Pescados
+  "1110",  # Aves e ovos
+  "1111",  # Leites e derivados
+  "1113",  # Óleos e gorduras
+  "2201",  # Combustíveis (domésticos)
+  "5104"   # Combustíveis (veículos)
 )
 
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
@@ -447,23 +469,26 @@ agg_serv_exsubj  <- calc_agg(serv_exsubj_subi)
 names(agg_serv_exsubj)[2:3] <- c("var_serv_exsubj", "peso_serv_exsubj")
 
 # Onda 3c — Alimentos no domicílio por grau de processamento.
-# Classificação heurística IBGE-item (regra tradicional, RI Mar/2014):
-#   in_natura  = itens 1103/1105/1106/1108/1110 (+ alho 1116010)
-#   semi_elab  = itens 1101/1107 (cereais/leguminosas + carnes cortes brutos)
-#   industr    = itens 1102/1104/1109/1111/1112/1113/1114/1115/1116
+# Classificação por proc_grau lido da máscara, seguindo BCB RI Dez/2019 Tab.5:
+#   in_natura = Tubérculos/raízes/legumes (1103) + Hortaliças/verduras (1105)
+#               + Frutas (1106) + Ovo de galinha (1110044)
+#   semi_elab = Cereais/leguminosas/oleaginosas (1101) + Carnes (1107)
+#               + Pescados (1108) + Frango inteiro (1110009)
+#               + Frango em pedaços (1110010) + Leite longa vida (1111004)
+#   industr   = Farinhas/féculas/massas (1102) + Açúcares/derivados (1104)
+#               + Carnes e peixes industrializados (1109)
+#               + Leite e derivados exceto Leite longa vida (1111\\1111004)
+#               + Panificados (1112) + Óleos/gorduras (1113)
+#               + Bebidas/infusões (1114) + Enlatados/conservas (1115)
+#               + Sal e condimentos (1116)
 #
-# NÃO bate SGS BCB 1635/1636/1637 — esses usam definição/universo
-# DIFERENTE (provavelmente IPA ou pesos POF antigos); a relação
-# SGS_1635 + SGS_1636 + SGS_1637 ≠ SGS_27864 (alim. domicílio total).
-# Como a soma das BCB não fecha em alim_dom, optamos por entregar
-# nossa decomposição derivada do mesmo universo IBGE (subgrupo 11
-# inteiro) — internamente consistente: var_alim_in*peso_alim_in +
-# var_alim_se*peso_alim_se + var_alim_ind*peso_alim_ind, ponderado,
-# recompõe var_alim_dom exatamente. A validação está em [5] como
-# diff_alim_dom_recomp.
-#
-# Pra quem precisa da versão BCB-original, expor SGS 1635/1636/1637
-# diretos via scripts/bcb_series.csv (BCB/IPCA_ALIM_IN_NATURA etc.).
+# BCB não publica essas decomposições como SGS público — comparação direta
+# impossível. SGS 1635/1636/1637 (que parecem candidatos pelo nome no
+# código antigo do projeto) são, na verdade, os GRUPOS 1/2/3 top-level do
+# IPCA: "Alimentação e bebidas", "Habitação", "Artigos de residência"
+# (provado por diff=0, corr=1 contra IBGE T7060 cat 7170/7445/...). Varredura
+# de 190 códigos plausíveis: 0 hits. Nossa recon é a única série publicada
+# que aplica Tab.5 estritamente a partir do detalhe subitem do IBGE.
 alim_in_subi <- subi[!is.na(subi$proc_grau) & subi$proc_grau == "in_natura", ]
 agg_alim_in  <- calc_agg(alim_in_subi)
 names(agg_alim_in)[2:3] <- c("var_alim_in", "peso_alim_in")
@@ -497,77 +522,164 @@ agg_ncomerc  <- calc_agg(ncomerc_subi)
 names(agg_ncomerc)[2:3] <- c("var_ncomerc", "peso_ncomerc")
 
 # Onda 4 — Núcleos estatísticos MS / MA / DP.
-# Universo: TODOS os subitens (não exclui admin nem alimentos — o algoritmo
-# estatístico já lida com outliers via truncagem ou re-pesagem por volatilidade).
-# Pré-requisito: subi precisa estar ordenado por periodo + cod_ibge.
+# Universo: TODOS os ITENS (nchar=4, ~51 itens) — não subitens. EE102 nota 2:
+# "O núcleo por médias aparadas (MA) exclui os ITENS cuja variação mensal se
+# situe acima do p80 ou abaixo do p20. Os 60% restantes são utilizados...".
+# Contraste com P55 (nota 3): "abertura por SUBITEM... maior granularidade".
+# Validado empiricamente: trim 20/80 a nível item bate BCB SGS 11426 com
+# mean|d|=0.0025pp, max|d|=0.0049pp em 76 meses 2020-01..2026-04.
 
-cat("\n[4b] Computando núcleos estatísticos MA/MS/DP por mês...\n")
+cat("\n[4b] Computando núcleos estatísticos MA/MS/DP por mês (nível ITEM)...\n")
 
-periodos_ord <- sort(unique(subi$periodo))
+itm <- df[df$tipo_cat == "item", ]
+cat(sprintf("    universo item: %d itens × %d meses = %d linhas\n",
+            length(unique(itm$cod_ibge)), length(unique(itm$periodo)), nrow(itm)))
+
+periodos_ord <- sort(unique(itm$periodo))
 
 # ---- MA: média truncada 20/80 sem suavização ----
 agg_nucleo_ma <- data.frame(
   periodo = periodos_ord,
   var_nucleo_ma = sapply(periodos_ord, function(p) {
-    x <- subi[subi$periodo == p, ]
+    x <- itm[itm$periodo == p, ]
     trimmed_mean(x$var_mm, x$peso_mm, lower = 0.20, upper = 0.80)
   }),
   stringsAsFactors = FALSE
 )
 
-# ---- MS: idem MA, mas pré-suaviza subitens MS_SUAVIZADOS via média móvel 12m ----
-# Para cada subitem suavizado e cada período p, se houver 12 meses
-# consecutivos {p-11..p} de var_mm disponíveis, substitui var_mm[p] pela
-# média simples desses 12 meses. Senão, mantém o original.
-subi_ms <- subi
-subi_ms <- subi_ms[order(subi_ms$cod_ibge, subi_ms$periodo), ]
-codes_suav <- intersect(MS_SUAVIZADOS, unique(subi_ms$cod_ibge))
-cat(sprintf("    MS: %d / %d codes da lista oficial disponíveis em SIDRA\n",
-            length(codes_suav), length(MS_SUAVIZADOS)))
+# ---- MS: 9 itens com variação suavizada via média geométrica 12m, depois trim ----
+# NT_57/Dez-2025 Sec 2.4 + Tabela 5: opera a nível ITEM (não subitem). Pros 9
+# itens em MS_ITEMS_SUAV, substitui var_mm pela média geométrica dos últimos 12
+# meses: π_i^12m = 100·[Π(1+π/100)]^(1/12) − 1 (footnote 11). Pros demais usa
+# var original. Em seguida aplica trim 20/80 igual MA.
+# Warm-up: primeiros 11 meses usam janela expansiva {1..i} pra evitar NA.
+itm_ms <- itm[order(itm$cod_ibge, itm$periodo), ]
+codes_suav <- intersect(MS_ITEMS_SUAV, unique(itm_ms$cod_ibge))
+cat(sprintf("    MS: %d / %d itens da lista oficial NT_57 disponíveis em SIDRA\n",
+            length(codes_suav), length(MS_ITEMS_SUAV)))
 
 for (cod in codes_suav) {
-  idx <- which(subi_ms$cod_ibge == cod)
-  if (length(idx) < 12) next
-  v <- subi_ms$var_mm[idx]
+  idx <- which(itm_ms$cod_ibge == cod)
+  if (!length(idx)) next
+  v <- itm_ms$var_mm[idx]
   v_smooth <- rep(NA_real_, length(v))
-  for (i in 12:length(v)) v_smooth[i] <- mean(v[(i-11):i], na.rm = TRUE)
-  subi_ms$var_mm[idx] <- v_smooth
+  for (i in seq_along(v)) {
+    lo <- max(1L, i - 11L)
+    w <- v[lo:i]
+    w <- w[!is.na(w)]
+    if (length(w) >= 1L) {
+      v_smooth[i] <- 100 * ((prod(1 + w / 100))^(1 / length(w)) - 1)
+    }
+  }
+  itm_ms$var_mm[idx] <- v_smooth
 }
 
 agg_nucleo_ms <- data.frame(
   periodo = periodos_ord,
   var_nucleo_ms = sapply(periodos_ord, function(p) {
-    x <- subi_ms[subi_ms$periodo == p, ]
+    x <- itm_ms[itm_ms$periodo == p, ]
     trimmed_mean(x$var_mm, x$peso_mm, lower = 0.20, upper = 0.80)
   }),
   stringsAsFactors = FALSE
 )
 
-# ---- DP: dupla ponderação — peso final = peso_orig / sigma_i (vol histórica) ----
-# Para cada subitem i, computa sigma_i = sd(var_mm[i, *]) sobre TODA a janela
-# disponível (BCB usa janela longa de 5+ anos; com 76 meses 2020-2026 temos
-# horizonte comparável). Janela única — não rolling — garante DP estável e
-# previne dampening exagerado em períodos de alta inflação recente.
-# Resultado: weighted_mean(var_mm[*,p], peso_mm[*,p] / sigma_i).
-sigma_per_cod <- aggregate(
-  var_mm ~ cod_ibge, data = subi,
-  FUN = function(v) {
-    v <- v[!is.na(v)]
-    if (length(v) < 6) return(NA_real_)
-    sd(v)
-  }
-)
-names(sigma_per_cod)[2] <- "sigma"
-subi_dp <- merge(subi, sigma_per_cod, by = "cod_ibge", all.x = TRUE)
+# ---- DP: dupla ponderação — peso final = peso_orig / sigma_k,t-1 ----
+# NT_57/Dez-2025 Sec 2.2: σ_k,t-1 = desvio padrão de (var_item_k − var_IPCA_cheio)
+# em janela móvel de 48 meses terminando em t-1 (exclui o mês corrente). Mede
+# o ruído ITEM-ESPECÍFICO em relação à inflação geral, não a volatilidade
+# absoluta do item.
+# Warm-up: pros primeiros DP_WIN meses, usa janela expansiva {1..t-1} com
+# mínimo DP_MIN observações. NT_57 menciona proxies pras transições POF mas
+# como nossa série começa em 2006-07 já com POF 2002-03, isso só afetaria
+# pequena janela na transição POF 02-03→08-09 (jan/2012) e 08-09→17-18 (jan/2020).
+DP_WIN <- 48L
+DP_MIN <- 6L
+
+ipca_per <- df[df$tipo_cat == "geral", c("periodo", "var_mm")]
+names(ipca_per)[2] <- "var_ipca"
+itm_dp <- merge(itm, ipca_per, by = "periodo", all.x = TRUE)
+itm_dp$diff_ipca <- itm_dp$var_mm - itm_dp$var_ipca
+itm_dp <- itm_dp[order(itm_dp$cod_ibge, itm_dp$periodo), ]
 
 agg_nucleo_dp <- data.frame(
   periodo = periodos_ord,
-  var_nucleo_dp = sapply(periodos_ord, function(p) {
-    x <- subi_dp[subi_dp$periodo == p, ]
-    x <- x[!is.na(x$sigma) & x$sigma > 1e-6, ]
-    if (!nrow(x)) return(NA_real_)
-    wt <- x$peso_mm / x$sigma
-    weighted_mean_simple(x$var_mm, wt)
+  var_nucleo_dp = NA_real_,
+  stringsAsFactors = FALSE
+)
+
+for (k in seq_along(periodos_ord)) {
+  p <- periodos_ord[k]
+  if (k < 2L) next   # 1º mês: sem janela passada
+  k_hi <- k - 1L
+  k_lo <- max(1L, k - DP_WIN)
+  pers_win <- periodos_ord[k_lo:k_hi]
+  win <- itm_dp[itm_dp$periodo %in% pers_win, ]
+  sigmas <- aggregate(
+    diff_ipca ~ cod_ibge, data = win,
+    FUN = function(v) {
+      v <- v[!is.na(v)]
+      if (length(v) < DP_MIN) return(NA_real_)
+      sd(v)
+    }
+  )
+  names(sigmas)[2] <- "sigma"
+  x <- itm_dp[itm_dp$periodo == p, ]
+  x <- merge(x, sigmas, by = "cod_ibge", all.x = TRUE)
+  x <- x[!is.na(x$sigma) & x$sigma > 1e-6, ]
+  if (!nrow(x)) next
+  wt <- x$peso_mm / x$sigma
+  agg_nucleo_dp$var_nucleo_dp[k] <- weighted_mean_simple(x$var_mm, wt)
+}
+
+# ---------------------------------------------------------------------------
+# Onda 5 — Núcleos por exclusão NT_57 + Difusão.
+
+cat("\n[4c] Computando núcleos NT_57: EX-FE, EX1, EX3 Serv/Ind + Difusão...\n")
+
+# Núcleo EX-FE — exclui alim_dom (exceto bebidas alcoólicas), combust. e energia,
+# óleo lubrificante (5102007) e combustíveis veículos (5104).
+# Subgrupo = primeiros 2 chars do cod_ibge (subitem nchar=7).
+exfe_excl <- (!is.na(subi$cod_ibge) &
+                substr(subi$cod_ibge, 1, 2) %in% EXFE_EXCL_SUBGRUPOS &
+                !subi$cod_ibge %in% EXFE_KEEP_SUBITENS) |
+             (!is.na(subi$cod_ibge) & subi$cod_ibge %in% EXFE_EXCL_SUBITENS) |
+             (!is.na(subi$cod_ibge) & substr(subi$cod_ibge, 1, 4) %in% EXFE_EXCL_ITENS)
+nucleo_exfe_subi <- subi[!exfe_excl, ]
+agg_nucleo_exfe  <- calc_agg(nucleo_exfe_subi)
+names(agg_nucleo_exfe)[2:3] <- c("var_nucleo_exfe", "peso_nucleo_exfe")
+
+# Núcleo EX1 — exclui 12 itens voláteis (combustíveis + alimentos sazonais).
+ex1_excl <- !is.na(subi$cod_ibge) & substr(subi$cod_ibge, 1, 4) %in% EX1_EXCL_ITENS
+nucleo_ex1_subi <- subi[!ex1_excl, ]
+agg_nucleo_ex1  <- calc_agg(nucleo_ex1_subi)
+names(agg_nucleo_ex1)[2:3] <- c("var_nucleo_ex1", "peso_nucleo_ex1")
+
+# EX3 Serviços = núcleo de serviços = nosso serv_subj (já calculado acima como
+# agg_serv_subj). Aliás aqui pra clareza de nome de saída.
+agg_ex3_serv <- data.frame(periodo = agg_serv_subj$periodo,
+                           var_ex3_serv = agg_serv_subj$var_serv_subj,
+                           peso_ex3_serv = agg_serv_subj$peso_serv_subj,
+                           stringsAsFactors = FALSE)
+
+# EX3 Industriais = bens industriais EX (aparelhos eletro, auto novo/usado,
+# etanol, cigarro/fumo) — mesma exclusão do EX3 atual restrita ao universo
+# bens_industriais (sem serviços, sem admin, sem alim_dom).
+ex3_ind_excl <- (!is.na(subi$cod_ibge) & substr(subi$cod_ibge, 1, 2) == APARELHOS_ELETRO_PREFIX) |
+                (!is.na(subi$cod_ibge) & subi$cod_ibge %in% EX3_EXCL_CODES)
+ex3_ind_subi <- subi[!is.na(subi$bens_industriais) & subi$bens_industriais & !ex3_ind_excl, ]
+agg_ex3_ind  <- calc_agg(ex3_ind_subi)
+names(agg_ex3_ind)[2:3] <- c("var_ex3_ind", "peso_ex3_ind")
+
+# Difusão — % de subitens com var > 0 no mês (sem pesos). NT_57 Sec 2.6:
+# "apenas os subitens efetivamente pesquisados em cada mês são considerados".
+# Subitens não-pesquisados aparecem como NA em var_mm (do "..." do IBGE).
+agg_difusao <- data.frame(
+  periodo = sort(unique(subi$periodo)),
+  var_difusao = sapply(sort(unique(subi$periodo)), function(p) {
+    v <- subi$var_mm[subi$periodo == p]
+    v <- v[!is.na(v)]
+    if (!length(v)) return(NA_real_)
+    100 * sum(v > 0) / length(v)
   }),
   stringsAsFactors = FALSE
 )
@@ -581,6 +693,8 @@ out <- Reduce(function(a, b) merge(a, b, by = "periodo"),
                    agg_alim_in, agg_alim_se, agg_alim_ind,
                    agg_comerc, agg_ncomerc,
                    agg_nucleo_ma, agg_nucleo_ms, agg_nucleo_dp,
+                   agg_nucleo_exfe, agg_nucleo_ex1,
+                   agg_ex3_serv, agg_ex3_ind, agg_difusao,
                    ipca_geral))
 out$var_livres_alg <- (out$ipca_oficial * (out$peso_admin + out$peso_livres) -
                        out$var_admin * out$peso_admin) / out$peso_livres
@@ -623,6 +737,11 @@ sgs_ncomerc    <- fetch_bcb_sgs(BCB_SGS_NCOMERC)
 sgs_nucleo_ma  <- fetch_bcb_sgs(BCB_SGS_NUC_MA)
 sgs_nucleo_ms  <- fetch_bcb_sgs(BCB_SGS_NUC_MS)
 sgs_nucleo_dp  <- fetch_bcb_sgs(BCB_SGS_NUC_DP)
+sgs_nucleo_exfe <- fetch_bcb_sgs(BCB_SGS_NUC_EXFE)
+sgs_nucleo_ex1  <- fetch_bcb_sgs(BCB_SGS_NUC_EX1)
+sgs_ex3_serv    <- fetch_bcb_sgs(BCB_SGS_EX3_SERV)
+sgs_ex3_ind     <- fetch_bcb_sgs(BCB_SGS_EX3_IND)
+sgs_difusao     <- fetch_bcb_sgs(BCB_SGS_DIFUSAO)
 # NOTA: SGS 1635/1636/1637 (alim in-nat/semi-el/industr BCB) e 10841
 # (bens não-dur BCB) NÃO somam pra alim_dom — possivelmente usam pesos
 # POF antigos ou universo diferente. Não usamos como validação direta.
@@ -641,6 +760,11 @@ names(sgs_ncomerc)[2]    <- "bcb_ncomerc"
 names(sgs_nucleo_ma)[2]  <- "bcb_nucleo_ma"
 names(sgs_nucleo_ms)[2]  <- "bcb_nucleo_ms"
 names(sgs_nucleo_dp)[2]  <- "bcb_nucleo_dp"
+names(sgs_nucleo_exfe)[2] <- "bcb_nucleo_exfe"
+names(sgs_nucleo_ex1)[2]  <- "bcb_nucleo_ex1"
+names(sgs_ex3_serv)[2]    <- "bcb_ex3_serv"
+names(sgs_ex3_ind)[2]     <- "bcb_ex3_ind"
+names(sgs_difusao)[2]     <- "bcb_difusao"
 
 val <- out[, c("periodo", "var_admin", "var_livres",
                "var_industr", "var_serv", "var_alim_dom",
@@ -654,12 +778,16 @@ val <- out[, c("periodo", "var_admin", "var_livres",
                "peso_alim_dom",
                "var_comerc", "peso_comerc",
                "var_ncomerc", "peso_ncomerc",
-               "var_nucleo_ma", "var_nucleo_ms", "var_nucleo_dp")]
+               "var_nucleo_ma", "var_nucleo_ms", "var_nucleo_dp",
+               "var_nucleo_exfe", "var_nucleo_ex1",
+               "var_ex3_serv", "var_ex3_ind", "var_difusao")]
 val <- Reduce(function(a, b) merge(a, b, by = "periodo", all.x = TRUE),
               list(val, sgs_admin, sgs_livres, sgs_industr, sgs_serv,
                    sgs_alim_dom, sgs_nucleo_ex0, sgs_nucleo_ex3,
                    sgs_duravel, sgs_semidur, sgs_comerc, sgs_ncomerc,
-                   sgs_nucleo_ma, sgs_nucleo_ms, sgs_nucleo_dp))
+                   sgs_nucleo_ma, sgs_nucleo_ms, sgs_nucleo_dp,
+                   sgs_nucleo_exfe, sgs_nucleo_ex1,
+                   sgs_ex3_serv, sgs_ex3_ind, sgs_difusao))
 val$diff_admin      <- val$var_admin      - val$bcb_admin
 val$diff_livres     <- val$var_livres     - val$bcb_livres
 val$diff_industr    <- val$var_industr    - val$bcb_industr
@@ -680,6 +808,11 @@ val$diff_ncomerc    <- val$var_ncomerc    - val$bcb_ncomerc
 val$diff_nucleo_ma  <- val$var_nucleo_ma  - val$bcb_nucleo_ma
 val$diff_nucleo_ms  <- val$var_nucleo_ms  - val$bcb_nucleo_ms
 val$diff_nucleo_dp  <- val$var_nucleo_dp  - val$bcb_nucleo_dp
+val$diff_nucleo_exfe <- val$var_nucleo_exfe - val$bcb_nucleo_exfe
+val$diff_nucleo_ex1  <- val$var_nucleo_ex1  - val$bcb_nucleo_ex1
+val$diff_ex3_serv    <- val$var_ex3_serv    - val$bcb_ex3_serv
+val$diff_ex3_ind     <- val$var_ex3_ind     - val$bcb_ex3_ind
+val$diff_difusao     <- val$var_difusao     - val$bcb_difusao
 # Identidade: peso_comerc + peso_ncomerc deve dar ~100
 val$peso_comerc_total <- val$peso_comerc + val$peso_ncomerc
 # Consistency: SUBJ + EXSUBJ ponderado deve recompor SERV total.
@@ -736,6 +869,16 @@ cat(sprintf("    erro absoluto médio núc. MS:   %.4f pp\n",
             mean(abs(val$diff_nucleo_ms), na.rm = TRUE)))
 cat(sprintf("    erro absoluto médio núc. DP:   %.4f pp\n",
             mean(abs(val$diff_nucleo_dp), na.rm = TRUE)))
+cat(sprintf("    erro absoluto médio núc. EX-FE: %.4f pp\n",
+            mean(abs(val$diff_nucleo_exfe), na.rm = TRUE)))
+cat(sprintf("    erro absoluto médio núc. EX1:  %.4f pp\n",
+            mean(abs(val$diff_nucleo_ex1), na.rm = TRUE)))
+cat(sprintf("    erro absoluto médio EX3 Serv:  %.4f pp\n",
+            mean(abs(val$diff_ex3_serv), na.rm = TRUE)))
+cat(sprintf("    erro absoluto médio EX3 Ind:   %.4f pp\n",
+            mean(abs(val$diff_ex3_ind), na.rm = TRUE)))
+cat(sprintf("    erro absoluto médio Difusão:   %.4f pp\n",
+            mean(abs(val$diff_difusao), na.rm = TRUE)))
 
 cat("\n    Núcleos estatísticos MA/MS/DP (pareto vs BCB):\n")
 v8 <- val[, c("periodo", "var_nucleo_ma", "bcb_nucleo_ma", "diff_nucleo_ma",
@@ -855,7 +998,12 @@ recon_long <- rbind(
   stack_class("ncomerc",        "var_ncomerc"),
   stack_class("nucleo_ma",      "var_nucleo_ma"),
   stack_class("nucleo_ms",      "var_nucleo_ms"),
-  stack_class("nucleo_dp",      "var_nucleo_dp")
+  stack_class("nucleo_dp",      "var_nucleo_dp"),
+  stack_class("nucleo_exfe",    "var_nucleo_exfe"),
+  stack_class("nucleo_ex1",     "var_nucleo_ex1"),
+  stack_class("ex3_serv",       "var_ex3_serv"),
+  stack_class("ex3_ind",        "var_ex3_ind"),
+  stack_class("difusao",        "var_difusao")
 )
 recon_long <- recon_long[!is.na(recon_long$value), ]
 

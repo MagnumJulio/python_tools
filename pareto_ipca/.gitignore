@@ -1,0 +1,22 @@
+# Runtime outputs do pipeline (regenerados via Rscript / python).
+data/
+scripts/outputs/
+script_itau/sim_output/
+
+# Caches Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Caches R / IDE
+.Rhistory
+.Rproj.user/
+.Rdata
+.RData
+
+# Caches diversos
+.DS_Store
+Thumbs.db
+
+# PDFs grandes de referência (manter local, não commitar)
+*.pdf

@@ -1,7 +1,21 @@
 #!/usr/bin/env Rscript
-# seed_pareto_history.R
+# seed_pareto_history.R — LEGADO (mantido por compat / referência cruzada)
 #
-# Preenche o histórico (1991-01 → 2019-12) das 5 séries PARETO no CSV servido
+# ⚠️  Este script foi SUPERADO por `seed_ibge_history.R` (2026-05-25).
+#     A pipeline de produção agora é 100% IBGE-only via stitching de T2938
+#     + T1419 + T7060 (cobertura 2006-07 → atual). BCB SGS é usado APENAS
+#     em scripts de auditoria (`_audit_*.R`) para validar a recon.
+#     Decisão registrada no CLAUDE.md, seção "Histórico de migração".
+#
+# Trade-off da troca:
+#   - Perdeu cobertura 1991-01 → 2006-06 (IBGE não publica V66 pré-2006).
+#   - Ganhou: metodologia única em toda janela, sem mistura de fontes,
+#     alim_in/se/ind passam a ter definição consistente (sem gap pós-2020).
+#
+# Para usar este seed legado mesmo assim (ex: comparação retroativa contra
+# BCB pré-2006, ou bootstrap rápido sem rodar 3 tabelas SIDRA):
+#
+# Preenche o histórico (1991-01 → 2019-12) das séries PARETO no CSV servido
 # via source=PARETO, usando BCB SGS direto. O reconstruct_ipca.R cobre 2020-01
 # → atual via reconstrução IBGE-direta (T7060 + V63 + V66).
 #
@@ -60,18 +74,30 @@ CLASSES <- list(
   list(code = "semiduraveis",   sgs = 10842L, label = "Bens semi-duráveis"),
   list(code = "nucleo_ma",      sgs = 11426L, label = "Núcleo MA (médias aparadas)"),
   list(code = "nucleo_ms",      sgs = 4466L,  label = "Núcleo MS (médias aparadas suavizado)"),
-  list(code = "nucleo_dp",      sgs = 16122L, label = "Núcleo DP (dupla ponderação)")
+  list(code = "nucleo_dp",      sgs = 16122L, label = "Núcleo DP (dupla ponderação)"),
+  # Adicionadas 2026-05-25 após auditoria `_audit_8_divergentes.R`:
+  # comerc/ncomerc têm bias quase nulo vs recon IBGE (mean|d|≈0.12/0.28pp,
+  # bias <0.02pp) — universo bate; BCB só aplica leve reprocessamento. Degrau
+  # esperado em 2020-01 é <0.05pp, dentro do ruído de release.
+  list(code = "comerc",         sgs = 4447L,  label = "Comercializáveis"),
+  list(code = "ncomerc",        sgs = 4448L,  label = "Não-comercializáveis")
 )
-# OBS: as 8 séries abaixo NÃO recebem seed BCB SGS — auditoria 2026-05-20
-# (`_audit_seed_vs_bcb.R`) mostrou que SGS 1635/1636/1637/4447/4448/10841 e
-# servicos_subj/exsubj têm metodologia/universo divergentes da reconstrução IBGE
-# (avg|diff| 0.14–1.65pp vs <0.005pp das 12 acima). Emendar BCB pré-2020 com
-# recon Pareto pós-2020 criaria degrau metodológico de 1-2pp em 2020-01 —
-# pior do que deixar o gap explícito. Cobertura dessas 8 começa em 2020-01:
-# alim_in_natura, alim_semi_elab, alim_industr, comerc, ncomerc, ndur_industr,
-# servicos_subj, servicos_exsubj.
+# OBS: as 6 séries abaixo continuam SEM seed BCB SGS — auditoria 2026-05-25
+# (`_audit_8_divergentes.R`) mostrou dois grupos distintos:
+#
+#  (a) alim_in_natura/semi_elab/industr — BCB SGS 1635/1636/1637 têm UNIVERSO
+#      divergente (regressão SGS_27864 ~ 1635+1636+1637 dá coef negativo em
+#      1637, prova matemática de definição diferente). Bias estrutural ~0.4pp.
+#      Emendar criaria degrau de ~1pp em 2020-01.
+#
+#  (b) ndur_industr / servicos_subj / servicos_exsubj — BCB NÃO publica SGS
+#      direto de variação dessas séries. SGS 10841 é composite (ndur+alim_in+
+#      alim_se) e nem o composite bate bem (corr=0.60). 27840/27841/4395 são
+#      valores absolutos, não variação mensal. Sem fonte BCB, gap fica.
+#
+# Cobertura dessas 6 começa em 2020-01.
 DROP_NO_SEED <- c("alim_in_natura","alim_semi_elab","alim_industr",
-                  "comerc","ncomerc","ndur_industr")
+                  "ndur_industr","servicos_subj","servicos_exsubj")
 
 fetch_bcb_sgs <- function(code) {
   url <- sprintf("https://api.bcb.gov.br/dados/serie/bcdata.sgs.%d/dados?formato=json", code)
