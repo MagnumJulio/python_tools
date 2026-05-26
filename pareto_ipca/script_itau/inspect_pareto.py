@@ -27,7 +27,7 @@ VAR_CSV = ROOT / "data" / "ipca_pareto_recon.csv"
 IDX_CSV = ROOT / "data" / "ipca_pareto_indice.csv"
 OUT_DIR = ROOT / "scripts" / "outputs" / "inspection"
 
-# Ordem desejada nas saidas (agrupada por familia).
+# Ordem desejada nas saidas (agrupada por familia). 25 series NT_57/Dez-2025.
 CATEGORY_ORDER = [
     # IPCA controles primarios
     "administrados", "livres", "industriais", "servicos", "alim_domicilio",
@@ -39,8 +39,10 @@ CATEGORY_ORDER = [
     "alim_in_natura", "alim_semi_elab", "alim_industr",
     # Comerc / Ncomerc
     "comerc", "ncomerc",
-    # Nucleos
+    # Nucleos legados
     "nucleo_ex0", "nucleo_ex3", "nucleo_ma", "nucleo_ms", "nucleo_dp",
+    # Nucleos NT_57/Dez-2025
+    "nucleo_exfe", "nucleo_ex1", "ex3_serv", "ex3_ind", "difusao",
 ]
 
 LABELS = {
@@ -64,6 +66,11 @@ LABELS = {
     "nucleo_ma":       "Nucleo MA",
     "nucleo_ms":       "Nucleo MS",
     "nucleo_dp":       "Nucleo DP",
+    "nucleo_exfe":     "Nucleo EX-FE",
+    "nucleo_ex1":      "Nucleo EX1",
+    "ex3_serv":        "Nucleo EX3 Serv.",
+    "ex3_ind":         "Nucleo EX3 Ind.",
+    "difusao":         "Indice de Difusao",
 }
 
 
@@ -130,8 +137,8 @@ def main():
     # 2) PNG grid indice
     png_idx = OUT_DIR / ("pareto_grid_log.png" if args.log else "pareto_grid.png")
     print(f"[3] Plotando {png_idx.relative_to(ROOT)}...")
-    nrows, ncols = 5, 4
-    fig, axes = plt.subplots(nrows, ncols, figsize=(20, 14), sharex=True)
+    nrows, ncols = 5, 5
+    fig, axes = plt.subplots(nrows, ncols, figsize=(22, 14), sharex=True)
     axes = axes.flatten()
     for i, c in enumerate(cats):
         ax = axes[i]
