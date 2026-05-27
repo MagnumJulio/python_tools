@@ -168,16 +168,18 @@ def _try_sa(series: pd.Series):
     spec_addv = str(x13_dir / "specs" / "Haver_Spec_Add.spc")
 
     from x13as.x13_custom import x13_arima_analysis as x13_custom
-    s = series.dropna().iloc[-1019:]
+    s = series.iloc[-1019:]
     s = s[s.index.year >= 1950]
     # Garante name e freq monthly-start (algumas series perdem freq no
     # pipeline pandas; wrapper corp pode bater em None.startswith por isso).
+    # asfreq ANTES de dropna pra nao reintroduzir NaN em gaps.
     if s.name is None or not isinstance(s.name, str):
         s.name = "series"
     try:
-        s.index.freq = "MS"
-    except Exception:
         s = s.asfreq("MS")
+    except Exception:
+        pass
+    s = s.dropna()
     try:
         sa = x13_custom(s, x12path=str(x13_dir),
                         custom_spec=spec_main, retspec=True)
