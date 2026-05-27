@@ -135,8 +135,11 @@ def sidra_to_sql(
 
     s = series.dropna()
     today = date.today()
+    # Alinha data ao ultimo dia do mes (convencao Haver corp). CSVs upstream
+    # ficam em dia 01; conversao centralizada aqui pra todo write SQL.
+    dates_eom = (pd.to_datetime(s.index) + pd.offsets.MonthEnd(0)).date
     df_data = pd.DataFrame({
-        "date": s.index.date,
+        "date": dates_eom,
         "series_id": series_id,
         "value": s.values,
         "release_date": today,
