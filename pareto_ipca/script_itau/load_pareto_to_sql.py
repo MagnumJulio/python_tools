@@ -168,17 +168,23 @@ def _try_sa(series: pd.Series):
     spec_addv = str(x13_dir / "specs" / "Haver_Spec_Add.spc")
 
     from x13as.x13_custom import x13_arima_analysis as x13_custom
+    s = series.dropna().iloc[-1019:]
+    s = s[s.index.year >= 1950]
     try:
-        s = series.dropna().iloc[-1019:]
-        s = s[s.index.year >= 1950]
         sa = x13_custom(s, x12path=str(x13_dir),
                         custom_spec=spec_main, retspec=True)
-    except Exception as e:
-        if "zero or negative" in str(e).lower() or "Multiplicative" in str(e):
+    except Exception as e_log:
+        # Fallback aditivo cobre: (a) "zero or negative"/"Multiplicative"
+        # (X-13 reclamando do log), (b) 'NoneType' object has no attribute
+        # 'startswith' (bug do wrapper corp quando log falha de forma
+        # nao-padrao — observado em nucleo_dp e nucleo_medio).
+        try:
             sa = x13_custom(s, x12path=str(x13_dir),
                             custom_spec=spec_addv, retspec=True)
-        else:
-            raise
+        except Exception as e_add:
+            raise RuntimeError(
+                f"SA falhou em log e aditivo. log={e_log!r}; add={e_add!r}"
+            )
     return sa.seasadj
 
 
