@@ -147,6 +147,39 @@ GROUP BY data_type;
 -- esperado: NSA=54, SA<=54 (quantas dessazonalizaram OK)
 ```
 
+### Estágio 5.1 — workarounds SA conhecidos
+
+Três séries falham no wrapper corp `x13_custom` e exigem mini-scripts:
+
+**(a) `IPCA: Servicos (Indice)` SA** — X-13 falha com TD peak warning.
+Workaround: reconstrói idx_SA via identidade `idx[t]=idx[t-1]·(1+var[t]/100)`
+a partir do var_SA (que passou OK).
+```bash
+python script_itau/_fix_servicos_idx_sa.py
+```
+
+**(b) `IPCA: Nucleo DP` SA + `IPCA: Nucleo Medio` SA** — wrapper corp morre
+com `'NoneType' object has no attribute 'startswith'` (bug do
+`x13_custom`, não do X-13 em si — provado: R `seasonal` dessazonaliza
+as duas sem problema). Workaround em 2 passos:
+```bash
+# Passo 1: gera SA via R seasonal (path alternativo ao wrapper corp).
+Rscript scripts/_sa_dp_nucleo_medio.R
+# Produz data/ipca_pareto_sa_dp_medio.csv (476 linhas, 238 obs cada).
+# Pré-req: pacote R `seasonal` instalado (install.packages("seasonal")).
+
+# Passo 2: grava o CSV no SQL.
+python script_itau/_fix_dp_medio_sa.py
+```
+
+**Atenção — bug do upsert por chave natural:** se já existem metas legadas
+Haver com `series_name` igual e `data_type='SA'` (ex.: "IPCA: Servicos
+(Indice)" SA importado do Haver antes), o `sidra_to_sql` faz upsert
+**na meta legada** em vez de criar nova com `haver_code='PARETO_IPCA:%/SA'`.
+Sintoma: script imprime `[OK] gravado` mas a query
+`WHERE haver_code LIKE 'PARETO_IPCA:%/SA'` não retorna nada. Mitigação:
+deletar a meta legada antes de rodar o workaround.
+
 ---
 
 ## Rollback completo (se precisar desfazer tudo)

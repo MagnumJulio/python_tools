@@ -168,39 +168,17 @@ def _try_sa(series: pd.Series):
     spec_addv = str(x13_dir / "specs" / "Haver_Spec_Add.spc")
 
     from x13as.x13_custom import x13_arima_analysis as x13_custom
-    s = series.iloc[-1019:]
-    s = s[s.index.year >= 1950]
-    # Garante name e freq monthly-start (algumas series perdem freq no
-    # pipeline pandas; wrapper corp pode bater em None.startswith por isso).
-    # asfreq ANTES de dropna pra nao reintroduzir NaN em gaps.
-    if s.name is None or not isinstance(s.name, str):
-        s.name = "series"
     try:
-        s = s.asfreq("MS")
-    except Exception:
-        pass
-    s = s.dropna()
-    try:
+        s = series.dropna().iloc[-1019:]
+        s = s[s.index.year >= 1950]
         sa = x13_custom(s, x12path=str(x13_dir),
                         custom_spec=spec_main, retspec=True)
-    except Exception as e_log:
-        import traceback
-        print(f"\n[DEBUG _try_sa] log path falhou pra {s.name!r}:")
-        print(f"  n={len(s)}, freq={s.index.freq}, start={s.index[0]}, end={s.index[-1]}")
-        traceback.print_exc()
-        # Fallback aditivo cobre: (a) "zero or negative"/"Multiplicative"
-        # (X-13 reclamando do log), (b) 'NoneType' object has no attribute
-        # 'startswith' (bug do wrapper corp quando log falha de forma
-        # nao-padrao — observado em nucleo_dp e nucleo_medio).
-        try:
+    except Exception as e:
+        if "zero or negative" in str(e).lower() or "Multiplicative" in str(e):
             sa = x13_custom(s, x12path=str(x13_dir),
                             custom_spec=spec_addv, retspec=True)
-        except Exception as e_add:
-            print(f"\n[DEBUG _try_sa] add path tambem falhou pra {s.name!r}:")
-            traceback.print_exc()
-            raise RuntimeError(
-                f"SA falhou em log e aditivo. log={e_log!r}; add={e_add!r}"
-            )
+        else:
+            raise
     return sa.seasadj
 
 
