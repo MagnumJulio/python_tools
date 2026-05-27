@@ -113,7 +113,7 @@ def sidra_to_sql(
             "description": description,
             "haver_code": haver_code,
         }])
-        session.write_sql_table_from_dataframe("OPT_Macro_Series_2", df_meta, chunksize=50)
+        session.write_sql_table_from_dataframe("OPT_Macro_Series_2", df_meta, chunk_size=50)
         df_new = pd.read_sql(
             """
             SELECT series_id FROM OPT_Macro_Series_2
@@ -128,7 +128,7 @@ def sidra_to_sql(
         series_id = int(df_existing.iloc[0]["series_id"])
 
     if replace:
-        session.execute_sql(
+        session.execute(
             "DELETE FROM OPT_Macro_Series_Data_2 WHERE series_id = ?",
             params=[series_id],
         )
@@ -148,7 +148,7 @@ def sidra_to_sql(
     session.write_sql_table_from_dataframe(
         "OPT_Macro_Series_Data_2",
         df_data[["date", "series_id", "value", "release_date", "vintage_date"]],
-        chunksize=5_000,
+        chunk_size=5_000,
     )
     return series_id
 
@@ -165,7 +165,7 @@ def _try_sa(series: pd.Series):
         sys.path.insert(0, str(script_dir))
     x13_dir = script_dir / "x13as"
     spec_main = str(x13_dir / "specs" / "Haver_Spec.spc")
-    spec_addv = str(x13_dir / "specs" / "Haver_Spec_Additive.spc")
+    spec_addv = str(x13_dir / "specs" / "Haver_Spec_Add.spc")
 
     from x13as.x13_custom import x13_arima_analysis as x13_custom
     try:
