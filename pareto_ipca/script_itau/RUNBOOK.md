@@ -25,7 +25,7 @@ Rscript scripts/build_pareto_indice.R   # ~5s, gera ipca_pareto_indice.csv
 
 ## Estágio 1 — `--dry-run` (zero conexão SQL)
 
-**Objetivo:** confirmar que os 2 CSVs são lidos OK e a lista de 25 séries
+**Objetivo:** confirmar que os 2 CSVs são lidos OK e a lista de 27 categorias
 está correta. Não toca SQL, não importa `opt_utils`.
 
 ```bash
@@ -120,8 +120,8 @@ SELECT COUNT(*) FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
 SELECT COUNT(*) FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
                     WHERE haver_code LIKE 'PARETO_IPCA:%');
--- esperado: ~12816  (26 séries × 2 × 238 + nucleo_medio var/idx × 220 = 12376 + 440)
--- (nucleo_medio tem só 220 obs por conta do warm-up DP; resto 238)
+-- esperado: 12852  (27 categorias × 2 séries × 238 obs)
+-- Janela uniforme 2006-07 → 2026-04 em todas as 27 categorias.
 ```
 
 ---

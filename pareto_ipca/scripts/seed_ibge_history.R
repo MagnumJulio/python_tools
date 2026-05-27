@@ -96,8 +96,48 @@ cat(sprintf("\n=========================================================\n"))
 cat(sprintf(" Concluído em %.1fs\n", as.numeric(difftime(t_end, t_start, units = "secs"))))
 cat(sprintf("=========================================================\n"))
 
-# Sanity check: resumo do CSV final
 PARETO_CSV <- "data/ipca_pareto_recon.csv"
+
+# Pós-processamento: recalcular nucleo_medio a partir do CSV já costurado.
+# Por que: cada Rscript do reconstruct_ipca roda isolado, e o DP tem warm-up
+# (~6m) no início de cada janela. Logo nucleo_medio = rowMeans(EX0,EX3,MS,DP,P55)
+# sai NA nas fronteiras T2938→T1419 (2012-01..06) e T1419→T7060 (2020-01..06),
+# mesmo quando os 5 componentes já estão completos no CSV final (vindos do mês
+# anterior da janela vizinha ou de runs prévias). Aqui sobrescrevemos o medio
+# a partir do que está costurado, eliminando os buracos artificiais.
+if (file.exists(PARETO_CSV)) {
+  cat("\n[pós] Recalculando nucleo_medio a partir do CSV combinado...\n")
+  dfp <- read.csv(PARETO_CSV, stringsAsFactors = FALSE, encoding = "UTF-8")
+  dfp$date <- as.Date(dfp$date)
+  comps <- c("nucleo_ex0", "nucleo_ex3", "nucleo_ms",
+             "nucleo_dp", "nucleo_p55")
+  comp_df <- dfp[dfp$category_code %in% comps,
+                 c("date", "category_code", "value")]
+  wide <- reshape(comp_df, idvar = "date", timevar = "category_code",
+                  direction = "wide")
+  val_cols <- paste0("value.", comps)
+  falta <- setdiff(val_cols, names(wide))
+  if (length(falta) > 0) {
+    stop("Componentes do nucleo_medio ausentes no CSV: ",
+         paste(falta, collapse = ", "))
+  }
+  novo <- data.frame(
+    date          = wide$date,
+    category_code = "nucleo_medio",
+    value         = rowMeans(wide[, val_cols], na.rm = FALSE),
+    stringsAsFactors = FALSE
+  )
+  novo <- novo[!is.na(novo$value), ]
+  dfp <- dfp[dfp$category_code != "nucleo_medio", ]
+  dfp <- rbind(dfp, novo)
+  dfp <- dfp[order(dfp$date, dfp$category_code), ]
+  write.csv(dfp, PARETO_CSV, row.names = FALSE, fileEncoding = "UTF-8")
+  cat(sprintf("    OK. nucleo_medio: %d obs (%s → %s)\n",
+              nrow(novo),
+              format(min(novo$date)), format(max(novo$date))))
+}
+
+# Sanity check: resumo do CSV final
 if (file.exists(PARETO_CSV)) {
   df <- read.csv(PARETO_CSV, stringsAsFactors = FALSE)
   df$date <- as.Date(df$date)
