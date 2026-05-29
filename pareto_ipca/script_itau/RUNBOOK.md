@@ -188,20 +188,24 @@ deletar a meta legada antes de rodar o workaround.
 corp pra defender a metodologia. Sai uma tabela com `mean|d|`, `max|d|`,
 `bias`, `corr` por categoria.
 
-### 6.1 Probe — descobre o que cada Haver series_id é
+**Importante — normalização:** nossa SA está em **variação mensal %**.
+Haver pode estar em **índice nível** (escala 100+) ou em **variação**.
+O script sempre normaliza pra MoM antes de comparar — basta marcar
+`"idx"` ou `"var"` no MAPPING.
 
-```bash
-python script_itau/_validate_sa_vs_haver.py --probe
+### Configuração
+
+Edite `MAPPING` no topo de `script_itau/_validate_sa_vs_haver.py`:
+```python
+MAPPING = {
+    "nossa_cat": (haver_series_id, "idx" ou "var"),
+    ...
+}
 ```
+- `"idx"` → série Haver está em nível (ex: 245.67); deriva MoM%
+- `"var"` → série Haver já está em variação mensal (%); compara direto
 
-Imprime `series_name`, `data_type`, `description`, `haver_code` dos
-`PROBE_IDS` listados no topo do script. Use pra confirmar quais são SA
-mesmo e quais batem conceito-a-conceito com nossas 27 categorias.
-
-### 6.2 Comparação
-
-Edite o dict `MAPPING` no topo de `_validate_sa_vs_haver.py` com pares
-`{nossa_cat: haver_series_id}`. Depois:
+### Execução
 
 ```bash
 python script_itau/_validate_sa_vs_haver.py --window 24
@@ -209,8 +213,8 @@ python script_itau/_validate_sa_vs_haver.py --window 24
 ```
 
 Output:
-- Per categoria: overlap, métricas na janela, últimos 12 diffs MoM
-- Tabela markdown final pronta pra colar em relatório
+- Por categoria: amostra dos últimos 3 valores Haver (pra confirmar idx vs var), overlap, métricas, últimos 12 diffs
+- Tabela markdown final pra colar em relatório
 
 **Interpretação:**
 - `mean|d| < 0.05pp` → SA convergente (defendível)

@@ -1,20 +1,18 @@
 #!/usr/bin/env python
 # Mini-script corp-only: valida nossa SA contra series SA do Haver ja carregadas
-# no SQL corp. Compara MoM SA mes a mes, computa mean|d|, max|d|, corr nos
-# ultimos N meses, e imprime tabela markdown pronta pra colar em relatorio.
+# no SQL corp. Sempre normaliza pra MoM antes de comparar (mesmo se a serie
+# Haver for indice nivel). Computa mean|d|, max|d|, corr nos ultimos N meses.
 #
-# Pre-req: load_pareto_to_sql.py --sa rodado (+ mini-scripts de workaround
-#          pra servicos/dp/medio se aplicavel). Haver series ja no SQL.
+# Pre-req: load_pareto_to_sql.py --sa rodado (+ workarounds servicos/dp/medio
+#          se aplicavel). Haver SA ja no SQL.
 #
 # Uso:
-#   python script_itau/_validate_sa_vs_haver.py                # roda comparacao
-#   python script_itau/_validate_sa_vs_haver.py --probe        # so probe meta
-#   python script_itau/_validate_sa_vs_haver.py --window 60    # janela 60m
+#   python script_itau/_validate_sa_vs_haver.py                  # roda comparacao
+#   python script_itau/_validate_sa_vs_haver.py --window 60      # janela 60m
 #
-# Editar MAPPING abaixo conforme descobrir quais Haver series_ids batem com
-# quais categorias nossas. Lista atual sao os 9 grupos IPCA + Extended +
-# series user-fornecidas — provavelmente nenhuma bate conceito-a-conceito,
-# mas serve pra testar o pipeline da comparacao.
+# Editar MAPPING abaixo. Cada entry e (haver_series_id, "var" | "idx"):
+#   - "var" = serie ja em variacao mensal (%); compara direto
+#   - "idx" = serie em nivel de indice; deriva MoM antes de comparar
 
 import sys
 import argparse
@@ -25,50 +23,45 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "script_itau"))
 
 # ============================================================================
-# MAPPING: nossa_categoria  ->  Haver series_id
+# MAPPING: nossa_categoria  ->  (haver_series_id, "var" ou "idx")
 # ----------------------------------------------------------------------------
-# Edite essa dict conforme descobrir os Haver series_ids certos.
-# Os 11 abaixo sao os que o usuario forneceu — sao IPCA grupos top-level
-# (Alimentacao, Habitacao, etc.) que NAO batem com nossas 27 categorias
-# analiticas. Serve pra testar o pipeline; troque pelos certos depois.
+# Os 11 IDs sao IPCA grupos top-level (NAO batem conceito-a-conceito com
+# nossas 27 analiticas — Haver "Food and Beverages" inclui alim fora de casa;
+# nosso alim_domicilio nao). Mas serve pra testar a mecanica da comparacao.
+# Marcacao "idx" pra todos ate confirmar; se Haver guardar var direto, troca.
 # ============================================================================
-MAPPING = {
-    # nossa_cat:           haver_series_id  # Haver label (Itau)
-    # --- exemplo (provavelmente NAO bate conceito) ---
-    "alim_domicilio":      5037,   # IPCA: Food and Beverages (grupo 1, superset)
-    # Adicione/edite outras conforme descobrir matches reais:
-    # "administrados":      <id>,  # IPCA: Monitored Prices SA
-    # "livres":             <id>,  # IPCA: Free Prices SA
-    # "servicos":           <id>,  # IPCA: Services SA
-    # "industriais":        <id>,  # IPCA: Industrial Goods SA
-    # "nucleo_medio":       <id>,  # IPCA: Core - Mean SA
-    # "nucleo_ma":          <id>,  # IPCA: Core - Trimmed Mean SA
-    # "nucleo_ms":          <id>,  # IPCA: Core - Smoothed Trimmed Mean SA
-    # "nucleo_dp":          <id>,  # IPCA: Core - Double Weight SA
-    # "nucleo_p55":         <id>,  # IPCA: Core - P55 SA
+MAPPING: dict[str, tuple[int, str]] = {
+    # nossa_cat:           (haver_id, kind)   # Haver label
+    "alim_domicilio":      (5037, "idx"),     # IPCA: Food and Beverages
+    # "administrados":      (XXXX, "idx"),    # IPCA: Monitored Prices SA
+    # "livres":             (XXXX, "idx"),    # IPCA: Free Prices SA
+    # "servicos":           (XXXX, "idx"),    # IPCA: Services SA
+    # "industriais":        (XXXX, "idx"),    # IPCA: Industrial Goods SA
+    # "nucleo_medio":       (XXXX, "idx"),    # IPCA: Core - Mean SA
+    # "nucleo_ma":          (XXXX, "idx"),    # IPCA: Core - Trimmed Mean SA
+    # "nucleo_ms":          (XXXX, "idx"),    # IPCA: Core - Smoothed SA
+    # "nucleo_dp":          (XXXX, "idx"),    # IPCA: Core - Double Weight SA
+    # "nucleo_p55":         (XXXX, "idx"),    # IPCA: Core - P55 SA
 }
 
-# Lista completa que o usuario forneceu (probe-only — pra inspecionar metadata)
-PROBE_IDS = [5036, 5037, 5038, 5039, 5040, 5041, 5042, 5043, 5045, 5046, 5047]
+
+def _to_month_start(s: pd.Series) -> pd.Series:
+    """Normaliza qualquer date (dia 01, fim do mes, qualquer) pra MS uniforme."""
+    s = s.copy()
+    s.index = pd.to_datetime(s.index).to_period("M").to_timestamp()
+    return s.sort_index()
 
 
-def probe_metadata(session, ids):
-    """Lista series_name, data_type, frequency, description dos series_ids dados."""
-    qs = ",".join("?" * len(ids))
-    df = pd.read_sql(
-        f"""
-        SELECT series_id, series_name, data_type, frequency, description, haver_code
-        FROM OPT_Macro_Series_2
-        WHERE series_id IN ({qs})
-        ORDER BY series_id
-        """,
-        session.conn, params=ids,
-    )
-    return df
+def _to_mom(s: pd.Series, kind: str) -> pd.Series:
+    """Se kind=='idx', deriva MoM% via pct change. Se 'var', retorna como esta.
+    Heuristica de seguranca: se kind nao especificado mas mean(abs) > 10,
+    assume indice (escala 100+) e converte."""
+    if kind == "idx" or (kind == "auto" and s.abs().mean() > 10):
+        return ((s / s.shift(1)) - 1) * 100
+    return s
 
 
-def fetch_series(session, series_id):
-    """Le serie pivotada (date -> value) pelo series_id."""
+def fetch_haver(session, series_id: int) -> pd.Series | None:
     df = pd.read_sql(
         """
         SELECT date, value FROM OPT_Macro_Series_Data_2
@@ -79,14 +72,11 @@ def fetch_series(session, series_id):
     if df.empty:
         return None
     df["date"] = pd.to_datetime(df["date"])
-    # Normaliza pro dia 1 do mes (Haver pode estar no fim do mes)
-    df["date"] = df["date"] - pd.offsets.MonthBegin(1) + pd.offsets.MonthBegin(1)
-    df["date"] = df["date"].dt.to_period("M").dt.to_timestamp()
-    return df.set_index("date")["value"].astype(float).sort_index()
+    s = df.set_index("date")["value"].astype(float)
+    return _to_month_start(s)
 
 
-def fetch_our_sa(session, cat):
-    """Le var SA nossa do SQL filtrando por haver_code PARETO_IPCA:<cat>/V63/RECON-%/SA."""
+def fetch_our_sa(session, cat: str) -> pd.Series | None:
     df = pd.read_sql(
         """
         SELECT d.date, d.value
@@ -100,13 +90,12 @@ def fetch_our_sa(session, cat):
     if df.empty:
         return None
     df["date"] = pd.to_datetime(df["date"])
-    df["date"] = df["date"].dt.to_period("M").dt.to_timestamp()
-    return df.set_index("date")["value"].astype(float).sort_index()
+    s = df.set_index("date")["value"].astype(float)
+    return _to_month_start(s)
 
 
-def compare(ours, theirs, window):
-    """Alinha por data, calcula mean|d|, max|d|, corr nos ultimos `window` meses."""
-    merged = pd.concat({"ours": ours, "haver": theirs}, axis=1).dropna()
+def compare(ours: pd.Series, theirs_mom: pd.Series, window: int) -> dict | None:
+    merged = pd.concat({"ours": ours, "haver": theirs_mom}, axis=1).dropna()
     if merged.empty:
         return None
     sub = merged.tail(window)
@@ -114,8 +103,8 @@ def compare(ours, theirs, window):
     return {
         "n_overlap": len(merged),
         "n_window": len(sub),
-        "first_overlap": merged.index.min(),
-        "last_overlap": merged.index.max(),
+        "first": merged.index.min(),
+        "last": merged.index.max(),
         "mean_abs_d": d.abs().mean(),
         "max_abs_d": d.abs().max(),
         "bias": d.mean(),
@@ -126,51 +115,43 @@ def compare(ours, theirs, window):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--probe", action="store_true",
-                    help="So imprime metadata dos series_ids PROBE_IDS; nao compara")
     ap.add_argument("--window", type=int, default=24,
                     help="Janela em meses pra metricas (default 24)")
     args = ap.parse_args()
+
+    if not MAPPING:
+        sys.exit("[INFO] MAPPING vazio — edite o dict no topo do script.")
 
     from opt_utils.database import SQLConnector
     session = SQLConnector(connector="pyodbc")
 
     try:
-        print("=" * 78)
-        print("PROBE — metadata das series Haver fornecidas")
-        print("=" * 78)
-        meta = probe_metadata(session, PROBE_IDS)
-        print(meta.to_string(index=False))
-        print()
-
-        if args.probe:
-            print("[--probe] saindo sem comparar.")
-            return
-
-        if not MAPPING:
-            print("[INFO] MAPPING vazio — edite o dict no topo do script com "
-                  "{nossa_cat: haver_series_id} e rode de novo.")
-            return
-
-        print("=" * 78)
-        print(f"COMPARAÇÃO — janela últimos {args.window} meses")
+        print(f"COMPARAÇÃO MoM SA — janela últimos {args.window} meses")
         print("=" * 78)
 
         rows = []
-        for cat, hid in MAPPING.items():
+        for cat, (hid, kind) in MAPPING.items():
             ours = fetch_our_sa(session, cat)
-            theirs = fetch_series(session, hid)
+            haver_raw = fetch_haver(session, hid)
+
             if ours is None:
-                print(f"[SKIP] {cat}: nossa SA nao encontrada no SQL "
-                      f"(haver_code LIKE 'PARETO_IPCA:{cat}/V63/RECON-%/SA')")
+                print(f"[SKIP] {cat}: nossa SA nao encontrada.")
                 continue
-            if theirs is None:
-                print(f"[SKIP] {cat} ↔ haver {hid}: Haver vazio.")
+            if haver_raw is None:
+                print(f"[SKIP] {cat} ↔ {hid}: Haver vazio.")
                 continue
-            res = compare(ours, theirs, args.window)
+
+            # Normaliza Haver pra MoM se for indice
+            haver_mom = _to_mom(haver_raw, kind)
+            sample = haver_raw.tail(3).round(2).to_dict()
+            print(f"\n[{cat} ↔ haver {hid}, kind={kind}]")
+            print(f"  haver raw (ultimos 3): {sample}")
+
+            res = compare(ours, haver_mom, args.window)
             if res is None:
-                print(f"[SKIP] {cat} ↔ haver {hid}: zero overlap de datas.")
+                print(f"  [SKIP] zero overlap.")
                 continue
+
             rows.append({
                 "categoria": cat,
                 "haver_id": hid,
@@ -181,16 +162,17 @@ def main():
                 "bias (pp)": round(res["bias"], 4),
                 "corr": round(res["corr"], 4),
             })
-            print(f"\n[{cat} ↔ haver {hid}] overlap {res['n_overlap']} obs "
-                  f"({res['first_overlap'].date()} → {res['last_overlap'].date()})")
+            print(f"  overlap {res['n_overlap']} obs "
+                  f"({res['first'].date()} → {res['last'].date()})")
             print(f"  janela {res['n_window']}m: "
-                  f"mean|d|={res['mean_abs_d']:.4f}, max|d|={res['max_abs_d']:.4f}, "
+                  f"mean|d|={res['mean_abs_d']:.4f}, "
+                  f"max|d|={res['max_abs_d']:.4f}, "
                   f"bias={res['bias']:+.4f}, corr={res['corr']:.4f}")
             print(f"  ultimos 12 diffs (ours-haver): {res['last_12_diff']}")
 
         if rows:
             print("\n" + "=" * 78)
-            print("TABELA MARKDOWN (pra colar em relatorio)")
+            print("TABELA MARKDOWN")
             print("=" * 78)
             df_out = pd.DataFrame(rows)
             print(df_out.to_markdown(index=False))
