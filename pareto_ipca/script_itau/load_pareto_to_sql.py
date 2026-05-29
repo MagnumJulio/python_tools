@@ -339,15 +339,23 @@ def main():
 
             if args.sa:
                 try:
-                    sv_sa = _try_sa(sv)
+                    # Idx-first: dessazonaliza o nivel (sempre positivo → log
+                    # estavel, ARIMA converge), depois deriva var_SA via
+                    # identidade `var[t]=(idx[t]/idx[t-1]-1)·100`. Garante
+                    # consistencia interna (var cumulativa = idx) e contorna
+                    # falhas de convergencia que afetam series-var com
+                    # negativos/outliers (alim_dom, etc.). Alinha com
+                    # metodologia BCB/sellsides que dessazonalizam o nivel.
+                    si_sa = _try_sa(si)
+                    sv_sa = ((si_sa / si_sa.shift(1)) - 1) * 100
+                    sv_sa = sv_sa.dropna()
                     sidra_to_sql(
                         series=sv_sa, country="BR", subject="Prices", indicator="IPCA",
                         series_name=label, data_type="SA", frequency="M",
-                        description=f"{label} - Variacao mensal (%) - dessazonalizada X-13",
+                        description=f"{label} - Variacao mensal (%) - SA derivada do idx_SA (X-13 no nivel)",
                         haver_code=SIDRA_CODE_VAR.format(cat=c, sha=sha) + "/SA",
                         session=session, replace=True,
                     )
-                    si_sa = _try_sa(si)
                     sidra_to_sql(
                         series=si_sa, country="BR", subject="Prices", indicator="IPCA",
                         series_name=f"{label} (Indice)", data_type="SA", frequency="M",
@@ -356,7 +364,7 @@ def main():
                         session=session, replace=True,
                     )
                 except Exception as e:
-                    print(f"    [WARN] SA falhou: {e}")
+                    print(f"    [WARN] SA falhou para {c}: {e}")
     finally:
         session.close()
 
