@@ -182,6 +182,55 @@ deletar a meta legada antes de rodar o workaround.
 
 ---
 
+## Estágio 6 (opcional) — validação SA contra Haver
+
+**Objetivo:** comparar nossa SA contra séries SA do Haver já carregadas no SQL
+corp pra defender a metodologia. Sai uma tabela com `mean|d|`, `max|d|`,
+`bias`, `corr` por categoria.
+
+### 6.1 Probe — descobre o que cada Haver series_id é
+
+```bash
+python script_itau/_validate_sa_vs_haver.py --probe
+```
+
+Imprime `series_name`, `data_type`, `description`, `haver_code` dos
+`PROBE_IDS` listados no topo do script. Use pra confirmar quais são SA
+mesmo e quais batem conceito-a-conceito com nossas 27 categorias.
+
+### 6.2 Comparação
+
+Edite o dict `MAPPING` no topo de `_validate_sa_vs_haver.py` com pares
+`{nossa_cat: haver_series_id}`. Depois:
+
+```bash
+python script_itau/_validate_sa_vs_haver.py --window 24
+# ou --window 60 pra janela maior
+```
+
+Output:
+- Per categoria: overlap, métricas na janela, últimos 12 diffs MoM
+- Tabela markdown final pronta pra colar em relatório
+
+**Interpretação:**
+- `mean|d| < 0.05pp` → SA convergente (defendível)
+- `mean|d| 0.05–0.10pp` → diferenças metodológicas (specs X-13 diferentes); ainda OK
+- `mean|d| > 0.10pp` → investigar: mesma definição de categoria? mesma base?
+
+**Buscar no Haver os SA equivalentes destas categorias** (nomes prováveis):
+- `IPCA: Monitored Prices SA` → `administrados`
+- `IPCA: Free Prices SA` → `livres`
+- `IPCA: Services SA` → `servicos`
+- `IPCA: Industrial Goods SA` → `industriais`
+- `IPCA: Food at Home SA` → `alim_domicilio`
+- `IPCA: Core - Mean SA` → `nucleo_medio`
+- `IPCA: Core - Trimmed Mean SA` → `nucleo_ma`
+- `IPCA: Core - Smoothed Trimmed Mean SA` → `nucleo_ms`
+- `IPCA: Core - Double Weight SA` → `nucleo_dp`
+- `IPCA: Core - P55 SA` → `nucleo_p55`
+
+---
+
 ## Rollback completo (se precisar desfazer tudo)
 
 ```sql
