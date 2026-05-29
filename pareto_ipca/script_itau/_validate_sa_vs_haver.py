@@ -46,10 +46,14 @@ MAPPING: dict[str, tuple[int, str]] = {
 
 
 def _to_month_start(s: pd.Series) -> pd.Series:
-    """Normaliza qualquer date (dia 01, fim do mes, qualquer) pra MS uniforme."""
+    """Normaliza date (dia 01, EOM, qualquer) pra MS uniforme. Dedup por mes
+    pegando o ultimo valor (defesa contra series duplicadas no SQL — ex.
+    runs antigos com day=01 + runs novos com EOM matchando o mesmo LIKE)."""
     s = s.copy()
     s.index = pd.to_datetime(s.index).to_period("M").to_timestamp()
-    return s.sort_index()
+    s = s.sort_index()
+    s = s.groupby(level=0).last()
+    return s
 
 
 def _to_mom(s: pd.Series, kind: str) -> pd.Series:
@@ -77,15 +81,31 @@ def fetch_haver(session, series_id: int) -> pd.Series | None:
 
 
 def fetch_our_sa(session, cat: str) -> pd.Series | None:
-    df = pd.read_sql(
+    # Primeiro probe: quantos series_ids batem no LIKE? Se mais de 1, alerta
+    # pra duplicatas (runs antigos nao limpos vs run atual).
+    meta = pd.read_sql(
         """
-        SELECT d.date, d.value
-        FROM OPT_Macro_Series_Data_2 d
-        JOIN OPT_Macro_Series_2 m ON d.series_id = m.series_id
-        WHERE m.haver_code LIKE ?
-        ORDER BY d.date
+        SELECT series_id, haver_code, data_type FROM OPT_Macro_Series_2
+        WHERE haver_code LIKE ?
         """,
         session.conn, params=[f"PARETO_IPCA:{cat}/V63/RECON-%/SA"],
+    )
+    if meta.empty:
+        return None
+    if len(meta) > 1:
+        print(f"  [WARN] {cat} tem {len(meta)} series_ids matching LIKE — possivel "
+              f"duplicata de runs anteriores:")
+        for _, row in meta.iterrows():
+            print(f"    sid={row['series_id']} haver_code={row['haver_code']}")
+        print(f"  [INFO] usando o MAIOR series_id={meta['series_id'].max()} (mais recente).")
+    sid = int(meta["series_id"].max())
+
+    df = pd.read_sql(
+        """
+        SELECT date, value FROM OPT_Macro_Series_Data_2
+        WHERE series_id = ? ORDER BY date
+        """,
+        session.conn, params=[sid],
     )
     if df.empty:
         return None
@@ -146,6 +166,14 @@ def main():
             sample = haver_raw.tail(3).round(2).to_dict()
             print(f"\n[{cat} ↔ haver {hid}, kind={kind}]")
             print(f"  haver raw (ultimos 3): {sample}")
+
+            # Debug: amostra alinhada lado-a-lado pra confirmar match exato.
+            merged_dbg = pd.concat({"ours": ours, "haver_mom": haver_mom}, axis=1).dropna()
+            print(f"  ours raw (ultimos 3): {ours.tail(3).round(4).to_dict()}")
+            print(f"  haver MoM (ultimos 3): {haver_mom.dropna().tail(3).round(4).to_dict()}")
+            if not merged_dbg.empty:
+                print(f"  amostra alinhada (ultimos 5 meses):")
+                print(merged_dbg.tail(5).round(4).to_string())
 
             res = compare(ours, haver_mom, args.window)
             if res is None:
