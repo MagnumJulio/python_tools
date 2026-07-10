@@ -24,9 +24,10 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-VAR_CSV = ROOT / "data" / "ipca_pareto_recon.csv"
-IDX_CSV = ROOT / "data" / "ipca_pareto_indice.csv"
-OUT_DIR = Path(__file__).resolve().parent / "sim_output"
+VAR_CSV  = ROOT / "data" / "ipca_pareto_recon.csv"
+IDX_CSV  = ROOT / "data" / "ipca_pareto_indice.csv"
+PESO_CSV = ROOT / "data" / "ipca_pareto_pesos.csv"
+OUT_DIR  = Path(__file__).resolve().parent / "sim_output"
 
 CATEGORY_LABELS = {
     "administrados":   "IPCA: Monitorados",
@@ -59,8 +60,9 @@ CATEGORY_LABELS = {
     "nucleo_medio":    "IPCA: Nucleo Medio (media dos 5)",
 }
 
-SIDRA_CODE_VAR = "PARETO_IPCA:{cat}/V63/RECON-{sha}"
-SIDRA_CODE_IDX = "PARETO_IPCA:{cat}/V63/Index/RECON-{sha}"
+SIDRA_CODE_VAR  = "PARETO_IPCA:{cat}/V63/RECON-{sha}"
+SIDRA_CODE_IDX  = "PARETO_IPCA:{cat}/V63/Index/RECON-{sha}"
+SIDRA_CODE_PESO = "PARETO_IPCA:{cat}/V66/RECON-{sha}"
 
 SERIES_COLS = ["series_id", "country", "subject", "indicator", "series_name",
                "data_type", "frequency", "description", "haver_code"]
@@ -187,6 +189,14 @@ def main():
     idx_series = _load_csv_long(IDX_CSV, "index")
     print(f"    {len(idx_series)} categorias")
 
+    print(f"[3] Lendo {PESO_CSV.relative_to(ROOT)} (opcional)...")
+    peso_series: dict[str, pd.Series] = {}
+    if PESO_CSV.exists():
+        peso_series = _load_csv_long(PESO_CSV, "value")
+        print(f"    {len(peso_series)} categorias com peso Laspeyres")
+    else:
+        print("    [WARN] nao encontrado — pesos nao serao carregados. Rode o pipeline R primeiro.")
+
     cats = sorted(set(var_series) & set(idx_series))
     if only:
         cats = [c for c in cats if c in only]
@@ -199,22 +209,32 @@ def main():
     for c in cats:
         label = CATEGORY_LABELS[c]
         sv, si = var_series[c], idx_series[c]
-        print(f"  - {label:45s}  var={len(sv):4d}   idx={len(si):4d}")
+        sp = peso_series.get(c)
+        peso_info = f"peso={len(sp):4d}" if sp is not None else "peso=N/A "
+        print(f"  - {label:45s}  var={len(sv):4d}   idx={len(si):4d}   {peso_info}")
 
         sim_sidra_to_sql(
             series=sv, country="BR", subject="Prices", indicator="IPCA",
             series_name=label, data_type="NSA", frequency="M",
-            description=f"{label} - Variacao mensal (%) - recon IBGE-only via Tab.5 RI Dez/2019",
+            description=f"{label} - Variacao mensal (%) - recon IBGE-only via NT_57/Dez-2025",
             haver_code=SIDRA_CODE_VAR.format(cat=c, sha=sha),
             session=session,
         )
         sim_sidra_to_sql(
             series=si, country="BR", subject="Prices", indicator="IPCA",
             series_name=f"{label} (Indice)", data_type="NSA", frequency="M",
-            description=f"{label} - Indice (dez/2006=100) - recon IBGE-only via Tab.5 RI Dez/2019",
+            description=f"{label} - Indice (dez/2006=100) - recon IBGE-only via NT_57/Dez-2025",
             haver_code=SIDRA_CODE_IDX.format(cat=c, sha=sha),
             session=session,
         )
+        if sp is not None:
+            sim_sidra_to_sql(
+                series=sp, country="BR", subject="Prices", indicator="IPCA",
+                series_name=f"{label} (Peso)", data_type="Peso", frequency="M",
+                description=f"{label} - Peso mensal (V66 IBGE/SIDRA, Laspeyres)",
+                haver_code=SIDRA_CODE_PESO.format(cat=c, sha=sha),
+                session=session,
+            )
 
     meta = session.tables["OPT_Macro_Series_2"]
     data = session.tables["OPT_Macro_Series_Data_2"]

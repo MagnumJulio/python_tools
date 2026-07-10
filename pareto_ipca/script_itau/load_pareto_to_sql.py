@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # load_pareto_to_sql.py
-# Carrega as 20 categorias do pareto_ipca (variacao + indice) na base SQL
+# Carrega as 27 categorias do pareto_ipca (variacao + indice + peso) na base SQL
 # corp (OPT_Macro_Series_2 / OPT_Macro_Series_Data_2), seguindo o mesmo padrao do
 # sidra_itau.ipynb. Pre-requisito: pipeline R ja rodou e gerou
 # data/ipca_pareto_recon.csv e data/ipca_pareto_indice.csv.
@@ -25,9 +25,10 @@ import pandas as pd
 if TYPE_CHECKING:
     from opt_utils.database import SQLConnector  # corp-only; import preguicoso em main()
 
-ROOT = Path(__file__).resolve().parent.parent
-VAR_CSV = ROOT / "data" / "ipca_pareto_recon.csv"
-IDX_CSV = ROOT / "data" / "ipca_pareto_indice.csv"
+ROOT     = Path(__file__).resolve().parent.parent
+VAR_CSV  = ROOT / "data" / "ipca_pareto_recon.csv"
+IDX_CSV  = ROOT / "data" / "ipca_pareto_indice.csv"
+PESO_CSV = ROOT / "data" / "ipca_pareto_pesos.csv"
 
 # 27 category_code -> nome legivel (mesma estetica do sidra_itau).
 # NOTA: ex3_serv (estrito, sem alim_fora) é distinto de servicos_subj (subjacente
@@ -74,8 +75,9 @@ def _git_sha() -> str:
     except Exception:
         return "nogit"
 
-SIDRA_CODE_VAR = "PARETO_IPCA:{cat}/V63/RECON-{sha}"
-SIDRA_CODE_IDX = "PARETO_IPCA:{cat}/V63/Index/RECON-{sha}"
+SIDRA_CODE_VAR  = "PARETO_IPCA:{cat}/V63/RECON-{sha}"
+SIDRA_CODE_IDX  = "PARETO_IPCA:{cat}/V63/Index/RECON-{sha}"
+SIDRA_CODE_PESO = "PARETO_IPCA:{cat}/V66/RECON-{sha}"
 
 
 def sidra_to_sql(
@@ -276,6 +278,14 @@ def main():
     idx_series = _load_csv_long(IDX_CSV, "index")
     print(f"    {len(idx_series)} categorias")
 
+    print(f"[3] Lendo {PESO_CSV.relative_to(ROOT)} (opcional)...")
+    peso_series: dict[str, pd.Series] = {}
+    if PESO_CSV.exists():
+        peso_series = _load_csv_long(PESO_CSV, "value")
+        print(f"    {len(peso_series)} categorias com peso Laspeyres")
+    else:
+        print("    [WARN] nao encontrado — pesos nao serao carregados. Rode o pipeline R primeiro.")
+
     cats = sorted(set(var_series) & set(idx_series))
     if only:
         cats = [c for c in cats if c in only]
@@ -287,7 +297,9 @@ def main():
         print("\n[dry-run] Seriam carregadas:")
         for c in cats:
             label = CATEGORY_LABELS[c]
-            print(f"  - {label:45s}  var: {len(var_series[c])} obs   idx: {len(idx_series[c])} obs")
+            sp = peso_series.get(c)
+            peso_info = f"peso: {len(sp)} obs" if sp is not None else "sem peso"
+            print(f"  - {label:45s}  var: {len(var_series[c])} obs   idx: {len(idx_series[c])} obs   {peso_info}")
             if args.sa:
                 print(f"  - {label + ' (SA)':45s}  var/idx dessazonalizados (X-13)")
         return
@@ -307,7 +319,8 @@ def main():
         if not ok:
             sys.exit("\n[ABORT] preflight reprovou. Veja [FAIL] acima.")
         if not args.no_confirm:
-            n_writes = len(cats) * 2 * (2 if args.sa else 1)
+            n_peso = sum(1 for c in cats if c in peso_series)
+            n_writes = len(cats) * 2 * (2 if args.sa else 1) + n_peso
             resp = input(f"\nConfirma gravacao de ate {n_writes} series no SQL? [s/N] ").strip().lower()
             if resp != "s":
                 sys.exit("[ABORT] confirmacao negada.")
@@ -316,9 +329,12 @@ def main():
             label = CATEGORY_LABELS[c]
             sv = var_series[c]
             si = idx_series[c]
+            sp = peso_series.get(c)
             print(f"\n--- {label} ({c}) ---")
             print(f"    var: {len(sv)} obs {sv.index.min().date()} -> {sv.index.max().date()}")
             print(f"    idx: {len(si)} obs (base 100 em dez/2006)")
+            if sp is not None:
+                print(f"    peso: {len(sp)} obs {sp.index.min().date()} -> {sp.index.max().date()}")
 
             # 1) Variacao mensal NSA
             sidra_to_sql(
@@ -336,6 +352,15 @@ def main():
                 haver_code=SIDRA_CODE_IDX.format(cat=c, sha=sha),
                 session=session, replace=True,
             )
+            # 3) Peso Laspeyres (quando disponivel)
+            if sp is not None:
+                sidra_to_sql(
+                    series=sp, country="BR", subject="Prices", indicator="IPCA",
+                    series_name=f"{label} (Peso)", data_type="Peso", frequency="M",
+                    description=f"{label} - Peso mensal (V66 IBGE/SIDRA, Laspeyres)",
+                    haver_code=SIDRA_CODE_PESO.format(cat=c, sha=sha),
+                    session=session, replace=True,
+                )
 
             if args.sa:
                 try:
@@ -368,7 +393,8 @@ def main():
     finally:
         session.close()
 
-    print(f"\n[OK] {len(cats)} categorias carregadas em OPT_Macro_Series_2 / OPT_Macro_Series_Data_2.")
+    n_peso_ok = sum(1 for c in cats if c in peso_series)
+    print(f"\n[OK] {len(cats)} categorias carregadas (var+idx+{n_peso_ok} pesos) em OPT_Macro_Series_2 / OPT_Macro_Series_Data_2.")
 
 
 if __name__ == "__main__":

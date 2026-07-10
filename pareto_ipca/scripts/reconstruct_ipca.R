@@ -133,6 +133,25 @@ EXFE_KEEP_SUBITENS   <- c("1114003")  # bebidas alcoólicas — não excluir
 # Lista oficial em SIDRA pode usar subitens diferentes pra bebida alcoólica;
 # refinar empiricamente se diff vs SGS 28751 ficar > 0.05pp.
 
+# RI Dez/2019 Tab.3 — reclassificações C↔NC na migração POF 2008-09→2017-18.
+# Laticínios (exceto leite em pó 1111009) e panificados frescos: C → NC.
+# Frutas (item 1106, todos 1106xxx): NC → C.
+# Aplicadas SÓ na máscara base (T7060/POF 2017-18); na extended (T2938/T1419)
+# usa a classificação vigente em cada POF (laticínios eram C, frutas eram NC).
+COMERC_EXCL_NC_POF1718 <- c(
+  "1111004",  # Leite longa vida
+  "1111008",  # Leite condensado
+  "1111011",  # Queijo
+  "1111019",  # Iogurte e bebidas lácteas
+  "1111021",  # Requeijão
+  "1111031",  # Manteiga
+  "1111038",  # Leite fermentado
+  "1112015",  # Pão francês
+  "1112017",  # Pão doce
+  "1112019"   # Bolo
+)
+COMERC_INCL_C_ITEM_POF1718 <- "1106"  # frutas — todos os 1106xxx → C
+
 # NT_57 Sec 2.1.1 — EX1. Exclui 12 ITENS (combustíveis + alimentos voláteis):
 EX1_EXCL_ITENS <- c(
   "1101",  # Cereais, leguminosas e oleaginosas
@@ -180,15 +199,39 @@ sidra_url <- function(agg, periodos, var, cls = NULL, cats = NULL) {
   base
 }
 
-# Fetch helper com retry leve e parsing pra long format (periodo, cod_ibge, valor).
-fetch_sidra <- function(var_id, label, periodo_str) {
+# Fetch helper com retry (3 tentativas, 15s/30s de backoff) e parsing pra
+# long format (periodo, cod_ibge, valor). IBGE/SIDRA às vezes retorna XML de
+# erro (servidor sobrecarregado, rate-limit) mesmo com HTTP 200 — detectado
+# via startsWith("<") antes de tentar fromJSON.
+fetch_sidra <- function(var_id, label, periodo_str, max_tries = 3L) {
   url <- sidra_url(SIDRA_AGG, periodo_str, var_id, SIDRA_CLS, NULL)
   cat(sprintf("[GET] %s V%d ...\n", label, var_id))
-  r <- GET(url, timeout(120))
-  if (status_code(r) != 200) {
-    stop(sprintf("SIDRA V%d falhou: HTTP %d", var_id, status_code(r)))
+  txt <- NULL
+  for (attempt in seq_len(max_tries)) {
+    if (attempt > 1L) {
+      wait <- 15L * (attempt - 1L)
+      cat(sprintf("    [retry %d/%d] aguardando %ds...\n", attempt, max_tries, wait))
+      Sys.sleep(wait)
+    }
+    r <- GET(url, timeout(120))
+    if (status_code(r) != 200) {
+      cat(sprintf("    HTTP %d na tentativa %d\n", status_code(r), attempt))
+      if (attempt == max_tries)
+        stop(sprintf("SIDRA V%d falhou: HTTP %d após %d tentativas", var_id, status_code(r), max_tries))
+      next
+    }
+    candidate <- content(r, "text", encoding = "UTF-8")
+    if (startsWith(trimws(candidate), "<")) {
+      cat(sprintf("    SIDRA retornou XML na tentativa %d (servidor sobrecarregado?)\n", attempt))
+      cat(sprintf("    Início: %.120s\n", candidate))
+      if (attempt == max_tries)
+        stop(sprintf("SIDRA V%d retornou XML após %d tentativas — tente novamente mais tarde", var_id, max_tries))
+      next
+    }
+    txt <- candidate
+    break
   }
-  raw <- fromJSON(content(r, "text", encoding = "UTF-8"), simplifyDataFrame = FALSE)
+  raw <- fromJSON(txt, simplifyDataFrame = FALSE)
   rows <- list()
   for (var_node in raw) {
     for (res_node in var_node$resultados) {
@@ -506,22 +549,38 @@ agg_alim_ind  <- calc_agg(alim_ind_subi)
 names(agg_alim_ind)[2:3] <- c("var_alim_ind", "peso_alim_ind")
 
 # Onda 3d — Comercializáveis vs Não-Comercializáveis.
-# Definição BCB (clássica, RI/WP374):
-#   COMERC   = bens industriais (D+SD+ND-ind) + alimentos industrializados
-#              + alimentos semi-elaborados (cortes carne, cereais beneficiados)
-#   NCOMERC  = serviços (incl. alim_fora) + monitorados + alim in-natura
-#              (hortaliças, frutas, ovo, leite fresco — locais)
-# Identidade: COMERC + NCOMERC = 100% peso. Valida vs SGS 4447 / 4448.
+# Definição BCB (RI Dez/2019 Tab.5/6, SGS 4447/4448):
+#   IPCA = COMERC + NCOMERC + MONITORADOS (três categorias, não binário)
+#   COMERC   = bens industriais + alim_industr + alim_semi_elab
+#   NCOMERC  = serviços (incl. alim_fora) + alim in-natura
+#   MONITORADOS = preços administrados (SGS 4449 — categoria separada)
+# Monitorados NÃO entram em COMERC nem NCOMERC.
+# RI Dez/2019 Tab.3 — tratamento híbrido calibrado contra BCB SGS 4447/4448:
+#   Frutas (1106xxx) → C retroativamente em toda janela (BCB aplica assim no SGS).
+#   Laticínios/panificados → NC apenas na máscara base (T7060/2020+); BCB mantém
+#   esses itens em C na série histórica (SGS 4447 pré-2020 os trata como C).
+# Identidade: peso_comerc + peso_ncomerc + peso_admin ≈ 100.
+is_extended_mask <- grepl("extended", MASK_CLASS_PATH, ignore.case = TRUE)
+.comerc_excl      <- if (is_extended_mask) character(0) else COMERC_EXCL_NC_POF1718
+.comerc_incl_item <- COMERC_INCL_C_ITEM_POF1718   # frutas → C em toda janela
+
 comerc_subi <- subi[
-  (!is.na(subi$bens_industriais) & subi$bens_industriais) |
-  (!is.na(subi$proc_grau) & subi$proc_grau %in% c("industr", "semi_elab")), ]
+  !subi$is_admin &
+  !(!is.na(subi$cod_ibge) & subi$cod_ibge %in% .comerc_excl) &
+  ((!is.na(subi$bens_industriais) & subi$bens_industriais) |
+   (!is.na(subi$proc_grau) & subi$proc_grau %in% c("industr", "semi_elab")) |
+   (nzchar(.comerc_incl_item) & !is.na(subi$cod_ibge) &
+    substr(subi$cod_ibge, 1, 4) == .comerc_incl_item)), ]
 agg_comerc  <- calc_agg(comerc_subi)
 names(agg_comerc)[2:3] <- c("var_comerc", "peso_comerc")
 
 ncomerc_subi <- subi[
-  subi$is_admin |
-  (!is.na(subi$classe) & subi$classe %in% c("servico", "alimento_fora")) |
-  (!is.na(subi$proc_grau) & subi$proc_grau == "in_natura"), ]
+  !subi$is_admin &
+  !(nzchar(.comerc_incl_item) & !is.na(subi$cod_ibge) &
+    substr(subi$cod_ibge, 1, 4) == .comerc_incl_item) &
+  ((!is.na(subi$classe) & subi$classe %in% c("servico", "alimento_fora")) |
+   (!is.na(subi$proc_grau) & subi$proc_grau == "in_natura") |
+   (!is.na(subi$cod_ibge) & subi$cod_ibge %in% .comerc_excl)), ]
 agg_ncomerc  <- calc_agg(ncomerc_subi)
 names(agg_ncomerc)[2:3] <- c("var_ncomerc", "peso_ncomerc")
 
@@ -820,6 +879,7 @@ val <- out[, c("periodo", "var_admin", "var_livres",
                "peso_alim_dom",
                "var_comerc", "peso_comerc",
                "var_ncomerc", "peso_ncomerc",
+               "peso_admin",
                "var_nucleo_ma", "var_nucleo_ms", "var_nucleo_dp",
                "var_nucleo_exfe", "var_nucleo_ex1",
                "var_ex3_serv", "var_ex3_ind", "var_difusao",
@@ -858,8 +918,9 @@ val$diff_serv_subj   <- val$var_serv_subj   - val$bcb_serv_subj
 val$diff_ex3_ind     <- val$var_ex3_ind     - val$bcb_ex3_ind
 val$diff_difusao     <- val$var_difusao     - val$bcb_difusao
 val$diff_nucleo_p55  <- val$var_nucleo_p55  - val$bcb_nucleo_p55
-# Identidade: peso_comerc + peso_ncomerc deve dar ~100
-val$peso_comerc_total <- val$peso_comerc + val$peso_ncomerc
+# Identidade: COMERC + NCOMERC = peso_livres (≈74%); COMERC + NCOMERC + ADMIN ≈ 100
+val$peso_comerc_total <- val$peso_comerc + val$peso_ncomerc + val$peso_admin
+val$peso_cn_livres    <- val$peso_comerc + val$peso_ncomerc
 # Consistency: SUBJ + EXSUBJ ponderado deve recompor SERV total.
 val$var_serv_recomp <- (val$var_serv_subj * val$peso_serv_subj +
                         val$var_serv_exsubj * val$peso_serv_exsubj) /
@@ -905,9 +966,12 @@ cat(sprintf("    erro absoluto médio comerc:    %.4f pp\n",
             mean(abs(val$diff_comerc), na.rm = TRUE)))
 cat(sprintf("    erro absoluto médio n-comerc:  %.4f pp\n",
             mean(abs(val$diff_ncomerc), na.rm = TRUE)))
-cat(sprintf("    soma pesos (comerc+ncomerc): mín=%.2f máx=%.2f (esperado ~100)\n",
+cat(sprintf("    soma pesos (comerc+ncomerc+admin): mín=%.2f máx=%.2f (esperado ~100)\n",
             min(val$peso_comerc_total, na.rm = TRUE),
             max(val$peso_comerc_total, na.rm = TRUE)))
+cat(sprintf("    soma pesos (comerc+ncomerc): mín=%.2f máx=%.2f (esperado ~peso_livres≈74)\n",
+            min(val$peso_cn_livres, na.rm = TRUE),
+            max(val$peso_cn_livres, na.rm = TRUE)))
 cat(sprintf("    erro absoluto médio núc. MA:   %.4f pp\n",
             mean(abs(val$diff_nucleo_ma), na.rm = TRUE)))
 cat(sprintf("    erro absoluto médio núc. MS:   %.4f pp\n",
@@ -1006,7 +1070,7 @@ cat("    OK. Outputs em", OUT_DIR, "\n")
 #   administrados | livres | industriais | servicos | alim_domicilio
 
 if (SKIP_PARETO_UPDATE) {
-  cat("\n[8] SKIP_PARETO_UPDATE=1 — pulando merge em ", PARETO_BASE_CSV, "\n", sep = "")
+  cat("\n[8/9] SKIP_PARETO_UPDATE=1 — pulando merge (recon + pesos) em data/\n")
   quit(status = 0)
 }
 
@@ -1073,3 +1137,66 @@ cat(sprintf("    OK. %d linhas (%s → %s) em %s\n",
             nrow(combined),
             format(min(combined$date)), format(max(combined$date)),
             PARETO_BASE_CSV))
+
+# ---------------------------------------------------------------------------
+# 9. Exporta pesos Laspeyres (data/ipca_pareto_pesos.csv)
+#
+# Formato long: (date, category_code, value) com value = peso mensal agregado
+# (Σ w_i dos subitens da classe, V66 SIDRA). Cobre as 21 categorias
+# Laspeyres; as 6 restantes (MA/MS/DP/P55/difusao/nucleo_medio) não têm peso
+# Laspeyres bem definido e ficam ausentes.
+
+PARETO_PESOS_CSV <- Sys.getenv("PARETO_PESOS_CSV_OVR", unset = "data/ipca_pareto_pesos.csv")
+cat("\n[9] Atualizando pesos em ", PARETO_PESOS_CSV, "...\n", sep = "")
+dir.create(dirname(PARETO_PESOS_CSV), showWarnings = FALSE, recursive = TRUE)
+
+stack_peso <- function(cat_code, peso_col) {
+  data.frame(
+    date          = periodo_to_date(out$periodo),
+    category_code = cat_code,
+    value         = out[[peso_col]],
+    stringsAsFactors = FALSE
+  )
+}
+
+pesos_long <- rbind(
+  stack_peso("administrados",   "peso_admin"),
+  stack_peso("livres",          "peso_livres"),
+  stack_peso("industriais",     "peso_industr"),
+  stack_peso("servicos",        "peso_serv"),
+  stack_peso("alim_domicilio",  "peso_alim_dom"),
+  stack_peso("nucleo_ex0",      "peso_nucleo_ex0"),
+  stack_peso("nucleo_ex3",      "peso_nucleo_ex3"),
+  stack_peso("duraveis",        "peso_duravel"),
+  stack_peso("semiduraveis",    "peso_semidur"),
+  stack_peso("ndur_industr",    "peso_ndind"),
+  stack_peso("servicos_subj",   "peso_serv_subj"),
+  stack_peso("servicos_exsubj", "peso_serv_exsubj"),
+  stack_peso("alim_in_natura",  "peso_alim_in"),
+  stack_peso("alim_semi_elab",  "peso_alim_se"),
+  stack_peso("alim_industr",    "peso_alim_ind"),
+  stack_peso("comerc",          "peso_comerc"),
+  stack_peso("ncomerc",         "peso_ncomerc"),
+  stack_peso("nucleo_exfe",     "peso_nucleo_exfe"),
+  stack_peso("nucleo_ex1",      "peso_nucleo_ex1"),
+  stack_peso("ex3_serv",        "peso_ex3_serv"),
+  stack_peso("ex3_ind",         "peso_ex3_ind")
+)
+pesos_long <- pesos_long[!is.na(pesos_long$value), ]
+
+if (file.exists(PARETO_PESOS_CSV)) {
+  existing_p <- read.csv(PARETO_PESOS_CSV, stringsAsFactors = FALSE, encoding = "UTF-8")
+  existing_p$date <- as.Date(existing_p$date)
+  k_old_p <- paste(existing_p$date, existing_p$category_code)
+  k_new_p <- paste(pesos_long$date, pesos_long$category_code)
+  existing_p <- existing_p[!k_old_p %in% k_new_p, ]
+  combined_p <- rbind(existing_p, pesos_long)
+} else {
+  combined_p <- pesos_long
+}
+combined_p <- combined_p[order(combined_p$date, combined_p$category_code), ]
+write.csv(combined_p, PARETO_PESOS_CSV, row.names = FALSE, fileEncoding = "UTF-8")
+cat(sprintf("    OK. %d linhas (%s → %s) em %s\n",
+            nrow(combined_p),
+            format(min(combined_p$date)), format(max(combined_p$date)),
+            PARETO_PESOS_CSV))

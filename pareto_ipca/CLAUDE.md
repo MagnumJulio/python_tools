@@ -92,7 +92,7 @@ Todas as 20 categorias têm **238 observações cobrindo 2006-07 → 2026-04** (
 | Controles primários | alim_dom, industriais, duraveis, livres, **nucleo_ma**, **difusão** | 0.0024–0.0094 | Bate quase exato |
 | Núcleos NT_57 | **nucleo_ex1**, **nucleo_exfe**, **ex3_ind**, **nucleo_ms** | 0.0027–0.0085 | Fórmulas NT_57 — bate quase exato |
 | Controles secundários | admin, servicos, semidur, **nucleo_ex0/ex3**, **ex3_serv**, **nucleo_dp** | 0.011–0.024 | Diferenças marginais |
-| Comerc/Ncomerc | comerc, ncomerc | 0.10, 0.26 | BCB processa um pouco diferente; bias ≈ 0 |
+| Comerc/Ncomerc | comerc, ncomerc | 0.081, 0.084 | Bias ≈ 0 (simétrico). Piso residual: fronteira C/NC não publicada em detalhe subitem. |
 
 **Núcleos estatísticos — nível ITEM (não subitem).** EE102/2021 nota 2 + NT_57 Sec 2.3-2.4: MA/MS operam a nível ITEM (51 itens, nchar=4). Validado empiricamente: trim 20/80 a nível item vs SGS 11426 — `mean|d|=0.0025pp, max|d|=0.0049pp`. Versão antiga (a nível subitem) tinha `mean|d|≈0.16pp`.
 
@@ -176,3 +176,4 @@ Com o pipeline IBGE-only atual, todas as séries começam em jul/2006, então a 
 - BCB API SGS (só auditoria): `https://api.bcb.gov.br/dados/serie/bcdata.sgs.<CODE>/dados?formato=json`
 - BCB RI Dez/2019 Tab.5: definição autoritativa das classes (monitorado, alimento_domic, alimento_fora, servico, duravel, semiduravel, nao_duravel_industrial). Citado como `source` na coluna das máscaras.
 - BCB WP374 / RI Mar/2014: definição de comerc/ncomerc e alim por grau de processamento (regra IBGE-subitem que adotamos).
+- BCB RI Dez/2019 Tab.3: reclassificações C↔NC na migração POF 2008-09→2017-18. Tratamento calibrado empiricamente contra SGS 4447/4448: frutas (1106xxx) → C retroativamente em toda a janela; laticínios/panificados → NC apenas na máscara base (T7060/2020+), pois BCB SGS mantém esses itens em C pré-2020.

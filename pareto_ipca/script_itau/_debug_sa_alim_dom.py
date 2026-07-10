@@ -19,7 +19,6 @@ from load_pareto_to_sql import _load_csv_long, _try_sa  # noqa: E402
 
 CAT = "alim_domicilio"
 
-
 def describe(name, s):
     print(f"  {name}: n={len(s)}, range=[{s.min():.4f}, {s.max():.4f}], "
           f"NaN={s.isna().sum()}, "

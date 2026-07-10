@@ -13,6 +13,7 @@ sem ter sujado o banco.
 - CSVs gerados pelo pipeline R existem em `data/`:
   - `data/ipca_pareto_recon.csv` (variação mensal)
   - `data/ipca_pareto_indice.csv` (número-índice)
+  - `data/ipca_pareto_pesos.csv` (pesos Laspeyres — gerado junto com recon)
 
 Se ainda não rodou o pipeline R:
 ```bash
@@ -32,8 +33,8 @@ está correta. Não toca SQL, não importa `opt_utils`.
 python script_itau/load_pareto_to_sql.py --dry-run
 ```
 
-**Sucesso:** imprime "27 categorias" duas vezes e lista 27 itens
-(IPCA: Monitorados, IPCA: Livres, ..., IPCA: Indice de Difusao, IPCA: Nucleo P55, IPCA: Nucleo Medio).
+**Sucesso:** imprime "27 categorias" três vezes (recon / índice / pesos) e lista
+27 itens (IPCA: Monitorados, IPCA: Livres, ..., IPCA: Indice de Difusao, IPCA: Nucleo P55, IPCA: Nucleo Medio).
 **Se falhar aqui:** problema é nos CSVs (rode o pipeline R) ou nos labels
 em `CATEGORY_LABELS` (faltaram códigos).
 
@@ -85,8 +86,8 @@ GROUP BY series_id;
 
 SELECT TOP 5 * FROM OPT_Macro_Series_Data_2 WHERE series_id = <id_da_livres_var>
 ORDER BY date;
--- esperado: 2006-07-01 valor=0.130644, 2006-08-01 valor=0.085540, etc.
--- (esses valores estão em sim_output/OPT_Macro_Series_Data_2.csv pra conferência)
+-- esperado: 2006-07-31 valor=0.130644, 2006-08-31 valor=0.085540, etc.
+-- (valores de referência em sim_output/OPT_Macro_Series_Data_2.csv)
 ```
 
 **Se algo estiver errado aqui, ANTES de continuar:**
@@ -100,9 +101,9 @@ DELETE FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
 
 ---
 
-## Estágio 4 — carga completa NSA (25 categorias)
+## Estágio 4 — carga completa NSA (27 categorias)
 
-**Objetivo:** gravar as 54 séries (27 var + 27 idx) com `data_type='NSA'`.
+**Objetivo:** gravar até 81 séries (27 var + 27 idx + até 27 pesos) com `data_type='NSA'`/`'Peso'`.
 Re-roda séries já cadastradas no Estágio 3 — `replace=True` apaga dados
 antigos antes do reinsert, sem duplicar.
 
@@ -110,18 +111,23 @@ antigos antes do reinsert, sem duplicar.
 python script_itau/load_pareto_to_sql.py
 ```
 
-Confirma `Confirma gravacao de ate 54 series no SQL? [s/N]` → `s`.
+Confirma `Confirma gravacao de ate N series no SQL? [s/N]` (N ≤ 81) → `s`.
 
 **Verificação:**
 ```sql
-SELECT COUNT(*) FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
--- esperado: 54
+SELECT data_type, COUNT(*) AS n_series
+FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%'
+GROUP BY data_type;
+-- esperado: NSA=54 (27 var + 27 idx), Peso=até 27
 
-SELECT COUNT(*) FROM OPT_Macro_Series_Data_2
-WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
-                    WHERE haver_code LIKE 'PARETO_IPCA:%');
--- esperado: 12852  (27 categorias × 2 séries × 238 obs)
--- Janela uniforme 2006-07 → 2026-04 em todas as 27 categorias.
+SELECT s.data_type, COUNT(*) AS n_obs
+FROM OPT_Macro_Series_Data_2 d
+JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
+WHERE s.haver_code LIKE 'PARETO_IPCA:%'
+GROUP BY s.data_type;
+-- NSA: 27 categorias × 2 séries × N obs (N = meses desde jul/2006 — cresce a cada IPCA)
+-- Peso: até 27 categorias × N obs
+-- nucleo_medio começa jan/2007 (warm-up DP 6m); as outras a partir jul/2006.
 ```
 
 ---
@@ -253,16 +259,22 @@ Isso só remove o que esse loader inseriu (filtra pelo prefixo
 
 ## Re-execução periódica (após IBGE soltar novo mês)
 
-Pipeline incremental — só recomputa janela recente:
+Pipeline incremental — só recomputa janela recente (não refaz histórico):
 ```bash
 cd pareto_ipca
-Rscript scripts/reconstruct_ipca.R                    # default últimos 24 meses
+Rscript scripts/reconstruct_ipca.R                    # default últimos 24 meses (T7060)
 Rscript scripts/build_pareto_indice.R
 python script_itau/load_pareto_to_sql.py --no-confirm # sem prompt
 ```
 
-`--no-confirm` é útil pra agendar via Task Scheduler. Mantém `--check` e
-log de gravação no stdout pra auditoria.
+`reconstruct_ipca.R` sem args usa T7060 (POF 2017-18) e janela dos últimos
+24 meses. Para reconstruir toda a história (raro): use `seed_ibge_history.R`.
+
+`--no-confirm` pula o prompt interativo. O loader imprime log de cada série
+gravada no stdout — redirecione pra arquivo se quiser auditoria:
+```bash
+python script_itau/load_pareto_to_sql.py --no-confirm > load_$(date +%Y%m%d).log 2>&1
+```
 
 ---
 
