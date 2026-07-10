@@ -30,6 +30,7 @@ PESO_CSV = ROOT / "data" / "ipca_pareto_pesos.csv"
 OUT_DIR  = Path(__file__).resolve().parent / "sim_output"
 
 CATEGORY_LABELS = {
+    "ipca_total":      "IPCA: Total",
     "administrados":   "IPCA: Monitorados",
     "livres":          "IPCA: Livres",
     "industriais":     "IPCA: Industriais",

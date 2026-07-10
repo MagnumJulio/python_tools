@@ -34,6 +34,7 @@ PESO_CSV = ROOT / "data" / "ipca_pareto_pesos.csv"
 # NOTA: ex3_serv (estrito, sem alim_fora) é distinto de servicos_subj (subjacente
 # tradicional, COM alim_fora). SGS 29683 do BCB bate com servicos_subj, não ex3_serv.
 CATEGORY_LABELS = {
+    "ipca_total":      "IPCA: Total",
     "administrados":   "IPCA: Monitorados",
     "livres":          "IPCA: Livres",
     "industriais":     "IPCA: Industriais",
@@ -293,6 +294,10 @@ def main():
     if missing_label:
         sys.exit(f"Falta label em CATEGORY_LABELS pra: {missing_label}")
 
+    # Categorias que só existem no CSV de pesos (sem var/idx — ex: ipca_total).
+    PESO_ONLY = ["ipca_total"]
+    peso_only_cats = [c for c in PESO_ONLY if c in peso_series and (only is None or c in only)]
+
     if args.dry_run:
         print("\n[dry-run] Seriam carregadas:")
         for c in cats:
@@ -302,6 +307,10 @@ def main():
             print(f"  - {label:45s}  var: {len(var_series[c])} obs   idx: {len(idx_series[c])} obs   {peso_info}")
             if args.sa:
                 print(f"  - {label + ' (SA)':45s}  var/idx dessazonalizados (X-13)")
+        for c in peso_only_cats:
+            label = CATEGORY_LABELS[c]
+            sp = peso_series[c]
+            print(f"  - {label:45s}  peso-only: {len(sp)} obs")
         return
 
     from opt_utils.database import SQLConnector  # import preguicoso (corp-only)
@@ -390,10 +399,23 @@ def main():
                     )
                 except Exception as e:
                     print(f"    [WARN] SA falhou para {c}: {e}")
+
+        for c in peso_only_cats:
+            label = CATEGORY_LABELS[c]
+            sp = peso_series[c]
+            print(f"\n--- {label} ({c}) [peso-only] ---")
+            print(f"    peso: {len(sp)} obs {sp.index.min().date()} -> {sp.index.max().date()}")
+            sidra_to_sql(
+                series=sp, country="BR", subject="Prices", indicator="IPCA",
+                series_name=f"{label} (Peso)", data_type="Peso", frequency="M",
+                description=f"{label} - Peso mensal (sempre 100)",
+                haver_code=SIDRA_CODE_PESO.format(cat=c, sha=sha),
+                session=session, replace=True,
+            )
     finally:
         session.close()
 
-    n_peso_ok = sum(1 for c in cats if c in peso_series)
+    n_peso_ok = sum(1 for c in cats if c in peso_series) + len(peso_only_cats)
     print(f"\n[OK] {len(cats)} categorias carregadas (var+idx+{n_peso_ok} pesos) em OPT_Macro_Series_2 / OPT_Macro_Series_Data_2.")
 
 
