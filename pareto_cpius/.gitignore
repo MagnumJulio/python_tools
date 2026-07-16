@@ -1,0 +1,6 @@
+data/
+scripts/outputs/
+.Renviron
+.env
+*.log
+__pycache__/

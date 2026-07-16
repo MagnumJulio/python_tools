@@ -30,7 +30,7 @@ PESO_CSV = ROOT / "data" / "ipca_pareto_pesos.csv"
 OUT_DIR  = Path(__file__).resolve().parent / "sim_output"
 
 CATEGORY_LABELS = {
-    "ipca_total":      "IPCA: Total",
+    "total":           "IPCA: Total",
     "administrados":   "IPCA: Monitorados",
     "livres":          "IPCA: Livres",
     "industriais":     "IPCA: Industriais",
@@ -229,9 +229,11 @@ def main():
             session=session,
         )
         if sp is not None:
+            # Peso compartilha series_name com var NSA (sync corp 2026-07-14);
+            # diferenciacao so via data_type=Peso.
             sim_sidra_to_sql(
                 series=sp, country="BR", subject="Prices", indicator="IPCA",
-                series_name=f"{label} (Peso)", data_type="Peso", frequency="M",
+                series_name=label, data_type="Peso", frequency="M",
                 description=f"{label} - Peso mensal (V66 IBGE/SIDRA, Laspeyres)",
                 haver_code=SIDRA_CODE_PESO.format(cat=c, sha=sha),
                 session=session,

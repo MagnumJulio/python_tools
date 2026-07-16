@@ -1,0 +1,40 @@
+category_code,label,item_code,indent_level,relative_importance,description
+all_items,All items,SA0,0,100.0,CPI-U headline (US city average)
+food,Food,SAF1,1,13.447,Food total
+food_home,Food at home,SAF11,2,8.188,Grocery-store food purchases
+food_cereals_bakery,Cereals and bakery products,SAF111,3,1.016,Cereals + bakery
+food_meats,"Meats, poultry, fish, and eggs",SAF112,3,1.943,Meat-eggs-fish aggregate
+food_dairy,Dairy and related products,SAF113,3,0.731,Milk + cheese + other dairy
+food_fruits_veg,Fruits and vegetables,SAF114,3,1.288,Fresh + processed fruits and vegetables
+food_nonalc_bev,Nonalcoholic beverages and beverage materials,SAF115,3,0.993,Coffee + juices + soft drinks etc.
+food_other_home,Other food at home,SAF116,3,2.217,Sugars + fats + snacks + condiments etc.
+food_away,Food away from home,SEFV,2,5.26,Restaurants and other food services
+energy,Energy,SA0E,1,7.791,All energy (commodities + services)
+energy_commodities,Energy commodities,SACE,2,4.551,Motor fuel + fuel oil
+fuel_oil,Fuel oil,SEHE,3,0.116,Home heating oil
+motor_fuel,Motor fuel,SETB,3,4.377,Gasoline + other motor fuels
+gasoline,Gasoline (all types),SETB01,4,4.25,Main motor fuel commodity
+energy_services,Energy services,SEHF,2,3.24,Electricity + utility (piped) gas
+electricity,Electricity,SEHF01,3,2.505,Electricity for residential use
+utility_gas,Utility (piped) gas service,SEHF02,3,0.735,Natural gas piped to residence
+core,All items less food and energy,SA0L1E,1,78.762,Reference core CPI measure
+core_goods,Commodities less food and energy commodities,SACL1E,2,18.737,Core goods aggregate
+apparel,Apparel,SAA,3,2.457,Clothing aggregate
+new_vehicles,New vehicles,SETA01,3,3.734,New cars + trucks
+used_cars_trucks,Used cars and trucks,SETA02,3,2.629,Used cars + trucks
+medical_goods,Medical care commodities,SAM1,3,1.409,Prescription + OTC meds + supplies
+alcoholic_bev,Alcoholic beverages,SEAF,3,0.82,Alcohol at home + away
+tobacco,Tobacco and smoking products,SEGA,3,0.447,Cigarettes + other tobacco products
+core_services,Services less energy services,SASL5,2,60.025,Core services aggregate (common def)
+shelter,Shelter,SAH1,3,35.149,Rent + OER + lodging away + household insurance
+rent,Rent of primary residence,SEHA,4,7.68,Tenant rent
+oer,Owners' equivalent rent of residences,SEHC,4,25.7,Imputed rent for owner-occupiers
+lodging_away,Lodging away from home,SEHB,4,0.855,Hotels + housing at school (aggregate SEHB)
+medical_services,Medical care services,SAM2,3,6.821,Professional + hospital + insurance services
+physicians_services,Physicians' services,SEMC01,4,1.658,Doctor visits
+hospital_services,Hospital services,SEMD01,4,2.145,Hospital care
+transportation_services,Transportation services,SAS4,3,6.377,Vehicle svcs + insurance + public transport
+motor_vehicle_maint,Motor vehicle maintenance and repair,SETD,4,1.034,Vehicle servicing
+motor_vehicle_insur,Motor vehicle insurance,SETE,4,2.617,Auto insurance premiums
+public_transportation,Public transportation,SETG,4,1.34,Airline + other public transport
+airline_fares,Airline fares,SETG01,5,1.107,Airline tickets

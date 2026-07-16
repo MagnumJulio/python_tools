@@ -1,0 +1,9 @@
+code,label,method,base,excludes,includes,description
+rent_of_shelter,Rent of shelter,sum,,,"rent;oer;lodging_away",Rent + OER + lodging away (Fed shelter concept)
+core_ex_oer,Core CPI ex OER,exclude,core,oer,,Core CPI (SA0L1E) less owners' equivalent rent
+cpi_ex_oer,CPI ex OER,exclude,all_items,oer,,All items less owners' equivalent rent
+core_services_ex_shelter,Core services ex rent of shelter,exclude,core_services,"rent;oer;lodging_away",,Core services less rent + OER + lodging away
+supercore_powell_old,Core services ex RPR & OER (old Powell supercore),exclude,core_services,"rent;oer",,Old Powell supercore: core services less rent + OER only
+core_services_ex_shelter_pubtrans_medical,Core services ex shelter/public transport/medical,exclude,core_services,"rent;oer;lodging_away;public_transportation;medical_services",,Core services less housing + public transportation + medical services
+super_super_core,Super super core (core services ex housing + airline + healthcare),exclude,core_services,"rent;oer;lodging_away;airline_fares;medical_services",,Core services less OER + RPR + lodging + airline + medical services
+core_services_ex_volatiles,Core services ex volatiles (airline + healthcare),exclude,core_services,"airline_fares;medical_services",,Core services less airline + medical services

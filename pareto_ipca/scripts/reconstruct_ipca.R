@@ -1090,6 +1090,7 @@ stack_class <- function(cat_code, var_col) {
 }
 
 recon_long <- rbind(
+  stack_class("total",          "ipca_oficial"),
   stack_class("administrados",  "var_admin"),
   stack_class("livres",         "var_livres"),
   stack_class("industriais",    "var_industr"),
@@ -1159,15 +1160,15 @@ stack_peso <- function(cat_code, peso_col) {
   )
 }
 
-ipca_total_peso <- data.frame(
+total_peso <- data.frame(
   date          = periodo_to_date(out$periodo),
-  category_code = "ipca_total",
+  category_code = "total",
   value         = 100,
   stringsAsFactors = FALSE
 )
 
 pesos_long <- rbind(
-  ipca_total_peso,
+  total_peso,
   stack_peso("administrados",   "peso_admin"),
   stack_peso("livres",          "peso_livres"),
   stack_peso("industriais",     "peso_industr"),

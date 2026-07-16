@@ -1,6 +1,6 @@
 # pareto_ipca — pipeline R IBGE-only para reconstrução de agregações IPCA
 
-Reconstrói, em R, as **27 séries** derivadas do IPCA que o BCB publica (administrados, livres, industriais, serviços, alimentação no domicílio, núcleos, decomposições por processamento e por comercialização), **100% a partir de IBGE/SIDRA**. BCB SGS é usado apenas em scripts de auditoria pra validar a recon. Objetivo: entregar os números no mesmo dia do release IBGE (BCB só publica D+1) com metodologia única em toda a janela disponível.
+Reconstrói, em R, o **IPCA headline (`total`) + 27 séries** derivadas do IPCA que o BCB publica (administrados, livres, industriais, serviços, alimentação no domicílio, núcleos, decomposições por processamento e por comercialização), **100% a partir de IBGE/SIDRA**. BCB SGS é usado apenas em scripts de auditoria pra validar a recon. Objetivo: entregar os números no mesmo dia do release IBGE (BCB só publica D+1) com metodologia única em toda a janela disponível.
 
 **Metodologia base**: BCB NT_57/Dez-2025 ("Núcleos de inflação, séries por exclusão e outras agregações analíticas do IPCA"). É a nota consolidada mais recente publicada pelo BC. Implementação fiel das fórmulas das Seções 2.1.1, 2.2, 2.3, 2.4, 2.6 (apenas EX2 ainda não implementado por exigir listas dos RIs set/2016 e jun/2018).
 
@@ -152,6 +152,12 @@ Com o pipeline IBGE-only atual, todas as séries começam em jul/2006, então a 
 - **+nucleo_medio** corrigido: média dos 5 do conjunto NOVO (EX0+EX3+MS+DP+**P55**)/5. MA NÃO entra mais (foi substituído pelo P55 em jun/2020). Sem SGS BCB direto. Começa 2007-01 (warm-up DP).
 - **ex3_serv** desambiguado: agora é estrito (sem alim_fora), distinto de `servicos_subj` (tradicional, com alim_fora). SGS 29683 bate com servicos_subj (`mean|d|=0.0078pp`), não com ex3_serv estrito.
 - Total: 27 séries cobrindo 2006-07 → atual (nucleo_medio: 2007-01 → atual).
+
+**2026-07-14** — Categoria `total` (IPCA headline) exportada:
+- `reconstruct_ipca.R` agora exporta `total` (variação = `ipca_oficial` da SIDRA) no `ipca_pareto_recon.csv`. Índice deriva no `build_pareto_indice.R` (dinâmico, pega qualquer categoria nova). Peso = 100 no `ipca_pareto_pesos.csv`.
+- Pipeline agora entrega **28 categorias** (headline + 27 agregações).
+- `load_pareto_to_sql.py` + `simulate_pareto_to_sql.py`: renomeado `ipca_total` → `total` no `CATEGORY_LABELS`; removido bloco `PESO_ONLY` (agora é categoria completa com var/idx/weight).
+- Motivação: `ipca_total` no CSV de pesos era código morto (não estava nem sendo gerado); usuário quer o headline no SQL corp como qualquer outra série do pipeline.
 
 **2026-05-25** — Migração de BCB-seed para IBGE-only:
 - **Antes**: `seed_pareto_history.R` baixava 12 séries do BCB SGS pra 1991-01 → 2019-12; `reconstruct_ipca.R` cobria 2020-01 → atual via T7060. 8 séries tinham gap pré-2020 (universo BCB divergente ou sem SGS).

@@ -4,6 +4,20 @@ Procedimento controlado, em 5 estágios, com pontos de parada explícitos.
 Cada estágio é independente — se algo der errado, dá pra parar e investigar
 sem ter sujado o banco.
 
+## Sync local ↔ máquina corp (deltas conhecidos)
+
+Este repo local diverge da cópia da máquina corp em pontos rastreados abaixo.
+Ao migrar mudanças de um lado pro outro, revisar item a item.
+
+| Delta | Estado local | Estado corp | Aplicado em |
+|---|---|---|---|
+| Sufixo `(Peso)` em `series_name` | ❌ removido — peso compartilha `series_name` com NSA, só `data_type` difere | ❌ removido (fonte da mudança) | 2026-07-14 |
+| Categoria `total` (IPCA headline) | ✅ existe — R exporta `ipca_oficial` como `total` var/idx/weight | ⚠️ existe no `CATEGORY_LABELS` como `ipca_total` (label mapping) — precisa **renomear pra `total`** e garantir que o R do corp também exporta | 2026-07-14 (local) |
+| Bloco `PESO_ONLY` no loader | ❌ removido (código morto pós-`total`) | ⚠️ pode ainda existir referenciando `ipca_total` — remover ao sincronizar | 2026-07-14 (local) |
+| `haver_code` → novo campo `ons_code` | ⏳ pendente (só documentado) | ⏳ pendente | — |
+
+**Não reintroduzir `f"{label} (Peso)"`** ao mesclar código.
+
 ## Pré-requisitos (na máquina corp)
 
 - `opt_utils.database.SQLConnector` disponível (mesmo módulo do `sidra_itau.ipynb`)
@@ -26,15 +40,15 @@ Rscript scripts/build_pareto_indice.R   # ~5s, gera ipca_pareto_indice.csv
 
 ## Estágio 1 — `--dry-run` (zero conexão SQL)
 
-**Objetivo:** confirmar que os 2 CSVs são lidos OK e a lista de 27 categorias
+**Objetivo:** confirmar que os 2 CSVs são lidos OK e a lista de 28 categorias
 está correta. Não toca SQL, não importa `opt_utils`.
 
 ```bash
 python script_itau/load_pareto_to_sql.py --dry-run
 ```
 
-**Sucesso:** imprime "27 categorias" três vezes (recon / índice / pesos) e lista
-27 itens (IPCA: Monitorados, IPCA: Livres, ..., IPCA: Indice de Difusao, IPCA: Nucleo P55, IPCA: Nucleo Medio).
+**Sucesso:** imprime "28 categorias" três vezes (recon / índice / pesos) e lista
+28 itens (IPCA: Total, IPCA: Monitorados, IPCA: Livres, ..., IPCA: Indice de Difusao, IPCA: Nucleo P55, IPCA: Nucleo Medio).
 **Se falhar aqui:** problema é nos CSVs (rode o pipeline R) ou nos labels
 em `CATEGORY_LABELS` (faltaram códigos).
 
@@ -101,9 +115,9 @@ DELETE FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
 
 ---
 
-## Estágio 4 — carga completa NSA (27 categorias)
+## Estágio 4 — carga completa NSA (28 categorias)
 
-**Objetivo:** gravar até 81 séries (27 var + 27 idx + até 27 pesos) com `data_type='NSA'`/`'Peso'`.
+**Objetivo:** gravar até 84 séries (28 var + 28 idx + até 22 pesos) com `data_type='NSA'`/`'Peso'`.
 Re-roda séries já cadastradas no Estágio 3 — `replace=True` apaga dados
 antigos antes do reinsert, sem duplicar.
 
@@ -118,15 +132,15 @@ Confirma `Confirma gravacao de ate N series no SQL? [s/N]` (N ≤ 81) → `s`.
 SELECT data_type, COUNT(*) AS n_series
 FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%'
 GROUP BY data_type;
--- esperado: NSA=54 (27 var + 27 idx), Peso=até 27
+-- esperado: NSA=56 (28 var + 28 idx), Peso=até 22 (nucleo_ma/ms/dp/p55/medio/difusao sem peso)
 
 SELECT s.data_type, COUNT(*) AS n_obs
 FROM OPT_Macro_Series_Data_2 d
 JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
 WHERE s.haver_code LIKE 'PARETO_IPCA:%'
 GROUP BY s.data_type;
--- NSA: 27 categorias × 2 séries × N obs (N = meses desde jul/2006 — cresce a cada IPCA)
--- Peso: até 27 categorias × N obs
+-- NSA: 28 categorias × 2 séries × N obs (N = meses desde jul/2006 — cresce a cada IPCA)
+-- Peso: até 22 categorias × N obs (núcleos estatísticos MA/MS/DP/P55/medio/difusao não têm peso)
 -- nucleo_medio começa jan/2007 (warm-up DP 6m); as outras a partir jul/2006.
 ```
 
