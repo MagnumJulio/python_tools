@@ -16,13 +16,15 @@ inicial é one-way (local → corp) copiando o diretório inteiro.
 | `haver_code` → novo campo `ons_code` | ⏳ pendente (mesmo do pareto_ipca) | ⏳ pendente | — |
 | Pesos (BLS Table 6, time-varying) | ✅ fase 2 entregue (RI Dez 2000-2025 + ajuste implícito BLS) | ⏳ precisa da migração inicial | — |
 | SA nativa BLS (sem X-13) | ✅ já é assim (`data_type='SA'` vem direto de CUSR0000<item>) | idem quando migrar | — |
+| Agregações custom (Laspeyres) | ✅ entregue 2026-07-16 (8 recipes: core_ex_oer, super_super_core, supercore_powell_old, etc.) | ⏳ precisa da migração inicial | — |
 
 **Diferença estrutural vs `pareto_ipca`:** cada categoria gera até **5 séries**
 (NSA var, NSA idx, SA var, SA idx, Peso) porque BLS publica SA nativo — não
 precisa de X-13. **Peso é time-varying** (fase 2 entregue): base RI Dez de cada
 ano 2000-2025 + ajuste implícito mensal `w_i(m) = w_i(Dez) × I_i(m) / I_i(Dez)`
-seguindo metodologia BLS "monthly relative importance". Total: 37 × 5 = **185
-séries** com peso; sem peso, 37 × 4 = 148.
+seguindo metodologia BLS "monthly relative importance".
+
+**Totais servidos**: 39 categorias base × 5 séries + 8 agregações custom × 5 séries = **235 séries**. As 8 custom aggregations são derivadas via álgebra Laspeyres em `scripts/build_custom_aggregations.R` a partir do `recon.csv` + `pesos.csv`, e distinguidas no SQL via `haver_code = CPIUS:{cat}/CUSTOM/RECON-{sha}` (vs `CPIUS:{cat}/{sid}/BLS-{sha}` das base).
 
 ## Pré-requisitos (na máquina corp)
 
@@ -40,10 +42,11 @@ séries** com peso; sem peso, 37 × 4 = 148.
 Se ainda não rodou o pipeline:
 ```bash
 cd pareto_cpius
-export BLS_API_KEY=<sua_chave>          # opcional mas recomendado
-Rscript scripts/fetch_bls_cpiu.R           # 2000 → atual, ~30s com chave
-python scripts/parse_historical_ri.py      # RI Dez 2000-2025 → pesos_annual.csv (~2s)
-Rscript scripts/fetch_bls_pesos.R          # peso mensal ajustado (Fase 2), ~1s
+export BLS_API_KEY=<sua_chave>              # opcional mas recomendado
+Rscript scripts/fetch_bls_cpiu.R               # 2000 → atual, ~30s com chave
+python scripts/parse_historical_ri.py          # RI Dez 2000-2025 → pesos_annual.csv (~2s)
+Rscript scripts/fetch_bls_pesos.R              # peso mensal ajustado (Fase 2), ~1s
+Rscript scripts/build_custom_aggregations.R    # deriva 8 agregacoes custom (~2s)
 # (opcional) rebase pra outra base:
 BASE_DATE=2019-12-01 Rscript scripts/build_cpi_indice.R
 ```
@@ -54,19 +57,23 @@ Requer: **Python 3** com `openpyxl` (`pip install openpyxl`) pra parsear os xlsx
 
 ## Estágio 1 — `--dry-run` (zero conexão SQL)
 
-**Objetivo:** confirmar que os 3 CSVs são lidos OK e a lista de 37 categorias
-× 2 sa_flags + peso está correta. Não toca SQL, não importa `opt_utils`.
+**Objetivo:** confirmar que os 5 CSVs são lidos OK e a lista de 47 categorias
+(39 base + 8 custom) × 2 sa_flags + peso está correta. Não toca SQL, não
+importa `opt_utils`.
 
 ```bash
 python script_itau/load_cpius_to_sql.py --dry-run
 ```
 
-**Sucesso:** imprime "74 (categoria, sa_flag) combinacoes" (recon+idx) e
-"37 categorias com peso (Relative Importance BLS)". Lista 37 cats × [NSA,
-SA, Peso] = ~185 itens, cada um com N obs (~317 desde jan/2000).
+**Sucesso:** imprime "78 (categoria, sa_flag) combinacoes" (recon+idx base,
+39 × 2) + "39 categorias com peso (Relative Importance BLS)" + "8 agregacoes
+custom + NSA/SA" + "8 pesos custom derivados". Lista 47 cats × [NSA, SA,
+Peso] = ~235 itens, cada um com N obs (~317 desde jan/2000). As 8 custom
+aparecem com tag `[CUSTOM]`.
 
 **Se falhar aqui:** problema é nos CSVs (rode `fetch_bls_cpiu.R` +
-`fetch_bls_pesos.R`) ou nos labels em `CATEGORY_LABELS` (faltaram códigos).
+`fetch_bls_pesos.R` + `build_custom_aggregations.R`) ou nos labels em
+`CATEGORY_LABELS` / `CUSTOM_LABELS` (faltaram códigos).
 
 ---
 
@@ -137,33 +144,42 @@ DELETE FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'CPIUS:%';
 
 ---
 
-## Estágio 4 — carga completa (37 categorias × 5 séries = 185)
+## Estágio 4 — carga completa (47 categorias × 5 séries = 235)
 
-**Objetivo:** gravar até 185 séries (37 var NSA + 37 idx NSA + 37 var SA + 37
-idx SA + 37 Peso). Re-roda as 10 do Estágio 3 — `replace=True` apaga dados
-antigos antes do reinsert, sem duplicar.
+**Objetivo:** gravar até 235 séries (39 base + 8 custom, cada uma × [NSA var,
+NSA idx, SA var, SA idx, Peso]). Re-roda as 10 do Estágio 3 — `replace=True`
+apaga dados antigos antes do reinsert, sem duplicar.
 
 ```bash
 python script_itau/load_cpius_to_sql.py
 ```
 
-Confirma `Confirma gravacao de ate 185 series no SQL? [s/N]` → `s`.
+Confirma `Confirma gravacao de ate 235 series no SQL? [s/N]` → `s`.
 
 **Verificação:**
 ```sql
 SELECT data_type, COUNT(*) AS n_series
 FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'CPIUS:%'
 GROUP BY data_type;
--- esperado: NSA=74 (37 var + 37 idx), SA=74 (37 var + 37 idx), Peso=37
+-- esperado: NSA=94 (47 var + 47 idx), SA=94 (47 var + 47 idx), Peso=47
+
+-- Distingue base vs custom via haver_code:
+SELECT
+  CASE WHEN haver_code LIKE 'CPIUS:%/CUSTOM/%' THEN 'CUSTOM' ELSE 'BASE' END AS origin,
+  data_type, COUNT(*) AS n
+FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'CPIUS:%'
+GROUP BY CASE WHEN haver_code LIKE 'CPIUS:%/CUSTOM/%' THEN 'CUSTOM' ELSE 'BASE' END, data_type;
+-- BASE:   NSA=78, SA=78, Peso=39  (39 × 5 = 195)
+-- CUSTOM: NSA=16, SA=16, Peso=8   (8 × 5 = 40)
 
 SELECT s.data_type, COUNT(*) AS n_obs
 FROM OPT_Macro_Series_Data_2 d
 JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
 WHERE s.haver_code LIKE 'CPIUS:%'
 GROUP BY s.data_type;
--- NSA:  74 séries × ~316-317 obs
--- SA:   74 séries × ~316-317 obs
--- Peso: 37 séries × 317 obs (RI time-varying, Dez 2000-2025 + ajuste implícito)
+-- NSA:  94 séries × ~316-318 obs
+-- SA:   94 séries × ~316-318 obs
+-- Peso: 47 séries × ~316-317 obs
 ```
 
 ---
@@ -192,6 +208,7 @@ https://www.bls.gov/schedule/news_release/cpi.htm). Pipeline incremental:
 cd pareto_cpius
 Rscript scripts/fetch_bls_cpiu.R                       # re-baixa preços (rápido)
 Rscript scripts/fetch_bls_pesos.R                      # regera pesos ajustados (parse RI só se novo Dez rolou)
+Rscript scripts/build_custom_aggregations.R            # re-deriva 8 custom aggs
 python script_itau/load_cpius_to_sql.py --no-confirm   # sem prompt
 ```
 

@@ -35,10 +35,11 @@ if (length(.farg)) {
   cat(sprintf("[CWD] %s\n", .root))
 }
 
-RECON_CSV   <- "data/cpi_cpius_recon.csv"
-PESOS_CSV   <- "data/cpi_cpius_pesos.csv"
-RECIPE_CSV  <- "scripts/bls_maps/custom_aggregations.csv"
-OUT_CSV     <- "data/cpi_cpius_custom.csv"
+RECON_CSV     <- "data/cpi_cpius_recon.csv"
+PESOS_CSV     <- "data/cpi_cpius_pesos.csv"
+RECIPE_CSV    <- "scripts/bls_maps/custom_aggregations.csv"
+OUT_CSV       <- "data/cpi_cpius_custom.csv"
+OUT_PESOS_CSV <- "data/cpi_cpius_pesos_custom.csv"
 
 if (!file.exists(RECON_CSV))  stop(sprintf("Nao encontrei %s", RECON_CSV))
 if (!file.exists(PESOS_CSV))  stop(sprintf("Nao encontrei %s", PESOS_CSV))
@@ -89,6 +90,7 @@ rownames(w_peso) <- format(w_peso$date)
 
 # Constroi cada recipe
 out_rows <- vector("list", 0)
+peso_rows <- vector("list", 0)
 
 for (ri in seq_len(nrow(recipe))) {
   r <- recipe[ri, ]
@@ -108,6 +110,7 @@ for (ri in seq_len(nrow(recipe))) {
     iw <- idx_wide[[sf]]
 
     var_series <- rep(NA_real_, length(datas))
+    peso_series <- rep(NA_real_, length(datas))
     for (k in seq_along(datas)) {
       dk <- format(datas[k])
       if (!(dk %in% rownames(vw))) next
@@ -131,6 +134,7 @@ for (ri in seq_len(nrow(recipe))) {
         }
         if (ok && is.finite(den) && den > 0) {
           var_series[k] <- num / den
+          peso_series[k] <- den
         }
       } else if (method == "sum") {
         num <- 0; den <- 0; ok <- length(incl) > 0
@@ -142,7 +146,10 @@ for (ri in seq_len(nrow(recipe))) {
           num <- num + vi * wi
           den <- den + wi
         }
-        if (ok && den > 0) var_series[k] <- num / den
+        if (ok && den > 0) {
+          var_series[k] <- num / den
+          peso_series[k] <- den
+        }
       } else {
         stop(sprintf("method desconhecido: %s", method))
       }
@@ -180,6 +187,16 @@ for (ri in seq_len(nrow(recipe))) {
       value_var_yoy = round(yoy_series, 6),
       stringsAsFactors = FALSE
     )
+
+    # Pesos nao dependem de sa_flag — grava so uma vez por recipe
+    if (sf == sa_flags[1]) {
+      peso_rows[[length(peso_rows) + 1]] <- data.frame(
+        date          = datas,
+        category_code = code,
+        value         = round(peso_series, 4),
+        stringsAsFactors = FALSE
+      )
+    }
   }
 }
 
@@ -189,6 +206,13 @@ out <- out[order(out$date, out$category_code, out$sa_flag), ]
 dir.create("data", showWarnings = FALSE, recursive = TRUE)
 write.csv(out, OUT_CSV, row.names = FALSE, fileEncoding = "UTF-8")
 cat(sprintf("\n[3] %d linhas -> %s\n", nrow(out), OUT_CSV))
+
+# Grava pesos custom (drop linhas com NA no value pra CSV mais limpo)
+out_pesos <- do.call(rbind, peso_rows)
+out_pesos <- out_pesos[!is.na(out_pesos$value), ]
+out_pesos <- out_pesos[order(out_pesos$date, out_pesos$category_code), ]
+write.csv(out_pesos, OUT_PESOS_CSV, row.names = FALSE, fileEncoding = "UTF-8")
+cat(sprintf("[4] %d linhas -> %s\n", nrow(out_pesos), OUT_PESOS_CSV))
 
 # Sanity: ultimo ponto NSA por recipe
 cat("\n[Sanity] Ultimo ponto (NSA) por agregado:\n")

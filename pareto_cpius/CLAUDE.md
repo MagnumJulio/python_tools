@@ -1,6 +1,6 @@
 # pareto_cpius — pipeline R BLS-only para CPI-U (US) e agregações principais
 
-Fetcha, em R, o **CPI-U headline + 36 agregações hierárquicas** (37 categorias no total) publicadas na Table 1 do release mensal do BLS (Bureau of Labor Statistics, US), em SA (Seasonally Adjusted) e NSA (Not Seasonally Adjusted), **100% a partir da BLS Public Data API v2**. FRED (St. Louis Fed) reservado apenas pra auditoria — a série FRED de CPI-U é uma cópia licenciada do BLS, então serve pra confirmar que nossa recon bate.
+Fetcha, em R, o **CPI-U headline + 38 agregações hierárquicas** publicadas na Table 1 do release mensal do BLS (Bureau of Labor Statistics, US), em SA (Seasonally Adjusted) e NSA (Not Seasonally Adjusted), **100% a partir da BLS Public Data API v2**. Também deriva **8 agregações custom** via álgebra Laspeyres com os pesos mensais (core ex OER, super super core, supercore Powell, etc.), totalizando **47 categorias**. FRED (St. Louis Fed) reservado apenas pra auditoria — a série FRED de CPI-U é uma cópia licenciada do BLS, então serve pra confirmar que nossa recon bate.
 
 **Fonte primária**: BLS API v2 (`api.bls.gov/publicAPI/v2/timeseries/data/`) — endpoint POST JSON que aceita até 50 séries por request com `registrationkey` (chave gratuita) ou 25 séries sem chave. Item codes seguem a taxonomia do BLS CPI (`SA0`, `SA0L1E`, `SAF1`, etc.), montados em series IDs `CUUR0000<item>` (NSA) e `CUSR0000<item>` (SA).
 
@@ -27,12 +27,13 @@ pareto_cpius/
 
 ```bash
 cd pareto_cpius
-Rscript scripts/fetch_bls_cpiu.R          # baixa 37 categorias × SA+NSA, jan/2000 → atual
-python scripts/parse_historical_ri.py     # parseia RI Dez/2000-2025 (txt + xlsx) → pesos_annual.csv
-Rscript scripts/fetch_bls_pesos.R         # aplica ajuste implicito BLS → peso mensal por cat
+Rscript scripts/fetch_bls_cpiu.R              # baixa 39 categorias base × SA+NSA, jan/2000 → atual
+python scripts/parse_historical_ri.py         # parseia RI Dez/2000-2025 (txt + xlsx) → pesos_annual.csv
+Rscript scripts/fetch_bls_pesos.R             # aplica ajuste implicito BLS → peso mensal por cat
+Rscript scripts/build_custom_aggregations.R   # deriva 8 agregacoes custom (algebra Laspeyres)
 ```
 
-Saídas em `data/`: `cpi_cpius_recon.csv` (índice + var mensal + var yoy), `cpi_cpius_indice.csv` (rebased jan/2000=100), `cpi_cpius_pesos_annual.csv` (RI base Dez, 26 anos × 37 cats), `cpi_cpius_pesos.csv` (peso mensal ajustado por preço em % dos 37 componentes).
+Saídas em `data/`: `cpi_cpius_recon.csv` (índice + var mensal + var yoy, 39 base cats), `cpi_cpius_indice.csv` (rebased jan/2000=100), `cpi_cpius_pesos_annual.csv` (RI base Dez, 26 anos × 39 cats), `cpi_cpius_pesos.csv` (peso mensal ajustado por preço), `cpi_cpius_custom.csv` (8 agregações custom, mesmo schema do recon), `cpi_cpius_pesos_custom.csv` (pesos derivados das custom).
 
 **Chave BLS (recomendada)**: register em https://data.bls.gov/registrationEngine/ e exporte:
 ```bash
@@ -46,9 +47,9 @@ START_YEAR=1990 Rscript scripts/fetch_bls_cpiu.R
 ```
 O código quebra automaticamente em sub-janelas de 20 anos (limite BLS v2 por request).
 
-## Escopo das 37 agregações mapeadas (Table 1)
+## Escopo das 39 categorias base mapeadas (Table 1)
 
-Hierarquia completa da Table 1 (indent = nível). Todas saem tanto em SA quanto em NSA. Item codes canônicos definidos em `scripts/bls_maps/cpiu_table_1.csv` (coluna `indent_level` preserva a hierarquia).
+Hierarquia completa da Table 1 (indent = nível). Todas saem tanto em SA quanto em NSA. Item codes canônicos definidos em `scripts/bls_maps/cpiu_table_1.csv` (coluna `indent_level` preserva a hierarquia). Adicionadas em 2026-07-16: `lodging_away` (SEHB) e `public_transportation` (SETG) — necessárias como leaf-level nos exclude recipes das agregações custom.
 
 **All items** (`all_items` — SA0)
 - **Food** (`food` — SAF1)
@@ -101,6 +102,33 @@ Depois renormaliza a soma food+energy+core=100 pra preservar coerência hierárq
 
 **Cats com drift de label** que exigiram fallback histórico: `oer` (era "primary residence" antes de 2018), `utility_gas` ("Utility natural gas service" pré-2015), `hospital_services` ("...and related services" pré-2010), `airline_fares` ("Airline fare" singular pré-2007), `energy_services` (não existia como agregado nomeado; derivado de electricity+utility_gas em 2000-2005). Ver `CATS`/`DERIVED` em `scripts/parse_historical_ri.py`.
 
+## Agregações custom (Laspeyres) — entregue 2026-07-16
+
+`scripts/build_custom_aggregations.R` lê `data/cpi_cpius_recon.csv` + `data/cpi_cpius_pesos.csv` + recipe file `scripts/bls_maps/custom_aggregations.csv` e deriva agregações que não existem prontas no release BLS, usando o mesmo peso mensal do fetch_bls_pesos.
+
+**Métodos suportados** (coluna `method` da recipe):
+- `exclude`: `var_agg(m) = (var_base × w_base − Σ var_i × w_i) / (w_base − Σ w_i)`, onde `i` está na coluna `excludes`. Peso derivado: `w_agg = w_base − Σ w_i`.
+- `sum`: `var_agg(m) = Σ var_i × w_i / Σ w_i`, onde `i` está em `includes`. Peso derivado: `w_agg = Σ w_i`.
+
+Índice reconstruído por composição mensal a partir de jan/2000=100 (`I(m) = I(m−1) × (1 + var(m)/100)`), YoY = `I(m)/I(m−12) − 1`.
+
+**8 recipes iniciais** (`scripts/bls_maps/custom_aggregations.csv`):
+
+| code | método | base | excludes/includes | descrição |
+|---|---|---|---|---|
+| `rent_of_shelter` | sum | — | rent + oer + lodging_away | Conceito Fed de shelter (RPR + OER + lodging) |
+| `core_ex_oer` | exclude | core | oer | Core CPI (SA0L1E) menos OER |
+| `cpi_ex_oer` | exclude | all_items | oer | All items menos OER |
+| `core_services_ex_shelter` | exclude | core_services | rent + oer + lodging_away | Core services menos rent-of-shelter |
+| `supercore_powell_old` | exclude | core_services | rent + oer | Powell supercore antigo (só RPR+OER) |
+| `core_services_ex_shelter_pubtrans_medical` | exclude | core_services | rent + oer + lodging_away + public_transportation + medical_services | Core services menos housing + PubTrans + medical |
+| `super_super_core` | exclude | core_services | rent + oer + lodging_away + airline_fares + medical_services | Core services ex OER+RPR+lodging+airline+medical |
+| `core_services_ex_volatiles` | exclude | core_services | airline_fares + medical_services | Core services menos volatilidades |
+
+**Extensibilidade**: adicionar uma linha em `custom_aggregations.csv` + expandir `CUSTOM_LABELS` em `simulate_cpius_to_sql.py` e `load_cpius_to_sql.py`. Nenhum código novo em R necessário.
+
+**Validação (release Jun/2026)**: peso derivado bate exato com a algebra esperada (`w_cpi_ex_oer = 74.1508` = `w_all − w_oer = 99.9997 − 25.8489`). YoY do último ponto NSA: `cpi_ex_oer=3.62%`, `supercore_powell_old=3.33%`, `rent_of_shelter=3.30%`, `super_super_core=1.97%` — trajetórias condizentes com narrativa Fed (super_super_core = medida mais "core").
+
 ## Metas próximas (fase 2)
 
 1. **Núcleos alternativos (Cleveland Fed):**
@@ -110,17 +138,14 @@ Depois renormaliza a soma food+energy+core=100 pra preservar coerência hierárq
 
 2. ~~**Pesos históricos anuais**~~ ✅ **entregue 2026-07-16** — RI Dez 2000-2025 parsed dos arquivos brutos + ajuste implícito mensal BLS. Ver seção "Pesos" acima.
 
-3. **Recon Laspeyres via subitens** (Table 7):
-   - BLS Table 7 (`Detailed CPI expenditure categories`, ~200 subitens) + weights (Table 6/8).
-   - Permite reconstruir headline e agregações do zero — análogo ao pipeline SIDRA T7060 do `pareto_ipca`.
-   - **Trade-off**: pipeline vira 20× mais pesado, ganho é modesto se BLS já publica os agregados prontos. Vale a pena só se quisermos derivar recortes custom (ex.: "core services less shelter", "supercore").
+3. ~~**Recon Laspeyres via subitens** (Table 7)~~ — parcialmente **superado** por `build_custom_aggregations.R` (2026-07-16). Recortes tipo "core services less shelter" / "supercore" agora derivam via álgebra Laspeyres a partir das 39 agregações prontas do BLS + peso mensal, sem precisar dos ~200 subitens. Recon via Table 7 continuaria útil apenas se precisarmos operar dentro de leaf-level (ex.: excluir apenas gasolina não-premium), mas isso é fora do escopo atual.
 
 4. **C-CPI-U (Chained CPI)** (Table 3):
    - Publicado com defasagem (revisões subsequentes). BLS API expõe via item codes `SUUR0000<item>`. Baixa relevância no dia a dia mas útil pra debates de indexação (Social Security etc.).
 
 5. **Auditoria FRED**: script `_audit_bls_vs_fred.R` comparando nossa recon BLS-native contra as mesmas séries republicadas em FRED (ex.: `CPIAUCSL` = SA0 SA). Deve bater exato (FRED apenas re-serve BLS).
 
-6. **Loader SQL corp Itaú** (`script_itau/load_cpius_to_sql.py`, ✅ MVP entregue): mesmo padrão de `pareto_ipca/script_itau/load_pareto_to_sql.py`. Cada categoria vira até 5 séries: NSA var, NSA idx, SA var, SA idx, Peso. Convenções (peso sem sufixo, `haver_code = CPIUS:{cat}/RI/BLS-{sha}`) seguem `pareto_ipca` (ver `pareto_ipca/CLAUDE.md`). Total: 37 × 5 = **185 séries**.
+6. **Loader SQL corp Itaú** (`script_itau/load_cpius_to_sql.py`, ✅ entregue): mesmo padrão de `pareto_ipca/script_itau/load_pareto_to_sql.py`. Cada categoria vira até 5 séries: NSA var, NSA idx, SA var, SA idx, Peso. Convenções seguem `pareto_ipca`. `haver_code` distingue origem: `CPIUS:{cat}/{sid}/BLS-{sha}` pras 39 base cats, `CPIUS:{cat}/CUSTOM/RECON-{sha}` pras 8 recipes. Total: 39 × 5 + 8 × 5 = **235 séries**. Simulador local em `simulate_cpius_to_sql.py` (mesma lógica com `MockSQLConnector`).
 
 ## Convenções dos scripts
 

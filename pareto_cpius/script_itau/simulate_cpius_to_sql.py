@@ -29,10 +29,12 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-RECON_CSV = ROOT / "data" / "cpi_cpius_recon.csv"
-IDX_CSV   = ROOT / "data" / "cpi_cpius_indice.csv"
-PESO_CSV  = ROOT / "data" / "cpi_cpius_pesos.csv"
-OUT_DIR   = Path(__file__).resolve().parent / "sim_output"
+RECON_CSV        = ROOT / "data" / "cpi_cpius_recon.csv"
+IDX_CSV          = ROOT / "data" / "cpi_cpius_indice.csv"
+PESO_CSV         = ROOT / "data" / "cpi_cpius_pesos.csv"
+CUSTOM_CSV       = ROOT / "data" / "cpi_cpius_custom.csv"
+CUSTOM_PESOS_CSV = ROOT / "data" / "cpi_cpius_pesos_custom.csv"
+OUT_DIR          = Path(__file__).resolve().parent / "sim_output"
 
 # 37 category_code -> nome legivel. Espelha Table 1 do release BLS CPI-U
 # (Consumer Price Index for All Urban Consumers, U.S. city average, by
@@ -75,12 +77,30 @@ CATEGORY_LABELS = {
     "transportation_services": "CPI-U: Transportation Services",
     "motor_vehicle_maint":     "CPI-U: Motor Vehicle Maintenance and Repair",
     "motor_vehicle_insur":     "CPI-U: Motor Vehicle Insurance",
+    "public_transportation":   "CPI-U: Public Transportation",
     "airline_fares":           "CPI-U: Airline Fares",
+    "lodging_away":            "CPI-U: Lodging Away from Home",
 }
 
-CPIUS_CODE_VAR  = "CPIUS:{cat}/{sid}/BLS-{sha}"
-CPIUS_CODE_IDX  = "CPIUS:{cat}/{sid}/Index/BLS-{sha}"
-CPIUS_CODE_PESO = "CPIUS:{cat}/RI/BLS-{sha}"
+# Agregacoes custom derivadas via algebra Laspeyres (build_custom_aggregations.R).
+# Recipes em scripts/bls_maps/custom_aggregations.csv.
+CUSTOM_LABELS = {
+    "rent_of_shelter":                           "CPI-U: Rent of Shelter (Custom)",
+    "core_ex_oer":                               "CPI-U: Core ex OER (Custom)",
+    "cpi_ex_oer":                                "CPI-U: All Items ex OER (Custom)",
+    "core_services_ex_shelter":                  "CPI-U: Core Services ex Rent of Shelter (Custom)",
+    "supercore_powell_old":                      "CPI-U: Core Services ex RPR & OER (Old Powell Supercore, Custom)",
+    "core_services_ex_shelter_pubtrans_medical": "CPI-U: Core Services ex Shelter/PubTrans/Medical (Custom)",
+    "super_super_core":                          "CPI-U: Super Super Core (Custom)",
+    "core_services_ex_volatiles":                "CPI-U: Core Services ex Volatiles (Custom)",
+}
+
+CPIUS_CODE_VAR    = "CPIUS:{cat}/{sid}/BLS-{sha}"
+CPIUS_CODE_IDX    = "CPIUS:{cat}/{sid}/Index/BLS-{sha}"
+CPIUS_CODE_PESO   = "CPIUS:{cat}/RI/BLS-{sha}"
+CPIUS_CODE_CUSTOM_VAR  = "CPIUS:{cat}/CUSTOM/RECON-{sha}"
+CPIUS_CODE_CUSTOM_IDX  = "CPIUS:{cat}/CUSTOM/Index/RECON-{sha}"
+CPIUS_CODE_CUSTOM_PESO = "CPIUS:{cat}/CUSTOM/Peso/RECON-{sha}"
 
 SERIES_COLS = ["series_id", "country", "subject", "indicator", "series_name",
                "data_type", "frequency", "description", "haver_code"]
@@ -227,17 +247,39 @@ def main():
     else:
         print("    [WARN] nao encontrado — pesos nao serao carregados. Rode scripts/fetch_bls_pesos.R.")
 
+    # Custom aggregations (recipes em scripts/bls_maps/custom_aggregations.csv,
+    # geradas por build_custom_aggregations.R). Merge nos dicts principais.
+    custom_cats: set[str] = set()
+    if CUSTOM_CSV.exists():
+        print(f"[4] Lendo {CUSTOM_CSV.relative_to(ROOT)}...")
+        cvar = _load_split_by_sa(CUSTOM_CSV, "value_var_mm")
+        cidx = _load_split_by_sa(CUSTOM_CSV, "value_index")
+        var_by_key.update(cvar); idx_by_key.update(cidx)
+        custom_cats = {c for (c, _sa) in cvar}
+        print(f"    {len(custom_cats)} agregacoes custom + NSA/SA")
+        if CUSTOM_PESOS_CSV.exists():
+            cpes = _load_peso_long(CUSTOM_PESOS_CSV)
+            peso_series.update(cpes)
+            print(f"    {len(cpes)} pesos custom derivados")
+    else:
+        print(f"[4] {CUSTOM_CSV.relative_to(ROOT)} nao existe — rode build_custom_aggregations.R pra habilitar.")
+
+    all_labels = {**CATEGORY_LABELS, **CUSTOM_LABELS}
     cats = sorted({c for (c, _sa) in var_by_key} & {c for (c, _sa) in idx_by_key})
     if only:
         cats = [c for c in cats if c in only]
-    missing_label = [c for c in cats if c not in CATEGORY_LABELS]
+    missing_label = [c for c in cats if c not in all_labels]
     if missing_label:
-        sys.exit(f"Falta label em CATEGORY_LABELS pra: {missing_label}")
+        sys.exit(f"Falta label em CATEGORY_LABELS/CUSTOM_LABELS pra: {missing_label}")
 
     session = MockSQLConnector()
 
     for c in cats:
-        label = CATEGORY_LABELS[c]
+        label = all_labels[c]
+        is_custom = c in custom_cats
+        code_var  = CPIUS_CODE_CUSTOM_VAR  if is_custom else CPIUS_CODE_VAR
+        code_idx  = CPIUS_CODE_CUSTOM_IDX  if is_custom else CPIUS_CODE_IDX
+        code_peso = CPIUS_CODE_CUSTOM_PESO if is_custom else CPIUS_CODE_PESO
         for sa in ("NSA", "SA"):
             key = (c, sa)
             if key not in var_by_key or key not in idx_by_key:
@@ -247,31 +289,35 @@ def main():
             si, _ = idx_by_key[key]
             print(f"  - {label:55s} [{sa}]  var={len(sv):4d}   idx={len(si):4d}")
 
+            src = "custom aggregation (Laspeyres algebra)" if is_custom else "BLS API v2 direto"
             sim_sidra_to_sql(
                 series=sv, country="US", subject="Prices", indicator="CPI-U",
                 series_name=label, data_type=sa, frequency="M",
-                description=f"{label} - Variacao mensal (%) [{sa}] - BLS API v2 direto",
-                haver_code=CPIUS_CODE_VAR.format(cat=c, sid=sid_bls, sha=sha),
+                description=f"{label} - Variacao mensal (%) [{sa}] - {src}",
+                haver_code=code_var.format(cat=c, sid=sid_bls, sha=sha),
                 session=session,
             )
             sim_sidra_to_sql(
                 series=si, country="US", subject="Prices", indicator="CPI-U",
                 series_name=f"{label} (Index)", data_type=sa, frequency="M",
-                description=f"{label} - Indice [{sa}] (rebased jan/2000=100) - BLS API v2 direto",
-                haver_code=CPIUS_CODE_IDX.format(cat=c, sid=sid_bls, sha=sha),
+                description=f"{label} - Indice [{sa}] (rebased jan/2000=100) - {src}",
+                haver_code=code_idx.format(cat=c, sid=sid_bls, sha=sha),
                 session=session,
             )
-        # Peso (Relative Importance BLS Table 6). Uma serie por categoria,
-        # compartilha series_name com var (sync com padrao IPCA). Nao tem
-        # SA/NSA — RI e mesmo valor.
+        # Peso. Base: RI Table 6 BLS. Custom: derivado via algebra da recipe.
+        # Compartilha series_name com var; diferenciacao via data_type=Peso.
         sp = peso_series.get(c)
         if sp is not None:
             print(f"    peso={len(sp):4d}")
+            peso_desc = (
+                f"{label} - Peso derivado (algebra Laspeyres da recipe)"
+                if is_custom else f"{label} - Peso (Relative Importance, Table 6 BLS)"
+            )
             sim_sidra_to_sql(
                 series=sp, country="US", subject="Prices", indicator="CPI-U",
                 series_name=label, data_type="Peso", frequency="M",
-                description=f"{label} - Peso (Relative Importance, Table 6 BLS)",
-                haver_code=CPIUS_CODE_PESO.format(cat=c, sha=sha),
+                description=peso_desc,
+                haver_code=code_peso.format(cat=c, sha=sha),
                 session=session,
             )
 
