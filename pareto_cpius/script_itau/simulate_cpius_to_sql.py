@@ -9,14 +9,15 @@
 #   OPT_Macro_Series_2.csv       - metadados (1 linha por serie cadastrada)
 #   OPT_Macro_Series_Data_2.csv  - long EAV (1 linha por (serie, mes))
 #
-# Cada categoria vira ate 5 series: NSA var, NSA idx, SA var, SA idx, Peso.
-# SA vem nativo do BLS (nao precisa de X-13 como no pareto_ipca). Peso vem
-# da Table 6 do release (Relative Importance) — snapshot atual replicado
-# pra toda a serie (MVP; fase 2: annual step function das releases de Dez).
+# Cada categoria vira ate 3 series: NSA idx, SA idx, Weight. Var (NSA/SA)
+# foi removida no sync 2026-07-20 pra nao lotar SQL de lixo — usuario prefere
+# derivar variacao mensal a partir do indice. SA vem nativo do BLS (nao
+# precisa de X-13 como no pareto_ipca). Weight vem da Table 6 do release
+# (Relative Importance).
 #
 # Uso:
 #   cd pareto_cpius
-#   python script_itau/simulate_cpius_to_sql.py             # todas as 37 cats
+#   python script_itau/simulate_cpius_to_sql.py             # todas as 47 cats
 #   python script_itau/simulate_cpius_to_sql.py --only all_items,core
 #   python script_itau/simulate_cpius_to_sql.py --save      # grava CSVs
 
@@ -28,7 +29,6 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-RECON_CSV        = ROOT / "data" / "cpi_cpius_recon.csv"
 IDX_CSV          = ROOT / "data" / "cpi_cpius_indice.csv"
 PESO_CSV         = ROOT / "data" / "cpi_cpius_pesos.csv"
 CUSTOM_CSV       = ROOT / "data" / "cpi_cpius_custom.csv"
@@ -94,13 +94,15 @@ CUSTOM_LABELS = {
     "core_services_ex_volatiles":                "CPI-U: Core Services ex Volatiles (Custom)",
 }
 
-# Sync 2026-07-17-b: codes simplificados, gravados em bls_code (novo).
-# haver_code (legado) fica NULL em INSERTs novos — nao setamos o campo,
-# SQL resolve como NULL por default.
-#   CPIUS:{cat}         -> lado var/label (var NSA/SA, Weight-label)
-#   CPIUS:{cat}/Index   -> lado idx (idx NSA/SA, Weight-Index)
-CODE_VAR   = "CPIUS:{cat}"
-CODE_INDEX = "CPIUS:{cat}/Index"
+# Sync 2026-07-20: bls_code colapsado pra um unico formato CPIUS:{cat}. Como
+# var (NSA/SA) foi removida, nao ha mais dois "lados" (var-side vs idx-side);
+# so o lado idx sobra, entao o sufixo /Index no bls_code virou redundante e
+# foi removido. Distincao idx vs Weight sai de data_type + series_name (idx
+# tem "(Index)" no series_name; Weight tambem — porque frontend casa
+# series_name+country+indicator entre serie e Weight companheiro).
+# haver_code (legado) fica NULL em INSERTs novos — nao setamos o campo, SQL
+# resolve como NULL por default.
+CODE = "CPIUS:{cat}"
 
 SERIES_COLS = ["series_id", "country", "subject", "indicator", "series_name",
                "data_type", "frequency", "description", "haver_code", "bls_code"]
@@ -228,15 +230,11 @@ def main():
 
     only = set(args.only.split(",")) if args.only else None
 
-    print(f"[1] Lendo {RECON_CSV.relative_to(ROOT)}...")
-    var_by_key = _load_split_by_sa(RECON_CSV, "value_var_mm")
-    print(f"    {len(var_by_key)} (categoria, sa_flag) combinacoes")
-
-    print(f"[2] Lendo {IDX_CSV.relative_to(ROOT)}...")
+    print(f"[1] Lendo {IDX_CSV.relative_to(ROOT)}...")
     idx_by_key = _load_split_by_sa(IDX_CSV, "index")
     print(f"    {len(idx_by_key)} (categoria, sa_flag) combinacoes")
 
-    print(f"[3] Lendo {PESO_CSV.relative_to(ROOT)} (opcional)...")
+    print(f"[2] Lendo {PESO_CSV.relative_to(ROOT)} (opcional)...")
     peso_series: dict[str, pd.Series] = {}
     if PESO_CSV.exists():
         peso_series = _load_peso_long(PESO_CSV)
@@ -248,18 +246,17 @@ def main():
     # geradas por build_custom_aggregations.R). Merge nos dicts principais.
     custom_cats: set[str] = set()
     if CUSTOM_CSV.exists():
-        print(f"[4] Lendo {CUSTOM_CSV.relative_to(ROOT)}...")
-        cvar = _load_split_by_sa(CUSTOM_CSV, "value_var_mm")
+        print(f"[3] Lendo {CUSTOM_CSV.relative_to(ROOT)}...")
         cidx = _load_split_by_sa(CUSTOM_CSV, "value_index")
-        var_by_key.update(cvar); idx_by_key.update(cidx)
-        custom_cats = {c for (c, _sa) in cvar}
+        idx_by_key.update(cidx)
+        custom_cats = {c for (c, _sa) in cidx}
         print(f"    {len(custom_cats)} agregacoes custom + NSA/SA")
         if CUSTOM_PESOS_CSV.exists():
             cpes = _load_peso_long(CUSTOM_PESOS_CSV)
             peso_series.update(cpes)
             print(f"    {len(cpes)} pesos custom derivados")
     else:
-        print(f"[4] {CUSTOM_CSV.relative_to(ROOT)} nao existe — rode build_custom_aggregations.R pra habilitar.")
+        print(f"[3] {CUSTOM_CSV.relative_to(ROOT)} nao existe — rode build_custom_aggregations.R pra habilitar.")
 
     # Peso sintetico do headline: all_items sempre = 100.0 constante (definicao
     # semantica, nao medicao). Sobrescreve o valor renormalizado do CSV (~99.9997)
@@ -269,7 +266,7 @@ def main():
         peso_series["all_items"] = pd.Series(100.0, index=idx_ai, name="all_items")
 
     all_labels = {**CATEGORY_LABELS, **CUSTOM_LABELS}
-    cats = sorted({c for (c, _sa) in var_by_key} & {c for (c, _sa) in idx_by_key})
+    cats = sorted({c for (c, _sa) in idx_by_key})
     if only:
         cats = [c for c in cats if c in only]
     missing_label = [c for c in cats if c not in all_labels]
@@ -281,56 +278,40 @@ def main():
     for c in cats:
         label = all_labels[c]
         is_custom = c in custom_cats
-        bls_var = CODE_VAR.format(cat=c)
-        bls_idx = CODE_INDEX.format(cat=c)
+        bls = CODE.format(cat=c)
+        src = "custom aggregation (Laspeyres algebra)" if is_custom else "BLS API v2 direto"
         for sa in ("NSA", "SA"):
             key = (c, sa)
-            if key not in var_by_key or key not in idx_by_key:
-                print(f"  [SKIP] {c}/{sa} — faltando em recon ou indice")
+            if key not in idx_by_key:
+                print(f"  [SKIP] {c}/{sa} — faltando em indice")
                 continue
-            sv, _ = var_by_key[key]
             si, _ = idx_by_key[key]
-            print(f"  - {label:55s} [{sa}]  var={len(sv):4d}   idx={len(si):4d}")
+            print(f"  - {label:55s} [{sa}]  idx={len(si):4d}")
 
-            src = "custom aggregation (Laspeyres algebra)" if is_custom else "BLS API v2 direto"
             sim_sidra_to_sql(
-                series=sv, country="US", subject="Prices", indicator="CPI-U",
-                series_name=label, data_type=sa, frequency="M",
-                description=f"{label} - Variacao mensal (%) [{sa}] - {src}",
-                bls_code=bls_var,
-                session=session,
-            )
-            sim_sidra_to_sql(
-                series=si, country="US", subject="Prices", indicator="CPI-U",
+                series=si, country="US", subject="Prices", indicator="CPI",
                 series_name=f"{label} (Index)", data_type=sa, frequency="M",
                 description=f"{label} - Indice [{sa}] (rebased jan/2000=100) - {src}",
-                bls_code=bls_idx,
+                bls_code=bls,
                 session=session,
             )
         # Weight. Base: RI Table 6 BLS. Custom: derivado via algebra da recipe.
-        # Convencao corp (2026-07-17): grava 2x — uma com series_name=label
-        # (par com var) e outra com series_name=f"{label} (Index)" (par com idx).
-        # bls_code do 2o vira CODE_INDEX. Frontend capta o Weight via casamento
-        # series_name+country+indicator, trocando so o data_type.
+        # Gravado 1x (sync 2026-07-20): pareado so com o idx via
+        # series_name=f"{label} (Index)" — o var sumiu, entao a segunda gravacao
+        # (com series_name=label) tambem deixou de fazer sentido. Frontend
+        # continua casando series_name+country+indicator entre idx e Weight.
         sp = peso_series.get(c)
         if sp is not None:
-            print(f"    weight={len(sp):4d} (x2: label + label Index)")
+            print(f"    weight={len(sp):4d}")
             peso_desc = (
                 f"{label} - Weight derivado (algebra Laspeyres da recipe)"
                 if is_custom else f"{label} - Weight (Relative Importance, Table 6 BLS)"
             )
             sim_sidra_to_sql(
-                series=sp, country="US", subject="Prices", indicator="CPI-U",
-                series_name=label, data_type="Weight", frequency="M",
-                description=peso_desc,
-                bls_code=bls_var,
-                session=session,
-            )
-            sim_sidra_to_sql(
-                series=sp, country="US", subject="Prices", indicator="CPI-U",
+                series=sp, country="US", subject="Prices", indicator="CPI",
                 series_name=f"{label} (Index)", data_type="Weight", frequency="M",
                 description=peso_desc,
-                bls_code=bls_idx,
+                bls_code=bls,
                 session=session,
             )
 

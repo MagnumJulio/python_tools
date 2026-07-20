@@ -1,20 +1,22 @@
 #!/usr/bin/env python
 # load_cpius_to_sql.py
-# Carrega as 37 categorias do pareto_cpius (var + idx, NSA + SA, + Peso) na
-# base SQL corp (OPT_Macro_Series_2 / OPT_Macro_Series_Data_2), mesmo padrao
-# do sidra_itau.ipynb e do load_pareto_to_sql.py. Cada categoria vira ate 5
-# series: NSA var, NSA idx, SA var, SA idx, Peso. SA vem nativo do BLS (nao
-# precisa X-13); Peso vem da Table 6 do release (Relative Importance).
+# Carrega as 47 categorias do pareto_cpius (idx NSA + SA + Weight) na base SQL
+# corp (OPT_Macro_Series_2 / OPT_Macro_Series_Data_2), mesmo padrao do
+# sidra_itau.ipynb e do load_pareto_to_sql.py. Cada categoria vira ate 3
+# series: NSA idx, SA idx, Weight. Var (NSA/SA) foi removida no sync
+# 2026-07-20 pra nao lotar SQL de lixo — a variacao mensal pode ser derivada
+# no consumo a partir do indice. SA vem nativo do BLS (nao precisa X-13);
+# Weight vem da Table 6 do release (Relative Importance).
 #
 # Pre-requisito: pipeline R ja rodou:
 #   cd pareto_cpius
-#   Rscript scripts/fetch_bls_cpiu.R      # var + idx (NSA + SA)
+#   Rscript scripts/fetch_bls_cpiu.R      # idx (NSA + SA), var no CSV mas nao usado aqui
 #   Rscript scripts/fetch_bls_pesos.R     # peso (RI Table 6 BLS)
-# Gera data/cpi_cpius_recon.csv, data/cpi_cpius_indice.csv, data/cpi_cpius_pesos.csv.
+# Gera data/cpi_cpius_indice.csv, data/cpi_cpius_pesos.csv.
 #
 # Uso (na maquina corp, com opt_utils disponivel):
 #   cd pareto_cpius
-#   python script_itau/load_cpius_to_sql.py             # todas as 37 cats
+#   python script_itau/load_cpius_to_sql.py             # todas as 47 cats
 #   python script_itau/load_cpius_to_sql.py --dry-run   # so lista o que faria
 #   python script_itau/load_cpius_to_sql.py --check     # preflight so
 #   python script_itau/load_cpius_to_sql.py --only all_items,core
@@ -22,7 +24,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
     from opt_utils.database import SQLConnector  # corp-only; import preguicoso em main()
 
 ROOT             = Path(__file__).resolve().parent.parent
-RECON_CSV        = ROOT / "data" / "cpi_cpius_recon.csv"
 IDX_CSV          = ROOT / "data" / "cpi_cpius_indice.csv"
 PESO_CSV         = ROOT / "data" / "cpi_cpius_pesos.csv"
 CUSTOM_CSV       = ROOT / "data" / "cpi_cpius_custom.csv"
@@ -99,18 +99,17 @@ CUSTOM_LABELS = {
 }
 
 
-# Sync 2026-07-17-b: codes simplificados espelhando pareto_ipca. 2 codes por
-# cat, gravados no campo `bls_code` (novo — semanticamente correto: BLS eh a
-# fonte oficial do CPI-U). haver_code (legado) fica NULL nos INSERTs novos e
-# eh setado explicitamente pra NULL na migracao de rows antigas.
-#   CPIUS:{cat}         -> lado var/label (var NSA/SA, Weight-label)
-#   CPIUS:{cat}/Index   -> lado idx (idx NSA/SA, Weight-Index)
-# Distincao var/idx/Weight dentro do mesmo lado eh via series_name+data_type,
-# nao pelo code. Base e custom compartilham o mesmo esquema — a distincao
-# ("é agregacao custom?") sai do proprio category_code (ex: `core_ex_oer` vs
-# `core`), nao do code de proveniencia.
-CODE_VAR   = "CPIUS:{cat}"
-CODE_INDEX = "CPIUS:{cat}/Index"
+# Sync 2026-07-20: bls_code colapsado pra um unico formato CPIUS:{cat}. Como
+# var (NSA/SA) foi removida, nao ha mais dois "lados" (var-side vs idx-side);
+# so o lado idx sobra, entao o sufixo /Index no bls_code virou redundante e
+# foi removido. Distincao idx vs Weight sai de data_type + series_name (idx
+# tem "(Index)" no series_name; Weight tambem — porque frontend casa
+# series_name+country+indicator entre serie e Weight companheiro). Base e
+# custom compartilham o mesmo esquema — a distincao ("é agregacao custom?")
+# sai do proprio category_code (ex: `core_ex_oer` vs `core`), nao do code de
+# proveniencia. haver_code (legado) fica NULL nos INSERTs novos e eh setado
+# explicitamente pra NULL na migracao de rows antigas.
+CODE = "CPIUS:{cat}"
 
 
 def sidra_to_sql(
@@ -268,87 +267,89 @@ def _preflight(session, max_desc_len: int) -> bool:
         print(f"  [WARN] nao foi possivel checar tamanho de description: {e}")
 
     try:
-        df_new = pd.read_sql(
-            """SELECT series_id, series_name, data_type, bls_code
+        df_all = pd.read_sql(
+            """SELECT series_id, series_name, indicator, data_type, haver_code, bls_code
                FROM OPT_Macro_Series_2
-               WHERE bls_code LIKE 'CPIUS:%'
+               WHERE bls_code LIKE 'CPIUS:%' OR haver_code LIKE 'CPIUS:%'
                ORDER BY series_id""",
             session.conn,
         )
-        print(f"\n  Series formato NOVO (bls_code LIKE 'CPIUS:%'): {len(df_new)}")
-        if not df_new.empty:
+        print(f"\n  Series CPIUS existentes (qualquer formato): {len(df_all)}")
+        if not df_all.empty:
             with pd.option_context("display.max_colwidth", 60, "display.width", 200):
-                print(df_new.head(20).to_string(index=False))
-
-        df_old = pd.read_sql(
-            """SELECT series_id, series_name, data_type, haver_code
-               FROM OPT_Macro_Series_2
-               WHERE haver_code LIKE 'CPIUS:%'
-               ORDER BY series_id""",
-            session.conn,
-        )
-        print(f"\n  Series formato ANTIGO (haver_code LIKE 'CPIUS:%'): {len(df_old)}")
-        if not df_old.empty:
-            with pd.option_context("display.max_colwidth", 60, "display.width", 200):
-                print(df_old.head(20).to_string(index=False))
-            print("  -> serao migradas (haver_code -> NULL, bls_code populado) "
-                  "antes do main loop.")
+                print(df_all.head(30).to_string(index=False))
+            print("  -> qualquer row fora do formato atual (haver_code=NULL, "
+                  "bls_code='CPIUS:{cat}' sem sufixo, indicator='CPI') sera "
+                  "normalizada antes do main loop.")
     except Exception as e:
         print(f"  [WARN] nao foi possivel listar series CPIUS: {e}")
 
     return ok
 
 
-# Detecta lado Index no formato antigo. Casos cobertos (todos com haver LIKE 'CPIUS:%'):
-#   CPIUS:{cat}/{sid}/Index/BLS-{sha}     -> base idx
-#   CPIUS:{cat}/CUSTOM/Index/RECON-{sha}  -> custom idx
-#   CPIUS:{cat}/RI/BLS-{sha}/Index        -> base peso Index-side
-#   CPIUS:{cat}/CUSTOM/Peso/RECON-{sha}/Index -> custom peso Index-side
-# Var/label side (nao-Index) fica no negativo do match: CPIUS:{cat}/{sid}/BLS-...,
-# CPIUS:{cat}/CUSTOM/RECON-..., CPIUS:{cat}/RI/BLS-... (sem sufixo /Index),
-# CPIUS:{cat}/CUSTOM/Peso/RECON-... (sem sufixo /Index).
-_OLD_INDEX_PATTERN = re.compile(r"/Index(/|$)")
-
-
-def _migrate_haver_to_bls(session, cats: set[str]) -> int:
-    """Encontra series com haver_code no formato antigo (CPIUS:{cat}/...) e
-    migra:
-      - haver_code -> NULL (desassocia da string antiga)
-      - bls_code   -> novo simplificado (CPIUS:{cat} ou CPIUS:{cat}/Index)
-      - data_type  -> Weight (se antes era Peso; sync anterior 2026-07-17 ja
-                      resolveu isso, mas mantemos por seguranca)
-    Somente linhas cuja categoria aparece em `cats` (evita mexer em ranges
-    fora do escopo do run). Retorna quantas linhas atualizou."""
-    print("\n[migracao] Procurando series com haver_code no formato antigo...")
+def _migrate_cpius_to_current(session, cats: set[str]) -> int:
+    """Traz TODA row CPIUS pro formato atual (sync 2026-07-20). Cobre 2
+    origens de rows antigas:
+      (A) haver_code LIKE 'CPIUS:%' — nunca migradas (formato pre 2026-07-17).
+      (B) bls_code LIKE 'CPIUS:%'   — migradas em 2026-07-17-b mas com sufixo
+                                       /Index no code e indicator='CPI-U'.
+    Atualiza pra:
+      - haver_code -> NULL (idempotente pra rows ja migradas)
+      - bls_code   -> CPIUS:{cat} (colapsa /Index; distincao via series_name)
+      - indicator  -> 'CPI' (era 'CPI-U')
+      - data_type  -> 'Weight' (era 'Peso' em rows muito antigas)
+    Idempotente: rows ja no formato final sao puladas. Somente cats no escopo
+    do run. Nao apaga rows de var (data_type NSA/SA sem '(Index)' no
+    series_name); elas ficam orphan apos a mudanca — cleanup separado por
+    pedido explicito do usuario."""
+    print("\n[migracao] Normalizando series CPIUS pro formato atual (sync 2026-07-20)...")
     df = pd.read_sql(
-        """SELECT series_id, series_name, data_type, haver_code
+        """SELECT series_id, series_name, indicator, data_type, haver_code, bls_code
            FROM OPT_Macro_Series_2
-           WHERE haver_code LIKE 'CPIUS:%'
+           WHERE haver_code LIKE 'CPIUS:%' OR bls_code LIKE 'CPIUS:%'
            ORDER BY series_id""",
         session.conn,
     )
     if df.empty:
-        print("  nenhuma serie no formato antigo — nada a migrar.")
+        print("  nenhuma serie CPIUS encontrada — nada a migrar.")
         return 0
 
     n_updated = 0
+    n_orphan_var = 0
     for _, row in df.iterrows():
-        haver = row["haver_code"]
-        cat = haver.split(":", 1)[1].split("/", 1)[0]
+        code_src = row["haver_code"] if row["haver_code"] else row["bls_code"]
+        cat = code_src.split(":", 1)[1].split("/", 1)[0]
         if cat not in cats:
             continue
-        is_index_side = bool(_OLD_INDEX_PATTERN.search(haver))
-        new_code = (CODE_INDEX if is_index_side else CODE_VAR).format(cat=cat)
+        new_code  = CODE.format(cat=cat)
         new_dtype = "Weight" if row["data_type"] == "Peso" else row["data_type"]
+        new_ind   = "CPI"
+        already_ok = (
+            row["haver_code"] is None
+            and row["bls_code"]  == new_code
+            and row["indicator"] == new_ind
+            and row["data_type"] == new_dtype
+        )
+        if already_ok:
+            continue
         session.execute(
             "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
-            "data_type = ? WHERE series_id = ?",
-            params=[new_code, new_dtype, int(row["series_id"])],
+            "indicator = ?, data_type = ? WHERE series_id = ?",
+            params=[new_code, new_ind, new_dtype, int(row["series_id"])],
         )
         n_updated += 1
+        # Detecta var-side (nao tem '(Index)' no series_name e nao eh Weight) —
+        # essas rows viram orphan pois o main loop nao escreve mais var.
+        if new_dtype in ("NSA", "SA") and "(Index)" not in (row["series_name"] or ""):
+            n_orphan_var += 1
         print(f"  [UPDATE] id={row['series_id']:5d} {row['series_name']:55s} "
-              f"{row['data_type']:6s} -> {new_dtype:6s}  bls_code={new_code}")
+              f"{row['data_type']:6s}/{row['indicator']:6s} -> "
+              f"{new_dtype:6s}/{new_ind:3s}  bls_code={new_code}")
     print(f"  {n_updated} series migradas.")
+    if n_orphan_var:
+        print(f"  [WARN] {n_orphan_var} rows de VAR (NSA/SA sem '(Index)') ficaram "
+              f"orphan — dados nao serao atualizados. Se quiser deletar, peca "
+              f"cleanup explicito.")
     return n_updated
 
 
@@ -366,15 +367,11 @@ def main():
 
     only = set(args.only.split(",")) if args.only else None
 
-    print(f"[1] Lendo {RECON_CSV.relative_to(ROOT)}...")
-    var_by_key = _load_split_by_sa(RECON_CSV, "value_var_mm")
-    print(f"    {len(var_by_key)} (categoria, sa_flag) combinacoes")
-
-    print(f"[2] Lendo {IDX_CSV.relative_to(ROOT)}...")
+    print(f"[1] Lendo {IDX_CSV.relative_to(ROOT)}...")
     idx_by_key = _load_split_by_sa(IDX_CSV, "index")
     print(f"    {len(idx_by_key)} (categoria, sa_flag) combinacoes")
 
-    print(f"[3] Lendo {PESO_CSV.relative_to(ROOT)} (opcional)...")
+    print(f"[2] Lendo {PESO_CSV.relative_to(ROOT)} (opcional)...")
     peso_series: dict[str, pd.Series] = {}
     if PESO_CSV.exists():
         peso_series = _load_peso_long(PESO_CSV)
@@ -383,21 +380,20 @@ def main():
         print("    [WARN] nao encontrado — pesos nao serao carregados. Rode scripts/fetch_bls_pesos.R.")
 
     # Custom aggregations (recipes em scripts/bls_maps/custom_aggregations.csv,
-    # geradas por build_custom_aggregations.R). Merge nos dicts principais.
+    # geradas por build_custom_aggregations.R). Merge no dict de idx.
     custom_cats: set[str] = set()
     if CUSTOM_CSV.exists():
-        print(f"[4] Lendo {CUSTOM_CSV.relative_to(ROOT)}...")
-        cvar = _load_split_by_sa(CUSTOM_CSV, "value_var_mm")
+        print(f"[3] Lendo {CUSTOM_CSV.relative_to(ROOT)}...")
         cidx = _load_split_by_sa(CUSTOM_CSV, "value_index")
-        var_by_key.update(cvar); idx_by_key.update(cidx)
-        custom_cats = {c for (c, _sa) in cvar}
+        idx_by_key.update(cidx)
+        custom_cats = {c for (c, _sa) in cidx}
         print(f"    {len(custom_cats)} agregacoes custom + NSA/SA")
         if CUSTOM_PESOS_CSV.exists():
             cpes = _load_peso_long(CUSTOM_PESOS_CSV)
             peso_series.update(cpes)
             print(f"    {len(cpes)} pesos custom derivados")
     else:
-        print(f"[4] {CUSTOM_CSV.relative_to(ROOT)} nao existe — rode build_custom_aggregations.R pra habilitar.")
+        print(f"[3] {CUSTOM_CSV.relative_to(ROOT)} nao existe — rode build_custom_aggregations.R pra habilitar.")
 
     # Peso sintetico do headline: all_items sempre = 100.0 constante (definicao
     # semantica, nao medicao). Sobrescreve o valor renormalizado do CSV (~99.9997)
@@ -407,7 +403,7 @@ def main():
         peso_series["all_items"] = pd.Series(100.0, index=idx_ai, name="all_items")
 
     all_labels = {**CATEGORY_LABELS, **CUSTOM_LABELS}
-    cats = sorted({c for (c, _sa) in var_by_key} & {c for (c, _sa) in idx_by_key})
+    cats = sorted({c for (c, _sa) in idx_by_key})
     if only:
         cats = [c for c in cats if c in only]
     missing_label = [c for c in cats if c not in all_labels]
@@ -420,18 +416,16 @@ def main():
             label = all_labels[c]
             for sa in ("NSA", "SA"):
                 key = (c, sa)
-                if key not in var_by_key or key not in idx_by_key:
-                    print(f"  - {label:55s} [{sa}]  [SKIP: faltando em recon/idx]")
+                if key not in idx_by_key:
+                    print(f"  - {label:55s} [{sa}]  [SKIP: faltando em idx]")
                     continue
-                sv, _ = var_by_key[key]
                 si, _ = idx_by_key[key]
                 tag = "[CUSTOM]" if c in custom_cats else "        "
-                print(f"  - {label:55s} [{sa}]  var: {len(sv)} obs   idx: {len(si)} obs {tag}")
+                print(f"  - {label:55s} [{sa}]  idx: {len(si)} obs {tag}")
             sp = peso_series.get(c)
             if sp is not None:
-                print(f"  - {label:55s} [Weight x2 (label + Index)] {len(sp)} obs")
-            print(f"    bls_code (var/label): {CODE_VAR.format(cat=c)}")
-            print(f"    bls_code (idx/Index): {CODE_INDEX.format(cat=c)}")
+                print(f"  - {label:55s} [Weight] {len(sp)} obs")
+            print(f"    bls_code: {CODE.format(cat=c)}")
         return
 
     from opt_utils.database import SQLConnector  # import preguicoso (corp-only)
@@ -448,16 +442,18 @@ def main():
         if not ok:
             sys.exit("\n[ABORT] preflight reprovou. Veja [FAIL] acima.")
 
-        # Migracao: linhas antigas (haver_code LIKE 'CPIUS:%') sao movidas
-        # pro novo esquema (haver_code=NULL, bls_code preenchido, Peso->Weight
-        # se ainda em Peso) antes de qualquer novo write. Idempotente: reruns
-        # nao encontram nada.
-        _migrate_haver_to_bls(session, set(cats))
+        # Migracao: normaliza qualquer row CPIUS antiga (haver_code preenchido
+        # OU bls_code com sufixo /Index OU indicator='CPI-U') pro formato atual
+        # (haver_code=NULL, bls_code=CPIUS:{cat}, indicator='CPI', Peso->Weight).
+        # Idempotente: rows ja no formato final sao puladas. Rows de var
+        # (data_type NSA/SA sem '(Index)') ficam orphan — nao serao apagadas
+        # aqui.
+        _migrate_cpius_to_current(session, set(cats))
 
         if not args.no_confirm:
-            # 4 series NSA+SA por cat + 2 Weight (label + label Index) quando disponivel
+            # 2 series (idx NSA+SA) por cat + 1 Weight quando disponivel
             n_peso = sum(1 for c in cats if c in peso_series)
-            n_writes = len(cats) * 4 + n_peso * 2
+            n_writes = len(cats) * 2 + n_peso
             resp = input(f"\nConfirma gravacao de ate {n_writes} series no SQL? [s/N] ").strip().lower()
             if resp != "s":
                 sys.exit("[ABORT] confirmacao negada.")
@@ -465,59 +461,40 @@ def main():
         for c in cats:
             label = all_labels[c]
             is_custom = c in custom_cats
-            bls_var = CODE_VAR.format(cat=c)
-            bls_idx = CODE_INDEX.format(cat=c)
+            bls = CODE.format(cat=c)
             src = "custom aggregation (Laspeyres algebra)" if is_custom else "BLS API v2 direto"
             print(f"\n--- {label} ({c}){' [CUSTOM]' if is_custom else ''} ---")
             for sa in ("NSA", "SA"):
                 key = (c, sa)
-                if key not in var_by_key or key not in idx_by_key:
-                    print(f"    [{sa}] SKIP: faltando em recon/idx")
+                if key not in idx_by_key:
+                    print(f"    [{sa}] SKIP: faltando em idx")
                     continue
-                sv, _ = var_by_key[key]
                 si, _ = idx_by_key[key]
-                print(f"    [{sa}] var: {len(sv)} obs {sv.index.min().date()} -> {sv.index.max().date()}   idx: {len(si)} obs")
+                print(f"    [{sa}] idx: {len(si)} obs {si.index.min().date()} -> {si.index.max().date()}")
 
-                # 1) Variacao mensal (lado label)
                 sidra_to_sql(
-                    series=sv, country="US", subject="Prices", indicator="CPI-U",
-                    series_name=label, data_type=sa, frequency="M",
-                    description=f"{label} - Variacao mensal (%) [{sa}] - {src}",
-                    bls_code=bls_var,
-                    session=session, replace=True,
-                )
-                # 2) Indice (lado Index)
-                sidra_to_sql(
-                    series=si, country="US", subject="Prices", indicator="CPI-U",
+                    series=si, country="US", subject="Prices", indicator="CPI",
                     series_name=f"{label} (Index)", data_type=sa, frequency="M",
                     description=f"{label} - Indice [{sa}] (rebased jan/2000=100) - {src}",
-                    bls_code=bls_idx,
+                    bls_code=bls,
                     session=session, replace=True,
                 )
-            # 3) Weight. Base: RI Table 6 BLS. Custom: derivado via algebra da recipe.
-            # Convencao corp (2026-07-17): grava 2x — uma com series_name=label
-            # (par com var) e outra com series_name=f"{label} (Index)" (par com idx).
-            # bls_code do 2o vira CODE_INDEX. Frontend capta o Weight via casamento
-            # series_name+country+indicator, trocando so o data_type.
+            # Weight. Base: RI Table 6 BLS. Custom: derivado via algebra da recipe.
+            # Gravado 1x (sync 2026-07-20): pareado so com o idx via
+            # series_name=f"{label} (Index)" — o var sumiu, entao a segunda
+            # gravacao (com series_name=label) tambem deixou de fazer sentido.
             sp = peso_series.get(c)
             if sp is not None:
-                print(f"    [Weight] {len(sp)} obs {sp.index.min().date()} -> {sp.index.max().date()} (x2: label + label Index)")
+                print(f"    [Weight] {len(sp)} obs {sp.index.min().date()} -> {sp.index.max().date()}")
                 peso_desc = (
                     f"{label} - Weight derivado (algebra Laspeyres da recipe)"
                     if is_custom else f"{label} - Weight (Relative Importance, Table 6 BLS)"
                 )
                 sidra_to_sql(
-                    series=sp, country="US", subject="Prices", indicator="CPI-U",
-                    series_name=label, data_type="Weight", frequency="M",
-                    description=peso_desc,
-                    bls_code=bls_var,
-                    session=session, replace=True,
-                )
-                sidra_to_sql(
-                    series=sp, country="US", subject="Prices", indicator="CPI-U",
+                    series=sp, country="US", subject="Prices", indicator="CPI",
                     series_name=f"{label} (Index)", data_type="Weight", frequency="M",
                     description=peso_desc,
-                    bls_code=bls_idx,
+                    bls_code=bls,
                     session=session, replace=True,
                 )
 
@@ -526,7 +503,7 @@ def main():
 
     n_peso_ok = sum(1 for c in cats if c in peso_series)
     n_custom_ok = sum(1 for c in cats if c in custom_cats)
-    print(f"\n[OK] {len(cats)} categorias carregadas ({n_custom_ok} custom) — {len(cats) * 4} NSA+SA + {n_peso_ok * 2} Weight (x2) em OPT_Macro_Series_2 / OPT_Macro_Series_Data_2.")
+    print(f"\n[OK] {len(cats)} categorias carregadas ({n_custom_ok} custom) — {len(cats) * 2} idx NSA+SA + {n_peso_ok} Weight em OPT_Macro_Series_2 / OPT_Macro_Series_Data_2.")
 
 
 if __name__ == "__main__":

@@ -14,26 +14,39 @@ inicial é one-way (local → corp) copiando o diretório inteiro.
 |---|---|---|---|
 | Projeto inteiro | ✅ MVP entregue (fetcher + build + simulate + load) | ⚠️ **não existe ainda** — precisa ser copiado | — |
 | `data_type="Weight"` (era `"Peso"`) | ✅ sync 2026-07-17 | ✅ idem | 2026-07-17 |
-| Weight gravado 2× (label + label Index) | ✅ sync 2026-07-17 (par com var e par com idx) | ✅ idem | 2026-07-17 |
 | Headline `all_items` peso = 100.0 constante | ✅ sync 2026-07-17 (sobrescreve renorm ~99.9997) | ✅ idem | 2026-07-17 |
-| Code simplificado + campo `bls_code` | ✅ sync 2026-07-17-b — `CPIUS:{cat}` / `CPIUS:{cat}/Index` gravado em `bls_code`; INSERTs novos não setam `haver_code` (fica `NULL` por default) | precisa ALTER TABLE `ADD bls_code VARCHAR(255) NULL` se ainda não tiver | 2026-07-17-b |
-| Migração de rows antigas (`haver_code LIKE 'CPIUS:%'`) | ✅ `_migrate_haver_to_bls` roda antes do main loop (idempotente) | ⚠️ rodar 1x no corp se já houver rows CPIUS antigas; próximos runs viram no-op | 2026-07-17-b |
+| Campo `bls_code` (era `haver_code`) | ✅ sync 2026-07-17-b — INSERTs novos gravam em `bls_code`, `haver_code` fica `NULL` | precisa ALTER TABLE `ADD bls_code VARCHAR(255) NULL` se ainda não tiver | 2026-07-17-b |
+| Só idx + Weight (var NSA/SA removido) | ✅ sync 2026-07-20 — var deixou de ser gravado; SQL só recebe idx NSA + idx SA + Weight | ⚠️ rows de var pré-existentes viram orphan; cleanup manual sob pedido | 2026-07-20 |
+| `bls_code` sem sufixo `/Index` | ✅ sync 2026-07-20 — colapsado pra único `CPIUS:{cat}`; distinção idx vs Weight sai de `series_name`+`data_type` | migração automática normaliza rows antigas | 2026-07-20 |
+| Weight 1× (não mais 2×) | ✅ sync 2026-07-20 — como var sumiu, Weight só precisa parear com o idx via `series_name=f"{label} (Index)"` | rows antigas de Weight-label ficam orphan | 2026-07-20 |
+| `indicator="CPI"` (era `"CPI-U"`) | ✅ sync 2026-07-20 | migração automática atualiza rows antigas | 2026-07-20 |
+| Migração idempotente (`_migrate_cpius_to_current`) | ✅ roda antes do main loop; normaliza `haver_code`→NULL, `bls_code` sem sufixo, `indicator`=CPI, `data_type`=Weight | ⚠️ rodar 1x no corp se já houver rows CPIUS; próximos runs viram no-op | 2026-07-20 |
 | Pesos (BLS Table 6, time-varying) | ✅ fase 2 entregue (RI Dez 2000-2025 + ajuste implícito BLS) | ⏳ precisa da migração inicial | — |
 | SA nativa BLS (sem X-13) | ✅ já é assim (`data_type='SA'` vem direto de CUSR0000<item>) | idem quando migrar | — |
 | Agregações custom (Laspeyres) | ✅ entregue 2026-07-16 (8 recipes: core_ex_oer, super_super_core, supercore_powell_old, etc.) | ⏳ precisa da migração inicial | — |
 
-**Diferença estrutural vs `pareto_ipca`:** cada categoria gera até **6 séries**
-(NSA var, NSA idx, SA var, SA idx, **Weight label**, **Weight label Index**) porque
-(a) BLS publica SA nativo — não precisa de X-13, e (b) sync 2026-07-17 com pareto_ipca:
-peso é gravado 2× por categoria, uma com `series_name=label` (par com var NSA/SA) e
-outra com `series_name=f"{label} (Index)"` (par com idx NSA/SA), ambas com
-`data_type="Weight"`. **Peso é time-varying**
-(fase 2 entregue): base RI Dez de cada ano 2000-2025 + ajuste implícito mensal
-`w_i(m) = w_i(Dez) × I_i(m) / I_i(Dez)` seguindo metodologia BLS "monthly relative
-importance". Headline `all_items` recebe peso sintético 100.0 constante (sobrescreve
-o renorm ~99.9997 do CSV).
+**Diferença estrutural vs `pareto_ipca`:** cada categoria gera até **3 séries**
+(NSA idx, SA idx, Weight) — pareto_ipca ainda serve var. Var no CPI-US foi removido
+no sync 2026-07-20 pra não lotar SQL de lixo (usuário deriva variação mensal do
+índice no consumo). BLS publica SA nativo — não precisa de X-13. **Peso é
+time-varying** (fase 2 entregue): base RI Dez de cada ano 2000-2025 + ajuste
+implícito mensal `w_i(m) = w_i(Dez) × I_i(m) / I_i(Dez)` seguindo metodologia BLS
+"monthly relative importance". Headline `all_items` recebe peso sintético 100.0
+constante (sobrescreve o renorm ~99.9997 do CSV). Weight é gravado 1× pareado com
+o idx via `series_name=f"{label} (Index)"` — frontend casa Weight ao idx via
+`series_name+country+indicator`.
 
-**Totais servidos**: 47 categorias (39 base + 8 custom) × 6 séries = **282 séries**. As 8 custom aggregations são derivadas via álgebra Laspeyres em `scripts/build_custom_aggregations.R` a partir do `recon.csv` + `pesos.csv`. Proveniência migrou do campo `haver_code` (formato antigo `CPIUS:{cat}/{sid}/BLS-{sha}` + variantes) pro campo **`bls_code`** com formato simplificado (`CPIUS:{cat}` / `CPIUS:{cat}/Index`). Distinção var/idx/Weight dentro do mesmo lado (var/label vs idx/Index) é feita por `series_name`+`data_type`, não pelo code. Distinção base vs custom sai do próprio `category_code` (ex.: `core_ex_oer` vs `core`), não do code de proveniência. Migração idempotente rodada antes do main loop: linhas antigas (`haver_code LIKE 'CPIUS:%'`) sofrem `UPDATE` explícito `SET haver_code = NULL, bls_code = <novo>`.
+**Totais servidos**: 47 categorias (39 base + 8 custom) × 3 séries = **141 séries**
+(~44 700 linhas EAV). As 8 custom aggregations são derivadas via álgebra Laspeyres
+em `scripts/build_custom_aggregations.R` a partir do `recon.csv` + `pesos.csv`.
+Proveniência gravada em **`bls_code`** com formato simplificado (`CPIUS:{cat}`, um
+único code por categoria — a distinção idx vs Weight sai de `series_name`+`data_type`,
+não do code). Distinção base vs custom sai do próprio `category_code` (ex.:
+`core_ex_oer` vs `core`), não do code de proveniência. Migração idempotente
+(`_migrate_cpius_to_current`) rodada antes do main loop: normaliza qualquer row
+CPIUS (haver_code ou bls_code populado) pro formato atual — `haver_code=NULL`,
+`bls_code='CPIUS:{cat}'` sem sufixo, `indicator='CPI'`, `data_type='Weight'` (era
+`Peso`).
 
 ## Pré-requisitos (na máquina corp)
 
@@ -44,9 +57,9 @@ o renorm ~99.9997 do CSV).
 - (Opcional mas recomendado) `BLS_API_KEY` exportado — sem chave, BLS API v2
   limita a 25 requests/dia, o que trava re-runs frequentes
 - CSVs gerados pelo pipeline R existem em `data/`:
-  - `data/cpi_cpius_recon.csv` (índice + var mm + var yoy, NSA + SA)
-  - `data/cpi_cpius_indice.csv` (índice rebased jan/2000=100, NSA + SA)
-  - `data/cpi_cpius_pesos.csv` (peso Relative Importance BLS, MVP = snapshot atual replicado)
+  - `data/cpi_cpius_indice.csv` (índice rebased jan/2000=100, NSA + SA) — **único CSV consumido pelo loader; var não é mais gravada**
+  - `data/cpi_cpius_pesos.csv` (peso Relative Importance BLS, time-varying)
+  - `data/cpi_cpius_custom.csv` + `cpi_cpius_pesos_custom.csv` (8 agregações custom Laspeyres)
 
 Se ainda não rodou o pipeline:
 ```bash
@@ -66,20 +79,20 @@ Requer: **Python 3** com `openpyxl` (`pip install openpyxl`) pra parsear os xlsx
 
 ## Estágio 1 — `--dry-run` (zero conexão SQL)
 
-**Objetivo:** confirmar que os 5 CSVs são lidos OK e a lista de 47 categorias
-(39 base + 8 custom) × 2 sa_flags + Weight (2×) está correta. Não toca SQL, não
+**Objetivo:** confirmar que os 4 CSVs são lidos OK e a lista de 47 categorias
+(39 base + 8 custom) × 2 sa_flags + Weight está correta. Não toca SQL, não
 importa `opt_utils`.
 
 ```bash
 python script_itau/load_cpius_to_sql.py --dry-run
 ```
 
-**Sucesso:** imprime "78 (categoria, sa_flag) combinacoes" (recon+idx base,
-39 × 2) + "39 categorias com Weight (RI BLS)" + "8 agregacoes custom +
-NSA/SA" + "8 Weights custom derivados". Lista 47 cats × [NSA, SA, Weight x2
-(label + Index)] = ~282 itens, cada um com N obs (~317 desde jan/2000). As
-8 custom aparecem com tag `[CUSTOM]`. Imprime também os 2 `bls_code` por cat:
-`CPIUS:{cat}` (var/label) e `CPIUS:{cat}/Index` (idx).
+**Sucesso:** imprime "78 (categoria, sa_flag) combinacoes" (idx base, 39 × 2)
++ "39 categorias com Weight (RI BLS)" + "8 agregacoes custom + NSA/SA" +
+"8 Weights custom derivados". Lista 47 cats × [NSA idx, SA idx, Weight] =
+~141 itens, cada um com N obs (~317 desde jan/2000). As 8 custom aparecem com
+tag `[CUSTOM]`. Imprime também 1 `bls_code` por cat: `CPIUS:{cat}` (sem
+sufixo `/Index`).
 
 **Se falhar aqui:** problema é nos CSVs (rode `fetch_bls_cpiu.R` +
 `fetch_bls_pesos.R` + `build_custom_aggregations.R`) ou nos labels em
@@ -92,17 +105,18 @@ NSA/SA" + "8 Weights custom derivados". Lista 47 cats × [NSA, SA, Weight x2
 **Objetivo:** abrir conexão SQL e validar que: (a) o `SQLConnector` funciona
 com `connector="pyodbc"` (b) as 2 tabelas existem (c) a coluna `bls_code`
 existe em `OPT_Macro_Series_2` (necessária pra sync 2026-07-17-b) (d) a
-coluna `description` aguenta nosso pior caso (~110 chars) (e) listar séries
-tanto no formato NOVO (`bls_code LIKE 'CPIUS:%'`, serão reusadas) quanto no
-ANTIGO (`haver_code LIKE 'CPIUS:%'`, pendentes de migração).
+coluna `description` aguenta nosso pior caso (~110 chars) (e) listar todas as
+séries CPIUS existentes (qualquer formato — `bls_code LIKE 'CPIUS:%'` OU
+`haver_code LIKE 'CPIUS:%'`) que serão normalizadas pela migração antes do
+main loop.
 
 ```bash
 python script_itau/load_cpius_to_sql.py --check
 ```
 
 **Sucesso:** 5 linhas `[OK]` e zero `[FAIL]`. Mostra contagem de linhas
-atuais de cada tabela + duas listas: séries CPIUS no formato novo (0 na
-primeira carga) e no formato antigo (pendentes de migração).
+atuais de cada tabela + lista consolidada de séries CPIUS existentes (0 na
+primeira carga).
 
 **Se falhar aqui:**
 - `ModuleNotFoundError: opt_utils` → instalação corp quebrada
@@ -116,137 +130,143 @@ primeira carga) e no formato antigo (pendentes de migração).
 
 ## Estágio 3 — smoke test (`--only all_items,core`)
 
-**Objetivo:** gravar 12 séries (2 categorias × [NSA var/idx + SA var/idx + Weight label + Weight label Index]) e verificar no SSMS antes de soltar as 282 séries.
+**Objetivo:** gravar 6 séries (2 categorias × [NSA idx + SA idx + Weight]) e
+verificar no SSMS antes de soltar as 141 séries.
 
 ```bash
 python script_itau/load_cpius_to_sql.py --only all_items,core
 ```
 
-Pergunta `Confirma gravacao de ate 12 series no SQL? [s/N]` — responda `s`.
+Pergunta `Confirma gravacao de ate 6 series no SQL? [s/N]` — responda `s`.
 
 **Verificação no SSMS:**
 ```sql
-SELECT series_id, series_name, data_type, haver_code, bls_code
-FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'CPIUS:all_items%'
-   OR bls_code LIKE 'CPIUS:core%'
+SELECT series_id, series_name, indicator, data_type, haver_code, bls_code
+FROM OPT_Macro_Series_2 WHERE bls_code IN ('CPIUS:all_items', 'CPIUS:core')
 ORDER BY series_id;
--- esperado: 12 linhas (all_items × 6 + core × 6)
--- haver_code = NULL em todas (INSERT novo não seta o campo; migração de row
--- antiga faz UPDATE SET haver_code = NULL). bls_code em 4 valores:
---   CPIUS:all_items, CPIUS:all_items/Index, CPIUS:core, CPIUS:core/Index
+-- esperado: 6 linhas (all_items × 3 + core × 3)
+-- haver_code = NULL em todas.
+-- bls_code em 2 valores: CPIUS:all_items, CPIUS:core (sem sufixo /Index).
+-- indicator = 'CPI' em todas.
+-- series_name termina em "(Index)" em todas (idx e Weight compartilham nome).
 
--- Confirma que nenhuma linha CPIUS antiga sobrou pra estas cats:
+-- Confirma que nenhuma linha CPIUS antiga sobrou fora do formato atual:
 SELECT COUNT(*) FROM OPT_Macro_Series_2
-WHERE haver_code LIKE 'CPIUS:all_items%'
-   OR haver_code LIKE 'CPIUS:core%';
--- esperado: 0 (a migração setou haver_code=NULL nas rows antigas).
+WHERE (bls_code LIKE 'CPIUS:all_items%' OR bls_code LIKE 'CPIUS:core%')
+  AND (bls_code LIKE '%/Index' OR indicator <> 'CPI' OR haver_code IS NOT NULL);
+-- esperado: 0 (migração normalizou tudo).
 
 SELECT s.series_name, s.data_type, COUNT(*) AS n
 FROM OPT_Macro_Series_Data_2 d
 JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
-WHERE s.bls_code LIKE 'CPIUS:all_items%' OR s.bls_code LIKE 'CPIUS:core%'
+WHERE s.bls_code IN ('CPIUS:all_items', 'CPIUS:core')
 GROUP BY s.series_name, s.data_type
 ORDER BY s.series_name, s.data_type;
--- esperado: 12 linhas, ~316-317 obs cada (jan/2000 → mês atual)
---   NSA (var):   n=316 (1o mês NaN diff)
---   NSA (idx):   n=317 (série completa)
---   SA  (var):   n=316
---   SA  (idx):   n=317
---   Weight (2x): n=317 cada; series_name repete label e label (Index);
---                bls_code do (Index) tem sufixo /Index (var_side vs Index_side).
---                all_items Weight deve ser 100.0 constante em todas as datas.
+-- esperado: 6 linhas, ~317 obs cada (jan/2000 → mês atual):
+--   NSA:    n=317
+--   SA:     n=317
+--   Weight: n=317 (all_items = 100.0 constante; core = time-varying ~65-70)
 
--- Confirma Weight duplicado com mesmos valores:
-SELECT TOP 5 s.series_name, d.date, d.value
+-- Confirma Weight all_items = 100.0 constante:
+SELECT MIN(value) AS wmin, MAX(value) AS wmax, COUNT(*) AS n
 FROM OPT_Macro_Series_Data_2 d
 JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
-WHERE s.bls_code LIKE 'CPIUS:core%' AND s.data_type = 'Weight'
-ORDER BY d.date, s.series_name;
--- esperado: pra cada data, "CPI-U: ... (Core)" e "CPI-U: ... (Core) (Index)"
--- com o MESMO value.
+WHERE s.bls_code = 'CPIUS:all_items' AND s.data_type = 'Weight';
+-- esperado: wmin=100.0, wmax=100.0, n=317
 
-SELECT TOP 5 * FROM OPT_Macro_Series_Data_2 WHERE series_id = <id_all_items_NSA_var>
+SELECT TOP 5 * FROM OPT_Macro_Series_Data_2 WHERE series_id = <id_all_items_NSA_idx>
 ORDER BY date;
 -- valores de referência em sim_output/OPT_Macro_Series_Data_2.csv
 ```
 
 **Se algo estiver errado aqui, ANTES de continuar:**
 ```sql
--- rollback do smoke test (apaga só as 12 séries inseridas):
+-- rollback do smoke test (apaga só as 6 séries inseridas):
 DELETE FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
-                    WHERE bls_code LIKE 'CPIUS:all_items%'
-                       OR bls_code LIKE 'CPIUS:core%');
+                    WHERE bls_code IN ('CPIUS:all_items', 'CPIUS:core'));
 DELETE FROM OPT_Macro_Series_2
-WHERE bls_code LIKE 'CPIUS:all_items%' OR bls_code LIKE 'CPIUS:core%';
+WHERE bls_code IN ('CPIUS:all_items', 'CPIUS:core');
 ```
 
 ---
 
-## Estágio 4 — carga completa (47 categorias × 6 séries = 282)
+## Estágio 4 — carga completa (47 categorias × 3 séries = 141)
 
-**Objetivo:** gravar até 282 séries (39 base + 8 custom, cada uma × [NSA var,
-NSA idx, SA var, SA idx, Weight label, Weight label Index]). Re-roda as 12
-do Estágio 3 — `replace=True` apaga dados antigos antes do reinsert, sem
-duplicar. Antes do main loop, `_migrate_haver_to_bls` reescreve qualquer linha
-antiga (`haver_code LIKE 'CPIUS:%'`) das cats que estão no scope: `haver_code`
-→ `NULL`, `bls_code` populado.
+**Objetivo:** gravar até 141 séries (39 base + 8 custom, cada uma × [NSA idx,
+SA idx, Weight]). Re-roda as 6 do Estágio 3 — `replace=True` apaga dados
+antigos antes do reinsert, sem duplicar. Antes do main loop,
+`_migrate_cpius_to_current` normaliza qualquer linha CPIUS antiga (haver_code
+populado, sufixo /Index em bls_code, indicator=CPI-U, data_type=Peso) pro
+formato atual.
 
 ```bash
 python script_itau/load_cpius_to_sql.py
 ```
 
-Confirma `Confirma gravacao de ate 282 series no SQL? [s/N]` → `s`.
+Confirma `Confirma gravacao de ate 141 series no SQL? [s/N]` → `s`.
 
 **Verificação:**
 ```sql
 SELECT data_type, COUNT(*) AS n_series
 FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'CPIUS:%'
 GROUP BY data_type;
--- esperado: NSA=94 (47 var + 47 idx), SA=94 (47 var + 47 idx), Weight=94 (47 × 2)
+-- esperado: NSA=47, SA=47, Weight=47 (total 141)
 
--- Distingue Weight label vs Weight label Index (via sufixo /Index em bls_code):
-SELECT
-  CASE WHEN bls_code LIKE '%/Index' THEN 'Weight (Index)' ELSE 'Weight (label)' END AS weight_role,
-  COUNT(*) AS n
-FROM OPT_Macro_Series_2
-WHERE bls_code LIKE 'CPIUS:%' AND data_type = 'Weight'
-GROUP BY CASE WHEN bls_code LIKE '%/Index' THEN 'Weight (Index)' ELSE 'Weight (label)' END;
--- esperado: Weight (label)=47, Weight (Index)=47
+-- Confirma que não sobrou row com formato antigo:
+SELECT COUNT(*) AS n_stale FROM OPT_Macro_Series_2
+WHERE (bls_code LIKE 'CPIUS:%' OR haver_code LIKE 'CPIUS:%')
+  AND (haver_code IS NOT NULL OR bls_code LIKE '%/Index' OR indicator <> 'CPI');
+-- esperado: 0
 
--- Base vs custom NÃO sai mais do bls_code (ambos usam CPIUS:{cat}). Sai do
--- próprio category_code. Se precisar contar, use a lista de category_codes
--- custom (rent_of_shelter, core_ex_oer, cpi_ex_oer, core_services_ex_shelter,
--- supercore_powell_old, core_services_ex_shelter_pubtrans_medical,
--- super_super_core, core_services_ex_volatiles):
+-- Base vs custom sai do category_code (não do bls_code). Contar custom:
 SELECT COUNT(*) AS n_custom_series FROM OPT_Macro_Series_2
 WHERE bls_code IN (
-  'CPIUS:rent_of_shelter','CPIUS:rent_of_shelter/Index',
-  'CPIUS:core_ex_oer','CPIUS:core_ex_oer/Index',
-  'CPIUS:cpi_ex_oer','CPIUS:cpi_ex_oer/Index',
-  'CPIUS:core_services_ex_shelter','CPIUS:core_services_ex_shelter/Index',
-  'CPIUS:supercore_powell_old','CPIUS:supercore_powell_old/Index',
-  'CPIUS:core_services_ex_shelter_pubtrans_medical','CPIUS:core_services_ex_shelter_pubtrans_medical/Index',
-  'CPIUS:super_super_core','CPIUS:super_super_core/Index',
-  'CPIUS:core_services_ex_volatiles','CPIUS:core_services_ex_volatiles/Index'
+  'CPIUS:rent_of_shelter', 'CPIUS:core_ex_oer', 'CPIUS:cpi_ex_oer',
+  'CPIUS:core_services_ex_shelter', 'CPIUS:supercore_powell_old',
+  'CPIUS:core_services_ex_shelter_pubtrans_medical',
+  'CPIUS:super_super_core', 'CPIUS:core_services_ex_volatiles'
 );
--- esperado: 48 (8 custom × 6 séries)
+-- esperado: 24 (8 custom × 3 séries)
 
 -- all_items peso constante = 100.0 em todas as datas:
 SELECT MIN(value) AS wmin, MAX(value) AS wmax, COUNT(*) AS n
 FROM OPT_Macro_Series_Data_2 d
 JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
-WHERE s.bls_code LIKE 'CPIUS:all_items%' AND s.data_type = 'Weight';
--- esperado: wmin=100.0, wmax=100.0, n=634 (2 séries × 317 obs)
+WHERE s.bls_code = 'CPIUS:all_items' AND s.data_type = 'Weight';
+-- esperado: wmin=100.0, wmax=100.0, n=317
 
 SELECT s.data_type, COUNT(*) AS n_obs
 FROM OPT_Macro_Series_Data_2 d
 JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
 WHERE s.bls_code LIKE 'CPIUS:%'
 GROUP BY s.data_type;
--- NSA:    94 séries × ~316-318 obs
--- SA:     94 séries × ~316-318 obs
--- Weight: 94 séries × ~316-317 obs (47 label + 47 Index, mesmo valor)
+-- NSA:    47 séries × ~316-318 obs
+-- SA:     47 séries × ~316-318 obs
+-- Weight: 47 séries × ~316-317 obs
+```
+
+**Cleanup de rows orphan de var** (se rodaram versão anterior do loader com
+var gravado): a migração NÃO deleta essas rows automaticamente. Pra remover
+manualmente:
+```sql
+-- Preview do que seria apagado (data_type NSA/SA sem "(Index)" no series_name):
+SELECT series_id, series_name, data_type, bls_code
+FROM OPT_Macro_Series_2
+WHERE bls_code LIKE 'CPIUS:%'
+  AND data_type IN ('NSA','SA')
+  AND series_name NOT LIKE '% (Index)';
+
+-- Depois de conferir, apagar:
+DELETE FROM OPT_Macro_Series_Data_2
+WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
+                    WHERE bls_code LIKE 'CPIUS:%'
+                      AND data_type IN ('NSA','SA')
+                      AND series_name NOT LIKE '% (Index)');
+DELETE FROM OPT_Macro_Series_2
+WHERE bls_code LIKE 'CPIUS:%'
+  AND data_type IN ('NSA','SA')
+  AND series_name NOT LIKE '% (Index)';
 ```
 
 ---

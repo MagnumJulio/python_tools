@@ -1,13 +1,142 @@
 series_id,country,subject,indicator,series_name,data_type,frequency,description,haver_code,bls_code
-1,US,Prices,CPI-U,CPI-U: All Items,NSA,M,CPI-U: All Items - Variacao mensal (%) [NSA] - BLS API v2 direto,,CPIUS:all_items
-2,US,Prices,CPI-U,CPI-U: All Items (Index),NSA,M,CPI-U: All Items - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:all_items/Index
-3,US,Prices,CPI-U,CPI-U: All Items,SA,M,CPI-U: All Items - Variacao mensal (%) [SA] - BLS API v2 direto,,CPIUS:all_items
-4,US,Prices,CPI-U,CPI-U: All Items (Index),SA,M,CPI-U: All Items - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:all_items/Index
-5,US,Prices,CPI-U,CPI-U: All Items,Weight,M,"CPI-U: All Items - Weight (Relative Importance, Table 6 BLS)",,CPIUS:all_items
-6,US,Prices,CPI-U,CPI-U: All Items (Index),Weight,M,"CPI-U: All Items - Weight (Relative Importance, Table 6 BLS)",,CPIUS:all_items/Index
-7,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom),NSA,M,CPI-U: All Items ex OER (Custom) - Variacao mensal (%) [NSA] - custom aggregation (Laspeyres algebra),,CPIUS:cpi_ex_oer
-8,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom) (Index),NSA,M,CPI-U: All Items ex OER (Custom) - Indice [NSA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:cpi_ex_oer/Index
-9,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom),SA,M,CPI-U: All Items ex OER (Custom) - Variacao mensal (%) [SA] - custom aggregation (Laspeyres algebra),,CPIUS:cpi_ex_oer
-10,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom) (Index),SA,M,CPI-U: All Items ex OER (Custom) - Indice [SA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:cpi_ex_oer/Index
-11,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom),Weight,M,CPI-U: All Items ex OER (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:cpi_ex_oer
-12,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom) (Index),Weight,M,CPI-U: All Items ex OER (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:cpi_ex_oer/Index
+1,US,Prices,CPI,CPI-U: Airline Fares (Index),NSA,M,CPI-U: Airline Fares - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:airline_fares
+2,US,Prices,CPI,CPI-U: Airline Fares (Index),SA,M,CPI-U: Airline Fares - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:airline_fares
+3,US,Prices,CPI,CPI-U: Airline Fares (Index),Weight,M,"CPI-U: Airline Fares - Weight (Relative Importance, Table 6 BLS)",,CPIUS:airline_fares
+4,US,Prices,CPI,CPI-U: Alcoholic Beverages (Index),NSA,M,CPI-U: Alcoholic Beverages - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:alcoholic_bev
+5,US,Prices,CPI,CPI-U: Alcoholic Beverages (Index),SA,M,CPI-U: Alcoholic Beverages - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:alcoholic_bev
+6,US,Prices,CPI,CPI-U: Alcoholic Beverages (Index),Weight,M,"CPI-U: Alcoholic Beverages - Weight (Relative Importance, Table 6 BLS)",,CPIUS:alcoholic_bev
+7,US,Prices,CPI,CPI-U: All Items (Index),NSA,M,CPI-U: All Items - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:all_items
+8,US,Prices,CPI,CPI-U: All Items (Index),SA,M,CPI-U: All Items - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:all_items
+9,US,Prices,CPI,CPI-U: All Items (Index),Weight,M,"CPI-U: All Items - Weight (Relative Importance, Table 6 BLS)",,CPIUS:all_items
+10,US,Prices,CPI,CPI-U: Apparel (Index),NSA,M,CPI-U: Apparel - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:apparel
+11,US,Prices,CPI,CPI-U: Apparel (Index),SA,M,CPI-U: Apparel - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:apparel
+12,US,Prices,CPI,CPI-U: Apparel (Index),Weight,M,"CPI-U: Apparel - Weight (Relative Importance, Table 6 BLS)",,CPIUS:apparel
+13,US,Prices,CPI,CPI-U: All Items Less Food and Energy (Core) (Index),NSA,M,CPI-U: All Items Less Food and Energy (Core) - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:core
+14,US,Prices,CPI,CPI-U: All Items Less Food and Energy (Core) (Index),SA,M,CPI-U: All Items Less Food and Energy (Core) - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:core
+15,US,Prices,CPI,CPI-U: All Items Less Food and Energy (Core) (Index),Weight,M,"CPI-U: All Items Less Food and Energy (Core) - Weight (Relative Importance, Table 6 BLS)",,CPIUS:core
+16,US,Prices,CPI,CPI-U: Core ex OER (Custom) (Index),NSA,M,CPI-U: Core ex OER (Custom) - Indice [NSA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:core_ex_oer
+17,US,Prices,CPI,CPI-U: Core ex OER (Custom) (Index),SA,M,CPI-U: Core ex OER (Custom) - Indice [SA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:core_ex_oer
+18,US,Prices,CPI,CPI-U: Core ex OER (Custom) (Index),Weight,M,CPI-U: Core ex OER (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:core_ex_oer
+19,US,Prices,CPI,CPI-U: Commodities Less Food and Energy Commodities (Index),NSA,M,CPI-U: Commodities Less Food and Energy Commodities - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:core_goods
+20,US,Prices,CPI,CPI-U: Commodities Less Food and Energy Commodities (Index),SA,M,CPI-U: Commodities Less Food and Energy Commodities - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:core_goods
+21,US,Prices,CPI,CPI-U: Commodities Less Food and Energy Commodities (Index),Weight,M,"CPI-U: Commodities Less Food and Energy Commodities - Weight (Relative Importance, Table 6 BLS)",,CPIUS:core_goods
+22,US,Prices,CPI,CPI-U: Services Less Energy Services (Index),NSA,M,CPI-U: Services Less Energy Services - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:core_services
+23,US,Prices,CPI,CPI-U: Services Less Energy Services (Index),SA,M,CPI-U: Services Less Energy Services - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:core_services
+24,US,Prices,CPI,CPI-U: Services Less Energy Services (Index),Weight,M,"CPI-U: Services Less Energy Services - Weight (Relative Importance, Table 6 BLS)",,CPIUS:core_services
+25,US,Prices,CPI,CPI-U: Core Services ex Rent of Shelter (Custom) (Index),NSA,M,CPI-U: Core Services ex Rent of Shelter (Custom) - Indice [NSA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:core_services_ex_shelter
+26,US,Prices,CPI,CPI-U: Core Services ex Rent of Shelter (Custom) (Index),SA,M,CPI-U: Core Services ex Rent of Shelter (Custom) - Indice [SA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:core_services_ex_shelter
+27,US,Prices,CPI,CPI-U: Core Services ex Rent of Shelter (Custom) (Index),Weight,M,CPI-U: Core Services ex Rent of Shelter (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:core_services_ex_shelter
+28,US,Prices,CPI,CPI-U: Core Services ex Shelter/PubTrans/Medical (Custom) (Index),NSA,M,CPI-U: Core Services ex Shelter/PubTrans/Medical (Custom) - Indice [NSA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:core_services_ex_shelter_pubtrans_medical
+29,US,Prices,CPI,CPI-U: Core Services ex Shelter/PubTrans/Medical (Custom) (Index),SA,M,CPI-U: Core Services ex Shelter/PubTrans/Medical (Custom) - Indice [SA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:core_services_ex_shelter_pubtrans_medical
+30,US,Prices,CPI,CPI-U: Core Services ex Shelter/PubTrans/Medical (Custom) (Index),Weight,M,CPI-U: Core Services ex Shelter/PubTrans/Medical (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:core_services_ex_shelter_pubtrans_medical
+31,US,Prices,CPI,CPI-U: Core Services ex Volatiles (Custom) (Index),NSA,M,CPI-U: Core Services ex Volatiles (Custom) - Indice [NSA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:core_services_ex_volatiles
+32,US,Prices,CPI,CPI-U: Core Services ex Volatiles (Custom) (Index),SA,M,CPI-U: Core Services ex Volatiles (Custom) - Indice [SA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:core_services_ex_volatiles
+33,US,Prices,CPI,CPI-U: Core Services ex Volatiles (Custom) (Index),Weight,M,CPI-U: Core Services ex Volatiles (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:core_services_ex_volatiles
+34,US,Prices,CPI,CPI-U: All Items ex OER (Custom) (Index),NSA,M,CPI-U: All Items ex OER (Custom) - Indice [NSA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:cpi_ex_oer
+35,US,Prices,CPI,CPI-U: All Items ex OER (Custom) (Index),SA,M,CPI-U: All Items ex OER (Custom) - Indice [SA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:cpi_ex_oer
+36,US,Prices,CPI,CPI-U: All Items ex OER (Custom) (Index),Weight,M,CPI-U: All Items ex OER (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:cpi_ex_oer
+37,US,Prices,CPI,CPI-U: Electricity (Index),NSA,M,CPI-U: Electricity - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:electricity
+38,US,Prices,CPI,CPI-U: Electricity (Index),SA,M,CPI-U: Electricity - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:electricity
+39,US,Prices,CPI,CPI-U: Electricity (Index),Weight,M,"CPI-U: Electricity - Weight (Relative Importance, Table 6 BLS)",,CPIUS:electricity
+40,US,Prices,CPI,CPI-U: Energy (Index),NSA,M,CPI-U: Energy - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:energy
+41,US,Prices,CPI,CPI-U: Energy (Index),SA,M,CPI-U: Energy - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:energy
+42,US,Prices,CPI,CPI-U: Energy (Index),Weight,M,"CPI-U: Energy - Weight (Relative Importance, Table 6 BLS)",,CPIUS:energy
+43,US,Prices,CPI,CPI-U: Energy Commodities (Index),NSA,M,CPI-U: Energy Commodities - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:energy_commodities
+44,US,Prices,CPI,CPI-U: Energy Commodities (Index),SA,M,CPI-U: Energy Commodities - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:energy_commodities
+45,US,Prices,CPI,CPI-U: Energy Commodities (Index),Weight,M,"CPI-U: Energy Commodities - Weight (Relative Importance, Table 6 BLS)",,CPIUS:energy_commodities
+46,US,Prices,CPI,CPI-U: Energy Services (Index),NSA,M,CPI-U: Energy Services - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:energy_services
+47,US,Prices,CPI,CPI-U: Energy Services (Index),SA,M,CPI-U: Energy Services - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:energy_services
+48,US,Prices,CPI,CPI-U: Energy Services (Index),Weight,M,"CPI-U: Energy Services - Weight (Relative Importance, Table 6 BLS)",,CPIUS:energy_services
+49,US,Prices,CPI,CPI-U: Food (Index),NSA,M,CPI-U: Food - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food
+50,US,Prices,CPI,CPI-U: Food (Index),SA,M,CPI-U: Food - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food
+51,US,Prices,CPI,CPI-U: Food (Index),Weight,M,"CPI-U: Food - Weight (Relative Importance, Table 6 BLS)",,CPIUS:food
+52,US,Prices,CPI,CPI-U: Food Away from Home (Index),NSA,M,CPI-U: Food Away from Home - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_away
+53,US,Prices,CPI,CPI-U: Food Away from Home (Index),SA,M,CPI-U: Food Away from Home - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_away
+54,US,Prices,CPI,CPI-U: Food Away from Home (Index),Weight,M,"CPI-U: Food Away from Home - Weight (Relative Importance, Table 6 BLS)",,CPIUS:food_away
+55,US,Prices,CPI,CPI-U: Cereals and Bakery Products (Index),NSA,M,CPI-U: Cereals and Bakery Products - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_cereals_bakery
+56,US,Prices,CPI,CPI-U: Cereals and Bakery Products (Index),SA,M,CPI-U: Cereals and Bakery Products - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_cereals_bakery
+57,US,Prices,CPI,CPI-U: Cereals and Bakery Products (Index),Weight,M,"CPI-U: Cereals and Bakery Products - Weight (Relative Importance, Table 6 BLS)",,CPIUS:food_cereals_bakery
+58,US,Prices,CPI,CPI-U: Dairy and Related Products (Index),NSA,M,CPI-U: Dairy and Related Products - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_dairy
+59,US,Prices,CPI,CPI-U: Dairy and Related Products (Index),SA,M,CPI-U: Dairy and Related Products - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_dairy
+60,US,Prices,CPI,CPI-U: Dairy and Related Products (Index),Weight,M,"CPI-U: Dairy and Related Products - Weight (Relative Importance, Table 6 BLS)",,CPIUS:food_dairy
+61,US,Prices,CPI,CPI-U: Fruits and Vegetables (Index),NSA,M,CPI-U: Fruits and Vegetables - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_fruits_veg
+62,US,Prices,CPI,CPI-U: Fruits and Vegetables (Index),SA,M,CPI-U: Fruits and Vegetables - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_fruits_veg
+63,US,Prices,CPI,CPI-U: Fruits and Vegetables (Index),Weight,M,"CPI-U: Fruits and Vegetables - Weight (Relative Importance, Table 6 BLS)",,CPIUS:food_fruits_veg
+64,US,Prices,CPI,CPI-U: Food at Home (Index),NSA,M,CPI-U: Food at Home - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_home
+65,US,Prices,CPI,CPI-U: Food at Home (Index),SA,M,CPI-U: Food at Home - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_home
+66,US,Prices,CPI,CPI-U: Food at Home (Index),Weight,M,"CPI-U: Food at Home - Weight (Relative Importance, Table 6 BLS)",,CPIUS:food_home
+67,US,Prices,CPI,"CPI-U: Meats, Poultry, Fish, and Eggs (Index)",NSA,M,"CPI-U: Meats, Poultry, Fish, and Eggs - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto",,CPIUS:food_meats
+68,US,Prices,CPI,"CPI-U: Meats, Poultry, Fish, and Eggs (Index)",SA,M,"CPI-U: Meats, Poultry, Fish, and Eggs - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto",,CPIUS:food_meats
+69,US,Prices,CPI,"CPI-U: Meats, Poultry, Fish, and Eggs (Index)",Weight,M,"CPI-U: Meats, Poultry, Fish, and Eggs - Weight (Relative Importance, Table 6 BLS)",,CPIUS:food_meats
+70,US,Prices,CPI,CPI-U: Nonalcoholic Beverages and Beverage Materials (Index),NSA,M,CPI-U: Nonalcoholic Beverages and Beverage Materials - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_nonalc_bev
+71,US,Prices,CPI,CPI-U: Nonalcoholic Beverages and Beverage Materials (Index),SA,M,CPI-U: Nonalcoholic Beverages and Beverage Materials - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_nonalc_bev
+72,US,Prices,CPI,CPI-U: Nonalcoholic Beverages and Beverage Materials (Index),Weight,M,"CPI-U: Nonalcoholic Beverages and Beverage Materials - Weight (Relative Importance, Table 6 BLS)",,CPIUS:food_nonalc_bev
+73,US,Prices,CPI,CPI-U: Other Food at Home (Index),NSA,M,CPI-U: Other Food at Home - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_other_home
+74,US,Prices,CPI,CPI-U: Other Food at Home (Index),SA,M,CPI-U: Other Food at Home - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:food_other_home
+75,US,Prices,CPI,CPI-U: Other Food at Home (Index),Weight,M,"CPI-U: Other Food at Home - Weight (Relative Importance, Table 6 BLS)",,CPIUS:food_other_home
+76,US,Prices,CPI,CPI-U: Fuel Oil (Index),NSA,M,CPI-U: Fuel Oil - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:fuel_oil
+77,US,Prices,CPI,CPI-U: Fuel Oil (Index),SA,M,CPI-U: Fuel Oil - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:fuel_oil
+78,US,Prices,CPI,CPI-U: Fuel Oil (Index),Weight,M,"CPI-U: Fuel Oil - Weight (Relative Importance, Table 6 BLS)",,CPIUS:fuel_oil
+79,US,Prices,CPI,CPI-U: Gasoline (all types) (Index),NSA,M,CPI-U: Gasoline (all types) - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:gasoline
+80,US,Prices,CPI,CPI-U: Gasoline (all types) (Index),SA,M,CPI-U: Gasoline (all types) - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:gasoline
+81,US,Prices,CPI,CPI-U: Gasoline (all types) (Index),Weight,M,"CPI-U: Gasoline (all types) - Weight (Relative Importance, Table 6 BLS)",,CPIUS:gasoline
+82,US,Prices,CPI,CPI-U: Hospital Services (Index),NSA,M,CPI-U: Hospital Services - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:hospital_services
+83,US,Prices,CPI,CPI-U: Hospital Services (Index),SA,M,CPI-U: Hospital Services - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:hospital_services
+84,US,Prices,CPI,CPI-U: Hospital Services (Index),Weight,M,"CPI-U: Hospital Services - Weight (Relative Importance, Table 6 BLS)",,CPIUS:hospital_services
+85,US,Prices,CPI,CPI-U: Lodging Away from Home (Index),NSA,M,CPI-U: Lodging Away from Home - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:lodging_away
+86,US,Prices,CPI,CPI-U: Lodging Away from Home (Index),SA,M,CPI-U: Lodging Away from Home - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:lodging_away
+87,US,Prices,CPI,CPI-U: Lodging Away from Home (Index),Weight,M,"CPI-U: Lodging Away from Home - Weight (Relative Importance, Table 6 BLS)",,CPIUS:lodging_away
+88,US,Prices,CPI,CPI-U: Medical Care Commodities (Index),NSA,M,CPI-U: Medical Care Commodities - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:medical_goods
+89,US,Prices,CPI,CPI-U: Medical Care Commodities (Index),SA,M,CPI-U: Medical Care Commodities - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:medical_goods
+90,US,Prices,CPI,CPI-U: Medical Care Commodities (Index),Weight,M,"CPI-U: Medical Care Commodities - Weight (Relative Importance, Table 6 BLS)",,CPIUS:medical_goods
+91,US,Prices,CPI,CPI-U: Medical Care Services (Index),NSA,M,CPI-U: Medical Care Services - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:medical_services
+92,US,Prices,CPI,CPI-U: Medical Care Services (Index),SA,M,CPI-U: Medical Care Services - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:medical_services
+93,US,Prices,CPI,CPI-U: Medical Care Services (Index),Weight,M,"CPI-U: Medical Care Services - Weight (Relative Importance, Table 6 BLS)",,CPIUS:medical_services
+94,US,Prices,CPI,CPI-U: Motor Fuel (Index),NSA,M,CPI-U: Motor Fuel - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:motor_fuel
+95,US,Prices,CPI,CPI-U: Motor Fuel (Index),SA,M,CPI-U: Motor Fuel - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:motor_fuel
+96,US,Prices,CPI,CPI-U: Motor Fuel (Index),Weight,M,"CPI-U: Motor Fuel - Weight (Relative Importance, Table 6 BLS)",,CPIUS:motor_fuel
+97,US,Prices,CPI,CPI-U: Motor Vehicle Insurance (Index),NSA,M,CPI-U: Motor Vehicle Insurance - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:motor_vehicle_insur
+98,US,Prices,CPI,CPI-U: Motor Vehicle Insurance (Index),SA,M,CPI-U: Motor Vehicle Insurance - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:motor_vehicle_insur
+99,US,Prices,CPI,CPI-U: Motor Vehicle Insurance (Index),Weight,M,"CPI-U: Motor Vehicle Insurance - Weight (Relative Importance, Table 6 BLS)",,CPIUS:motor_vehicle_insur
+100,US,Prices,CPI,CPI-U: Motor Vehicle Maintenance and Repair (Index),NSA,M,CPI-U: Motor Vehicle Maintenance and Repair - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:motor_vehicle_maint
+101,US,Prices,CPI,CPI-U: Motor Vehicle Maintenance and Repair (Index),SA,M,CPI-U: Motor Vehicle Maintenance and Repair - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:motor_vehicle_maint
+102,US,Prices,CPI,CPI-U: Motor Vehicle Maintenance and Repair (Index),Weight,M,"CPI-U: Motor Vehicle Maintenance and Repair - Weight (Relative Importance, Table 6 BLS)",,CPIUS:motor_vehicle_maint
+103,US,Prices,CPI,CPI-U: New Vehicles (Index),NSA,M,CPI-U: New Vehicles - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:new_vehicles
+104,US,Prices,CPI,CPI-U: New Vehicles (Index),SA,M,CPI-U: New Vehicles - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:new_vehicles
+105,US,Prices,CPI,CPI-U: New Vehicles (Index),Weight,M,"CPI-U: New Vehicles - Weight (Relative Importance, Table 6 BLS)",,CPIUS:new_vehicles
+106,US,Prices,CPI,CPI-U: Owners' Equivalent Rent of Residences (Index),NSA,M,CPI-U: Owners' Equivalent Rent of Residences - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:oer
+107,US,Prices,CPI,CPI-U: Owners' Equivalent Rent of Residences (Index),SA,M,CPI-U: Owners' Equivalent Rent of Residences - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:oer
+108,US,Prices,CPI,CPI-U: Owners' Equivalent Rent of Residences (Index),Weight,M,"CPI-U: Owners' Equivalent Rent of Residences - Weight (Relative Importance, Table 6 BLS)",,CPIUS:oer
+109,US,Prices,CPI,CPI-U: Physicians' Services (Index),NSA,M,CPI-U: Physicians' Services - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:physicians_services
+110,US,Prices,CPI,CPI-U: Physicians' Services (Index),SA,M,CPI-U: Physicians' Services - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:physicians_services
+111,US,Prices,CPI,CPI-U: Physicians' Services (Index),Weight,M,"CPI-U: Physicians' Services - Weight (Relative Importance, Table 6 BLS)",,CPIUS:physicians_services
+112,US,Prices,CPI,CPI-U: Public Transportation (Index),NSA,M,CPI-U: Public Transportation - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:public_transportation
+113,US,Prices,CPI,CPI-U: Public Transportation (Index),SA,M,CPI-U: Public Transportation - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:public_transportation
+114,US,Prices,CPI,CPI-U: Public Transportation (Index),Weight,M,"CPI-U: Public Transportation - Weight (Relative Importance, Table 6 BLS)",,CPIUS:public_transportation
+115,US,Prices,CPI,CPI-U: Rent of Primary Residence (Index),NSA,M,CPI-U: Rent of Primary Residence - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:rent
+116,US,Prices,CPI,CPI-U: Rent of Primary Residence (Index),SA,M,CPI-U: Rent of Primary Residence - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:rent
+117,US,Prices,CPI,CPI-U: Rent of Primary Residence (Index),Weight,M,"CPI-U: Rent of Primary Residence - Weight (Relative Importance, Table 6 BLS)",,CPIUS:rent
+118,US,Prices,CPI,CPI-U: Rent of Shelter (Custom) (Index),NSA,M,CPI-U: Rent of Shelter (Custom) - Indice [NSA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:rent_of_shelter
+119,US,Prices,CPI,CPI-U: Rent of Shelter (Custom) (Index),SA,M,CPI-U: Rent of Shelter (Custom) - Indice [SA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:rent_of_shelter
+120,US,Prices,CPI,CPI-U: Rent of Shelter (Custom) (Index),Weight,M,CPI-U: Rent of Shelter (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:rent_of_shelter
+121,US,Prices,CPI,CPI-U: Shelter (Index),NSA,M,CPI-U: Shelter - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:shelter
+122,US,Prices,CPI,CPI-U: Shelter (Index),SA,M,CPI-U: Shelter - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:shelter
+123,US,Prices,CPI,CPI-U: Shelter (Index),Weight,M,"CPI-U: Shelter - Weight (Relative Importance, Table 6 BLS)",,CPIUS:shelter
+124,US,Prices,CPI,CPI-U: Super Super Core (Custom) (Index),NSA,M,CPI-U: Super Super Core (Custom) - Indice [NSA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:super_super_core
+125,US,Prices,CPI,CPI-U: Super Super Core (Custom) (Index),SA,M,CPI-U: Super Super Core (Custom) - Indice [SA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:super_super_core
+126,US,Prices,CPI,CPI-U: Super Super Core (Custom) (Index),Weight,M,CPI-U: Super Super Core (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:super_super_core
+127,US,Prices,CPI,"CPI-U: Core Services ex RPR & OER (Old Powell Supercore, Custom) (Index)",NSA,M,"CPI-U: Core Services ex RPR & OER (Old Powell Supercore, Custom) - Indice [NSA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra)",,CPIUS:supercore_powell_old
+128,US,Prices,CPI,"CPI-U: Core Services ex RPR & OER (Old Powell Supercore, Custom) (Index)",SA,M,"CPI-U: Core Services ex RPR & OER (Old Powell Supercore, Custom) - Indice [SA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra)",,CPIUS:supercore_powell_old
+129,US,Prices,CPI,"CPI-U: Core Services ex RPR & OER (Old Powell Supercore, Custom) (Index)",Weight,M,"CPI-U: Core Services ex RPR & OER (Old Powell Supercore, Custom) - Weight derivado (algebra Laspeyres da recipe)",,CPIUS:supercore_powell_old
+130,US,Prices,CPI,CPI-U: Tobacco and Smoking Products (Index),NSA,M,CPI-U: Tobacco and Smoking Products - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:tobacco
+131,US,Prices,CPI,CPI-U: Tobacco and Smoking Products (Index),SA,M,CPI-U: Tobacco and Smoking Products - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:tobacco
+132,US,Prices,CPI,CPI-U: Tobacco and Smoking Products (Index),Weight,M,"CPI-U: Tobacco and Smoking Products - Weight (Relative Importance, Table 6 BLS)",,CPIUS:tobacco
+133,US,Prices,CPI,CPI-U: Transportation Services (Index),NSA,M,CPI-U: Transportation Services - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:transportation_services
+134,US,Prices,CPI,CPI-U: Transportation Services (Index),SA,M,CPI-U: Transportation Services - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:transportation_services
+135,US,Prices,CPI,CPI-U: Transportation Services (Index),Weight,M,"CPI-U: Transportation Services - Weight (Relative Importance, Table 6 BLS)",,CPIUS:transportation_services
+136,US,Prices,CPI,CPI-U: Used Cars and Trucks (Index),NSA,M,CPI-U: Used Cars and Trucks - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:used_cars_trucks
+137,US,Prices,CPI,CPI-U: Used Cars and Trucks (Index),SA,M,CPI-U: Used Cars and Trucks - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:used_cars_trucks
+138,US,Prices,CPI,CPI-U: Used Cars and Trucks (Index),Weight,M,"CPI-U: Used Cars and Trucks - Weight (Relative Importance, Table 6 BLS)",,CPIUS:used_cars_trucks
+139,US,Prices,CPI,CPI-U: Utility (piped) Gas Service (Index),NSA,M,CPI-U: Utility (piped) Gas Service - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:utility_gas
+140,US,Prices,CPI,CPI-U: Utility (piped) Gas Service (Index),SA,M,CPI-U: Utility (piped) Gas Service - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:utility_gas
+141,US,Prices,CPI,CPI-U: Utility (piped) Gas Service (Index),Weight,M,"CPI-U: Utility (piped) Gas Service - Weight (Relative Importance, Table 6 BLS)",,CPIUS:utility_gas
