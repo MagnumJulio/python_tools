@@ -21,7 +21,6 @@
 #   python script_itau/simulate_cpius_to_sql.py --save      # grava CSVs
 
 import argparse
-import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -95,25 +94,17 @@ CUSTOM_LABELS = {
     "core_services_ex_volatiles":                "CPI-U: Core Services ex Volatiles (Custom)",
 }
 
-CPIUS_CODE_VAR    = "CPIUS:{cat}/{sid}/BLS-{sha}"
-CPIUS_CODE_IDX    = "CPIUS:{cat}/{sid}/Index/BLS-{sha}"
-CPIUS_CODE_PESO   = "CPIUS:{cat}/RI/BLS-{sha}"
-CPIUS_CODE_CUSTOM_VAR  = "CPIUS:{cat}/CUSTOM/RECON-{sha}"
-CPIUS_CODE_CUSTOM_IDX  = "CPIUS:{cat}/CUSTOM/Index/RECON-{sha}"
-CPIUS_CODE_CUSTOM_PESO = "CPIUS:{cat}/CUSTOM/Peso/RECON-{sha}"
+# Sync 2026-07-17-b: codes simplificados, gravados em bls_code (novo).
+# haver_code (legado) fica NULL em INSERTs novos — nao setamos o campo,
+# SQL resolve como NULL por default.
+#   CPIUS:{cat}         -> lado var/label (var NSA/SA, Weight-label)
+#   CPIUS:{cat}/Index   -> lado idx (idx NSA/SA, Weight-Index)
+CODE_VAR   = "CPIUS:{cat}"
+CODE_INDEX = "CPIUS:{cat}/Index"
 
 SERIES_COLS = ["series_id", "country", "subject", "indicator", "series_name",
-               "data_type", "frequency", "description", "haver_code"]
+               "data_type", "frequency", "description", "haver_code", "bls_code"]
 DATA_COLS = ["date", "series_id", "value", "release_date", "vintage_date"]
-
-
-def _git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL
-        ).decode().strip()
-    except Exception:
-        return "nogit"
 
 
 class MockSQLConnector:
@@ -140,8 +131,12 @@ class MockSQLConnector:
     def insert_meta(self, row: dict) -> int:
         row = {**row, "series_id": self._next_id}
         self._next_id += 1
+        # Reindexa pra SERIES_COLS: colunas ausentes do dict (ex: haver_code)
+        # entram como NaN, replicando o comportamento do SQL Server que grava
+        # NULL nas colunas nao referenciadas pelo INSERT.
+        df_new = pd.DataFrame([row]).reindex(columns=SERIES_COLS)
         self.tables["OPT_Macro_Series_2"] = self._append(
-            self.tables["OPT_Macro_Series_2"], pd.DataFrame([row])
+            self.tables["OPT_Macro_Series_2"], df_new
         )
         return row["series_id"]
 
@@ -162,15 +157,18 @@ def sim_sidra_to_sql(
     series: pd.Series,
     country: str, subject: str, indicator: str,
     series_name: str, data_type: str, frequency: str,
-    description: str, haver_code: str,
+    description: str, bls_code: str,
     session: MockSQLConnector, replace: bool = True,
 ) -> int:
     series_id = session._find_series_id(country, subject, indicator, series_name, data_type)
     if series_id is None:
+        # haver_code fica None (SQL NULL) — nao passamos o campo no dict pra
+        # replicar exatamente o INSERT do loader corp. Reindex em insert_meta
+        # preenche haver_code com NaN.
         series_id = session.insert_meta({
             "country": country, "subject": subject, "indicator": indicator,
             "series_name": series_name, "data_type": data_type,
-            "frequency": frequency, "description": description, "haver_code": haver_code,
+            "frequency": frequency, "description": description, "bls_code": bls_code,
         })
 
     if replace:
@@ -228,7 +226,6 @@ def main():
                         help="Salva as 2 tabelas em script_itau/sim_output/*.csv.")
     args = parser.parse_args()
 
-    sha = _git_sha()
     only = set(args.only.split(",")) if args.only else None
 
     print(f"[1] Lendo {RECON_CSV.relative_to(ROOT)}...")
@@ -264,6 +261,13 @@ def main():
     else:
         print(f"[4] {CUSTOM_CSV.relative_to(ROOT)} nao existe — rode build_custom_aggregations.R pra habilitar.")
 
+    # Peso sintetico do headline: all_items sempre = 100.0 constante (definicao
+    # semantica, nao medicao). Sobrescreve o valor renormalizado do CSV (~99.9997)
+    # pra bater com pareto_ipca (ipca_total = 100 constante).
+    if "all_items" in peso_series:
+        idx_ai = peso_series["all_items"].index
+        peso_series["all_items"] = pd.Series(100.0, index=idx_ai, name="all_items")
+
     all_labels = {**CATEGORY_LABELS, **CUSTOM_LABELS}
     cats = sorted({c for (c, _sa) in var_by_key} & {c for (c, _sa) in idx_by_key})
     if only:
@@ -277,15 +281,14 @@ def main():
     for c in cats:
         label = all_labels[c]
         is_custom = c in custom_cats
-        code_var  = CPIUS_CODE_CUSTOM_VAR  if is_custom else CPIUS_CODE_VAR
-        code_idx  = CPIUS_CODE_CUSTOM_IDX  if is_custom else CPIUS_CODE_IDX
-        code_peso = CPIUS_CODE_CUSTOM_PESO if is_custom else CPIUS_CODE_PESO
+        bls_var = CODE_VAR.format(cat=c)
+        bls_idx = CODE_INDEX.format(cat=c)
         for sa in ("NSA", "SA"):
             key = (c, sa)
             if key not in var_by_key or key not in idx_by_key:
                 print(f"  [SKIP] {c}/{sa} — faltando em recon ou indice")
                 continue
-            sv, sid_bls = var_by_key[key]
+            sv, _ = var_by_key[key]
             si, _ = idx_by_key[key]
             print(f"  - {label:55s} [{sa}]  var={len(sv):4d}   idx={len(si):4d}")
 
@@ -294,30 +297,40 @@ def main():
                 series=sv, country="US", subject="Prices", indicator="CPI-U",
                 series_name=label, data_type=sa, frequency="M",
                 description=f"{label} - Variacao mensal (%) [{sa}] - {src}",
-                haver_code=code_var.format(cat=c, sid=sid_bls, sha=sha),
+                bls_code=bls_var,
                 session=session,
             )
             sim_sidra_to_sql(
                 series=si, country="US", subject="Prices", indicator="CPI-U",
                 series_name=f"{label} (Index)", data_type=sa, frequency="M",
                 description=f"{label} - Indice [{sa}] (rebased jan/2000=100) - {src}",
-                haver_code=code_idx.format(cat=c, sid=sid_bls, sha=sha),
+                bls_code=bls_idx,
                 session=session,
             )
-        # Peso. Base: RI Table 6 BLS. Custom: derivado via algebra da recipe.
-        # Compartilha series_name com var; diferenciacao via data_type=Peso.
+        # Weight. Base: RI Table 6 BLS. Custom: derivado via algebra da recipe.
+        # Convencao corp (2026-07-17): grava 2x — uma com series_name=label
+        # (par com var) e outra com series_name=f"{label} (Index)" (par com idx).
+        # bls_code do 2o vira CODE_INDEX. Frontend capta o Weight via casamento
+        # series_name+country+indicator, trocando so o data_type.
         sp = peso_series.get(c)
         if sp is not None:
-            print(f"    peso={len(sp):4d}")
+            print(f"    weight={len(sp):4d} (x2: label + label Index)")
             peso_desc = (
-                f"{label} - Peso derivado (algebra Laspeyres da recipe)"
-                if is_custom else f"{label} - Peso (Relative Importance, Table 6 BLS)"
+                f"{label} - Weight derivado (algebra Laspeyres da recipe)"
+                if is_custom else f"{label} - Weight (Relative Importance, Table 6 BLS)"
             )
             sim_sidra_to_sql(
                 series=sp, country="US", subject="Prices", indicator="CPI-U",
-                series_name=label, data_type="Peso", frequency="M",
+                series_name=label, data_type="Weight", frequency="M",
                 description=peso_desc,
-                haver_code=code_peso.format(cat=c, sha=sha),
+                bls_code=bls_var,
+                session=session,
+            )
+            sim_sidra_to_sql(
+                series=sp, country="US", subject="Prices", indicator="CPI-U",
+                series_name=f"{label} (Index)", data_type="Weight", frequency="M",
+                description=peso_desc,
+                bls_code=bls_idx,
                 session=session,
             )
 

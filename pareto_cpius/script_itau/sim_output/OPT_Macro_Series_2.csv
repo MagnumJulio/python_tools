@@ -1,16 +1,13 @@
-country,subject,indicator,series_name,data_type,frequency,description,haver_code,series_id
-US,Prices,CPI-U,CPI-U: All Items,NSA,M,CPI-U: All Items - Variacao mensal (%) [NSA] - BLS API v2 direto,CPIUS:all_items/CUUR0000SA0/BLS-2787bd7,1
-US,Prices,CPI-U,CPI-U: All Items (Index),NSA,M,CPI-U: All Items - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,CPIUS:all_items/CUUR0000SA0/Index/BLS-2787bd7,2
-US,Prices,CPI-U,CPI-U: All Items,SA,M,CPI-U: All Items - Variacao mensal (%) [SA] - BLS API v2 direto,CPIUS:all_items/CUSR0000SA0/BLS-2787bd7,3
-US,Prices,CPI-U,CPI-U: All Items (Index),SA,M,CPI-U: All Items - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,CPIUS:all_items/CUSR0000SA0/Index/BLS-2787bd7,4
-US,Prices,CPI-U,CPI-U: All Items,Peso,M,"CPI-U: All Items - Peso (Relative Importance, Table 6 BLS)",CPIUS:all_items/RI/BLS-2787bd7,5
-US,Prices,CPI-U,CPI-U: Gasoline (all types),NSA,M,CPI-U: Gasoline (all types) - Variacao mensal (%) [NSA] - BLS API v2 direto,CPIUS:gasoline/CUUR0000SETB01/BLS-2787bd7,6
-US,Prices,CPI-U,CPI-U: Gasoline (all types) (Index),NSA,M,CPI-U: Gasoline (all types) - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,CPIUS:gasoline/CUUR0000SETB01/Index/BLS-2787bd7,7
-US,Prices,CPI-U,CPI-U: Gasoline (all types),SA,M,CPI-U: Gasoline (all types) - Variacao mensal (%) [SA] - BLS API v2 direto,CPIUS:gasoline/CUSR0000SETB01/BLS-2787bd7,8
-US,Prices,CPI-U,CPI-U: Gasoline (all types) (Index),SA,M,CPI-U: Gasoline (all types) - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,CPIUS:gasoline/CUSR0000SETB01/Index/BLS-2787bd7,9
-US,Prices,CPI-U,CPI-U: Gasoline (all types),Peso,M,"CPI-U: Gasoline (all types) - Peso (Relative Importance, Table 6 BLS)",CPIUS:gasoline/RI/BLS-2787bd7,10
-US,Prices,CPI-U,CPI-U: Owners' Equivalent Rent of Residences,NSA,M,CPI-U: Owners' Equivalent Rent of Residences - Variacao mensal (%) [NSA] - BLS API v2 direto,CPIUS:oer/CUUR0000SEHC/BLS-2787bd7,11
-US,Prices,CPI-U,CPI-U: Owners' Equivalent Rent of Residences (Index),NSA,M,CPI-U: Owners' Equivalent Rent of Residences - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,CPIUS:oer/CUUR0000SEHC/Index/BLS-2787bd7,12
-US,Prices,CPI-U,CPI-U: Owners' Equivalent Rent of Residences,SA,M,CPI-U: Owners' Equivalent Rent of Residences - Variacao mensal (%) [SA] - BLS API v2 direto,CPIUS:oer/CUSR0000SEHC/BLS-2787bd7,13
-US,Prices,CPI-U,CPI-U: Owners' Equivalent Rent of Residences (Index),SA,M,CPI-U: Owners' Equivalent Rent of Residences - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,CPIUS:oer/CUSR0000SEHC/Index/BLS-2787bd7,14
-US,Prices,CPI-U,CPI-U: Owners' Equivalent Rent of Residences,Peso,M,"CPI-U: Owners' Equivalent Rent of Residences - Peso (Relative Importance, Table 6 BLS)",CPIUS:oer/RI/BLS-2787bd7,15
+series_id,country,subject,indicator,series_name,data_type,frequency,description,haver_code,bls_code
+1,US,Prices,CPI-U,CPI-U: All Items,NSA,M,CPI-U: All Items - Variacao mensal (%) [NSA] - BLS API v2 direto,,CPIUS:all_items
+2,US,Prices,CPI-U,CPI-U: All Items (Index),NSA,M,CPI-U: All Items - Indice [NSA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:all_items/Index
+3,US,Prices,CPI-U,CPI-U: All Items,SA,M,CPI-U: All Items - Variacao mensal (%) [SA] - BLS API v2 direto,,CPIUS:all_items
+4,US,Prices,CPI-U,CPI-U: All Items (Index),SA,M,CPI-U: All Items - Indice [SA] (rebased jan/2000=100) - BLS API v2 direto,,CPIUS:all_items/Index
+5,US,Prices,CPI-U,CPI-U: All Items,Weight,M,"CPI-U: All Items - Weight (Relative Importance, Table 6 BLS)",,CPIUS:all_items
+6,US,Prices,CPI-U,CPI-U: All Items (Index),Weight,M,"CPI-U: All Items - Weight (Relative Importance, Table 6 BLS)",,CPIUS:all_items/Index
+7,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom),NSA,M,CPI-U: All Items ex OER (Custom) - Variacao mensal (%) [NSA] - custom aggregation (Laspeyres algebra),,CPIUS:cpi_ex_oer
+8,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom) (Index),NSA,M,CPI-U: All Items ex OER (Custom) - Indice [NSA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:cpi_ex_oer/Index
+9,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom),SA,M,CPI-U: All Items ex OER (Custom) - Variacao mensal (%) [SA] - custom aggregation (Laspeyres algebra),,CPIUS:cpi_ex_oer
+10,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom) (Index),SA,M,CPI-U: All Items ex OER (Custom) - Indice [SA] (rebased jan/2000=100) - custom aggregation (Laspeyres algebra),,CPIUS:cpi_ex_oer/Index
+11,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom),Weight,M,CPI-U: All Items ex OER (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:cpi_ex_oer
+12,US,Prices,CPI-U,CPI-U: All Items ex OER (Custom) (Index),Weight,M,CPI-U: All Items ex OER (Custom) - Weight derivado (algebra Laspeyres da recipe),,CPIUS:cpi_ex_oer/Index

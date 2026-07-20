@@ -16,7 +16,6 @@
 #   python script_itau/simulate_pareto_to_sql.py --preview 20  # imprime primeiras N linhas
 
 import argparse
-import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -61,22 +60,17 @@ CATEGORY_LABELS = {
     "nucleo_medio":    "IPCA: Nucleo Medio (media dos 5)",
 }
 
-SIDRA_CODE_VAR  = "PARETO_IPCA:{cat}/V63/RECON-{sha}"
-SIDRA_CODE_IDX  = "PARETO_IPCA:{cat}/V63/Index/RECON-{sha}"
-SIDRA_CODE_PESO = "PARETO_IPCA:{cat}/V66/RECON-{sha}"
+# Sync 2026-07-17: codes simplificados sem sha / sem PARETO. 2 codes por cat:
+#   IPCA:{cat}         -> lado var/label (var NSA/SA, Weight-label)
+#   IPCA:{cat}/Index   -> lado idx (idx NSA/SA, Weight-Index)
+# haver_code (legado) fica NULL em INSERTs novos (nao setamos o campo — SQL
+# resolve como NULL por default); code novo vai no campo bls_code.
+CODE_VAR   = "IPCA:{cat}"
+CODE_INDEX = "IPCA:{cat}/Index"
 
 SERIES_COLS = ["series_id", "country", "subject", "indicator", "series_name",
-               "data_type", "frequency", "description", "haver_code"]
+               "data_type", "frequency", "description", "haver_code", "bls_code"]
 DATA_COLS = ["date", "series_id", "value", "release_date", "vintage_date"]
-
-
-def _git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL
-        ).decode().strip()
-    except Exception:
-        return "nogit"
 
 
 class MockSQLConnector:
@@ -107,8 +101,12 @@ class MockSQLConnector:
     def insert_meta(self, row: dict) -> int:
         row = {**row, "series_id": self._next_id}
         self._next_id += 1
+        # Reindexa pra SERIES_COLS: colunas ausentes do dict (ex: haver_code)
+        # entram como NaN, replicando o comportamento do SQL Server que grava
+        # NULL nas colunas nao referenciadas pelo INSERT.
+        df_new = pd.DataFrame([row]).reindex(columns=SERIES_COLS)
         self.tables["OPT_Macro_Series_2"] = self._append(
-            self.tables["OPT_Macro_Series_2"], pd.DataFrame([row])
+            self.tables["OPT_Macro_Series_2"], df_new
         )
         return row["series_id"]
 
@@ -129,15 +127,19 @@ def sim_sidra_to_sql(
     series: pd.Series,
     country: str, subject: str, indicator: str,
     series_name: str, data_type: str, frequency: str,
-    description: str, haver_code: str,
+    description: str, bls_code: str,
     session: MockSQLConnector, replace: bool = True,
 ) -> int:
     series_id = session._find_series_id(country, subject, indicator, series_name, data_type)
     if series_id is None:
+        # haver_code fica None (SQL NULL) — nao passamos o campo no dict pra
+        # replicar exatamente o INSERT do loader corp. O DataFrame preenche com
+        # NaN, equivalente a NULL na tabela real.
         series_id = session.insert_meta({
             "country": country, "subject": subject, "indicator": indicator,
             "series_name": series_name, "data_type": data_type,
-            "frequency": frequency, "description": description, "haver_code": haver_code,
+            "frequency": frequency, "description": description,
+            "bls_code": bls_code,
         })
 
     if replace:
@@ -179,7 +181,6 @@ def main():
                         help="Salva as 2 tabelas em script_itau/sim_output/*.csv.")
     args = parser.parse_args()
 
-    sha = _git_sha()
     only = set(args.only.split(",")) if args.only else None
 
     print(f"[1] Lendo {VAR_CSV.relative_to(ROOT)}...")
@@ -209,33 +210,45 @@ def main():
 
     for c in cats:
         label = CATEGORY_LABELS[c]
+        label_idx = f"{label} (Indice)"
         sv, si = var_series[c], idx_series[c]
         sp = peso_series.get(c)
-        peso_info = f"peso={len(sp):4d}" if sp is not None else "peso=N/A "
+        bls_var = CODE_VAR.format(cat=c)
+        bls_idx = CODE_INDEX.format(cat=c)
+        peso_info = f"Weight x2={len(sp):4d}" if sp is not None else "Weight=N/A "
         print(f"  - {label:45s}  var={len(sv):4d}   idx={len(si):4d}   {peso_info}")
 
         sim_sidra_to_sql(
             series=sv, country="BR", subject="Prices", indicator="IPCA",
             series_name=label, data_type="NSA", frequency="M",
             description=f"{label} - Variacao mensal (%) - recon IBGE-only via NT_57/Dez-2025",
-            haver_code=SIDRA_CODE_VAR.format(cat=c, sha=sha),
+            bls_code=bls_var,
             session=session,
         )
         sim_sidra_to_sql(
             series=si, country="BR", subject="Prices", indicator="IPCA",
-            series_name=f"{label} (Indice)", data_type="NSA", frequency="M",
+            series_name=label_idx, data_type="NSA", frequency="M",
             description=f"{label} - Indice (dez/2006=100) - recon IBGE-only via NT_57/Dez-2025",
-            haver_code=SIDRA_CODE_IDX.format(cat=c, sha=sha),
+            bls_code=bls_idx,
             session=session,
         )
         if sp is not None:
-            # Peso compartilha series_name com var NSA (sync corp 2026-07-14);
-            # diferenciacao so via data_type=Peso.
+            # Weight duplicado (sync 2026-07-17): mesmo array de peso gravado
+            # 2x — series_name=label (par com var) e series_name=label (Indice)
+            # (par com idx). Frontend capta o Weight via casamento de
+            # series_name+country+indicator, trocando so o data_type.
             sim_sidra_to_sql(
                 series=sp, country="BR", subject="Prices", indicator="IPCA",
-                series_name=label, data_type="Peso", frequency="M",
-                description=f"{label} - Peso mensal (V66 IBGE/SIDRA, Laspeyres)",
-                haver_code=SIDRA_CODE_PESO.format(cat=c, sha=sha),
+                series_name=label, data_type="Weight", frequency="M",
+                description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com var",
+                bls_code=bls_var,
+                session=session,
+            )
+            sim_sidra_to_sql(
+                series=sp, country="BR", subject="Prices", indicator="IPCA",
+                series_name=label_idx, data_type="Weight", frequency="M",
+                description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com idx",
+                bls_code=bls_idx,
                 session=session,
             )
 

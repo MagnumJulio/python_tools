@@ -14,9 +14,12 @@ Ao migrar mudanças de um lado pro outro, revisar item a item.
 | Sufixo `(Peso)` em `series_name` | ❌ removido — peso compartilha `series_name` com NSA, só `data_type` difere | ❌ removido (fonte da mudança) | 2026-07-14 |
 | Categoria `total` (IPCA headline) | ✅ existe — R exporta `ipca_oficial` como `total` var/idx/weight | ⚠️ existe no `CATEGORY_LABELS` como `ipca_total` (label mapping) — precisa **renomear pra `total`** e garantir que o R do corp também exporta | 2026-07-14 (local) |
 | Bloco `PESO_ONLY` no loader | ❌ removido (código morto pós-`total`) | ⚠️ pode ainda existir referenciando `ipca_total` — remover ao sincronizar | 2026-07-14 (local) |
-| `haver_code` → novo campo `ons_code` | ⏳ pendente (só documentado) | ⏳ pendente | — |
+| `data_type="Weight"` (era `"Peso"`) | ✅ sync 2026-07-17 | migração faz Peso→Weight nas linhas antigas | 2026-07-17 |
+| Weight gravado 2× (label + label Indice) | ✅ sync 2026-07-17 (par com var e par com idx) | ✅ frontend depende disso pra casar peso via series_name+country+indicator | 2026-07-17 |
+| Code simplificado + campo `bls_code` | ✅ sync 2026-07-17 — `IPCA:{cat}` / `IPCA:{cat}/Index` gravado em `bls_code`; INSERTs novos não setam `haver_code` (fica `NULL` por default) | precisa ALTER TABLE `ADD bls_code VARCHAR(255) NULL` se ainda não tiver | 2026-07-17 |
+| Migração de rows antigas (`haver_code LIKE 'PARETO_IPCA:%'`) | ✅ `_migrate_haver_to_bls` roda antes do main loop (idempotente) | ⚠️ rodar 1x no corp; próximos runs viram no-op | 2026-07-17 |
 
-**Não reintroduzir `f"{label} (Peso)"`** ao mesclar código.
+**Não reintroduzir `f"{label} (Peso)"`** nem `data_type="Peso"` ao mesclar código.
 
 ## Pré-requisitos (na máquina corp)
 
@@ -48,7 +51,7 @@ python script_itau/load_pareto_to_sql.py --dry-run
 ```
 
 **Sucesso:** imprime "28 categorias" três vezes (recon / índice / pesos) e lista
-28 itens (IPCA: Total, IPCA: Monitorados, IPCA: Livres, ..., IPCA: Indice de Difusao, IPCA: Nucleo P55, IPCA: Nucleo Medio).
+28 itens (IPCA: Total, IPCA: Monitorados, IPCA: Livres, ..., IPCA: Indice de Difusao, IPCA: Nucleo P55, IPCA: Nucleo Medio). Cada linha mostra `Weight x2: N obs` (quando há peso) e os 2 bls_codes (`IPCA:{cat}` e `IPCA:{cat}/Index`).
 **Se falhar aqui:** problema é nos CSVs (rode o pipeline R) ou nos labels
 em `CATEGORY_LABELS` (faltaram códigos).
 
@@ -58,45 +61,76 @@ em `CATEGORY_LABELS` (faltaram códigos).
 
 **Objetivo:** abrir conexão SQL e validar que: (a) o `SQLConnector` realmente
 funciona com `connector="pyodbc"` (b) as 2 tabelas existem (c) a coluna
-`description` aguenta nosso pior caso (~95 chars) (d) listar séries com
-`haver_code LIKE 'PARETO_IPCA:%'` que já existam (de runs anteriores).
+**`bls_code`** existe em `OPT_Macro_Series_2` (d) a coluna `description`
+aguenta nosso pior caso (~95 chars) (e) listar séries pré-existentes tanto
+no formato NOVO (`bls_code LIKE 'IPCA:%'`) quanto no ANTIGO (`haver_code
+LIKE 'PARETO_IPCA:%'`, pendentes de migração no próximo write).
 
 ```bash
 python script_itau/load_pareto_to_sql.py --check
 ```
 
-**Sucesso:** 4 linhas `[OK]` e zero `[FAIL]`. Mostra contagem de linhas
-atuais de cada tabela + lista de séries PARETO_IPCA já cadastradas.
+**Sucesso:** 5 linhas `[OK]` e zero `[FAIL]`. Mostra contagem de linhas
+atuais de cada tabela + lista de séries formato NOVO já cadastradas + lista
+de séries formato ANTIGO pendentes de migração.
 
 **Se falhar aqui:**
 - `ModuleNotFoundError: opt_utils` → instalação local quebrada
 - erro de conexão pyodbc → credenciais/driver/DSN
 - `[FAIL] OPT_Macro_Series_2` → permissão ou tabela com nome diferente
+- `[FAIL] coluna bls_code NAO existe` → rode `ALTER TABLE OPT_Macro_Series_2 ADD bls_code VARCHAR(255) NULL;` no SSMS antes de continuar
 - `[FAIL] description = VARCHAR(N)` com N<95 → mexer no schema OU encurtar `description=` no loader
 
 ---
 
 ## Estágio 3 — smoke test (`--only livres,nucleo_ex0`)
 
-**Objetivo:** gravar 4 séries (2 categorias × {variação, índice}) e verificar
-no SSMS antes de soltar as 50 séries.
+**Objetivo:** gravar 8 séries (2 categorias × [var NSA, idx NSA, Weight-label,
+Weight-Indice]) e verificar no SSMS antes de soltar a carga completa. Se já
+havia linhas antigas dessas cats (`haver_code LIKE 'PARETO_IPCA:livres/%'`
+etc.), a migração antes do main loop reaproveita os `series_id` — nenhum
+INSERT duplicado.
 
 ```bash
 python script_itau/load_pareto_to_sql.py --only livres,nucleo_ex0
 ```
 
-Pergunta `Confirma gravacao de ate 4 series no SQL? [s/N]` — responda `s`.
+Pergunta `Confirma gravacao de ate 8 series no SQL? [s/N]` — responda `s`.
+(Se nucleo_ex0 não tiver peso — pode não ter — o total desce pra 6.)
 
 **Verificação no SSMS:**
 ```sql
-SELECT * FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
--- esperado: 4 linhas (livres var/idx + nucleo_ex0 var/idx)
+SELECT series_id, series_name, data_type, haver_code, bls_code
+FROM OPT_Macro_Series_2
+WHERE bls_code LIKE 'IPCA:livres%' OR bls_code LIKE 'IPCA:nucleo_ex0%'
+ORDER BY series_id;
+-- esperado: até 8 linhas; haver_code = NULL em todas (INSERT novo não seta o
+-- campo; migração de row antiga faz UPDATE SET haver_code = NULL);
+-- bls_code em 4 valores:
+--   IPCA:livres, IPCA:livres/Index, IPCA:nucleo_ex0, IPCA:nucleo_ex0/Index
 
-SELECT series_id, COUNT(*) AS n FROM OPT_Macro_Series_Data_2
-WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
-                    WHERE haver_code LIKE 'PARETO_IPCA:%')
-GROUP BY series_id;
--- esperado: 4 linhas, cada uma com n=238 (jul/2006 a abr/2026)
+-- Confirma que nenhuma linha PARETO_IPCA sobrou pra estas cats:
+SELECT COUNT(*) FROM OPT_Macro_Series_2
+WHERE haver_code LIKE 'PARETO_IPCA:livres%'
+   OR haver_code LIKE 'PARETO_IPCA:nucleo_ex0%';
+-- esperado: 0 (a migração setou haver_code=NULL).
+
+SELECT s.series_name, s.data_type, COUNT(*) AS n
+FROM OPT_Macro_Series_Data_2 d
+JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
+WHERE s.bls_code LIKE 'IPCA:livres%' OR s.bls_code LIKE 'IPCA:nucleo_ex0%'
+GROUP BY s.series_name, s.data_type
+ORDER BY s.series_name, s.data_type;
+-- esperado: n=238 (var) / 239 (idx / Weight) por (series_name, data_type)
+
+-- Confirma Weight duplicado com mesmos valores:
+SELECT TOP 5 s.series_name, d.date, d.value
+FROM OPT_Macro_Series_Data_2 d
+JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
+WHERE s.bls_code LIKE 'IPCA:livres%' AND s.data_type = 'Weight'
+ORDER BY d.date, s.series_name;
+-- esperado: pra cada data, "IPCA: Livres" e "IPCA: Livres (Indice)" com o
+-- MESMO value.
 
 SELECT TOP 5 * FROM OPT_Macro_Series_Data_2 WHERE series_id = <id_da_livres_var>
 ORDER BY date;
@@ -106,42 +140,68 @@ ORDER BY date;
 
 **Se algo estiver errado aqui, ANTES de continuar:**
 ```sql
--- rollback do smoke test (apaga só as 4 séries inseridas):
+-- rollback do smoke test (apaga só as 8 séries inseridas):
 DELETE FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
-                    WHERE haver_code LIKE 'PARETO_IPCA:%');
-DELETE FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
+                    WHERE bls_code LIKE 'IPCA:livres%'
+                       OR bls_code LIKE 'IPCA:nucleo_ex0%');
+DELETE FROM OPT_Macro_Series_2
+WHERE bls_code LIKE 'IPCA:livres%' OR bls_code LIKE 'IPCA:nucleo_ex0%';
 ```
 
 ---
 
 ## Estágio 4 — carga completa NSA (28 categorias)
 
-**Objetivo:** gravar até 84 séries (28 var + 28 idx + até 22 pesos) com `data_type='NSA'`/`'Peso'`.
-Re-roda séries já cadastradas no Estágio 3 — `replace=True` apaga dados
-antigos antes do reinsert, sem duplicar.
+**Objetivo:** gravar até **100 séries** (28 var + 28 idx + até 22 pesos × 2)
+com `data_type='NSA'`/`'Weight'`. Re-roda séries já cadastradas no Estágio 3 —
+`replace=True` apaga dados antigos antes do reinsert, sem duplicar. Antes do
+main loop, `_migrate_haver_to_bls` reescreve qualquer linha antiga
+(`haver_code LIKE 'PARETO_IPCA:%'`) das cats que estão no scope: `haver_code`
+→ `NULL`, `bls_code` populado, `data_type` migra `Peso→Weight`.
 
 ```bash
 python script_itau/load_pareto_to_sql.py
 ```
 
-Confirma `Confirma gravacao de ate N series no SQL? [s/N]` (N ≤ 81) → `s`.
+Confirma `Confirma gravacao de ate N series no SQL? [s/N]` (N ≤ 100) → `s`.
 
 **Verificação:**
 ```sql
 SELECT data_type, COUNT(*) AS n_series
-FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%'
+FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'IPCA:%'
 GROUP BY data_type;
--- esperado: NSA=56 (28 var + 28 idx), Peso=até 22 (nucleo_ma/ms/dp/p55/medio/difusao sem peso)
+-- esperado: NSA=56 (28 var + 28 idx), Weight=até 44 (até 22 pesos × 2 — label + Indice).
+-- núcleos estatísticos MA/MS/DP/P55/medio/difusao não têm peso.
+
+-- Distingue Weight-label (par com var) vs Weight-Indice (par com idx):
+SELECT
+  CASE WHEN bls_code LIKE '%/Index' THEN 'Weight (Indice)' ELSE 'Weight (label)' END AS weight_role,
+  COUNT(*) AS n
+FROM OPT_Macro_Series_2
+WHERE bls_code LIKE 'IPCA:%' AND data_type = 'Weight'
+GROUP BY CASE WHEN bls_code LIKE '%/Index' THEN 'Weight (Indice)' ELSE 'Weight (label)' END;
+-- esperado: Weight (label)=22, Weight (Indice)=22.
+
+-- total (headline) Weight = 100 constante nas 238+ datas:
+SELECT MIN(value) AS wmin, MAX(value) AS wmax, COUNT(*) AS n
+FROM OPT_Macro_Series_Data_2 d
+JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
+WHERE s.bls_code LIKE 'IPCA:total%' AND s.data_type = 'Weight';
+-- esperado: wmin=100.0, wmax=100.0 (peso do headline eh 100 por definicao).
 
 SELECT s.data_type, COUNT(*) AS n_obs
 FROM OPT_Macro_Series_Data_2 d
 JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
-WHERE s.haver_code LIKE 'PARETO_IPCA:%'
+WHERE s.bls_code LIKE 'IPCA:%'
 GROUP BY s.data_type;
--- NSA: 28 categorias × 2 séries × N obs (N = meses desde jul/2006 — cresce a cada IPCA)
--- Peso: até 22 categorias × N obs (núcleos estatísticos MA/MS/DP/P55/medio/difusao não têm peso)
+-- NSA:    56 séries × N obs (N = meses desde jul/2006 — cresce a cada IPCA)
+-- Weight: até 44 séries × N obs (22 pares label + Indice)
 -- nucleo_medio começa jan/2007 (warm-up DP 6m); as outras a partir jul/2006.
+
+-- Nenhuma linha antiga PARETO_IPCA deve sobrar apos a migracao:
+SELECT COUNT(*) FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
+-- esperado: 0
 ```
 
 ---
@@ -155,16 +215,16 @@ Só faz sentido se `x13as` está instalado no ambiente.
 python script_itau/load_pareto_to_sql.py --sa
 ```
 
-Pergunta confirmação pra 108 séries. Cada série pode levar alguns segundos
-no X-13 (pode demorar 5-10min total).
+Pergunta confirmação pra até 156 séries (56 NSA + 56 SA + até 44 Weight×2).
+Cada série pode levar alguns segundos no X-13 (pode demorar 5-10min total).
 
 Se uma categoria falhar no X-13, o loader imprime `[WARN]` e segue —
 não bloqueia as outras. Verifique no fim:
 ```sql
 SELECT data_type, COUNT(*) FROM OPT_Macro_Series_2
-WHERE haver_code LIKE 'PARETO_IPCA:%'
+WHERE bls_code LIKE 'IPCA:%'
 GROUP BY data_type;
--- esperado: NSA=54, SA<=54 (quantas dessazonalizaram OK)
+-- esperado: NSA=56, SA<=56 (quantas dessazonalizaram OK), Weight=até 44
 ```
 
 ### Estágio 5.1 — workarounds SA conhecidos
@@ -258,16 +318,22 @@ Output:
 ## Rollback completo (se precisar desfazer tudo)
 
 ```sql
+-- Rollback pos-migracao (formato NOVO):
+DELETE FROM OPT_Macro_Series_Data_2
+WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
+                    WHERE bls_code LIKE 'IPCA:%');
+DELETE FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'IPCA:%';
+
+-- Rollback do formato ANTIGO (caso alguma linha nao tenha sido migrada):
 DELETE FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
                     WHERE haver_code LIKE 'PARETO_IPCA:%');
-
 DELETE FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
 ```
 
-Isso só remove o que esse loader inseriu (filtra pelo prefixo
-`PARETO_IPCA:` no haver_code) — não afeta as séries SIDRA inseridas pelo
-`sidra_itau.ipynb`.
+Isso só remove o que este loader inseriu (filtra por `bls_code LIKE 'IPCA:%'`
+no formato novo ou `haver_code LIKE 'PARETO_IPCA:%'` no antigo) — não afeta
+as séries SIDRA inseridas pelo `sidra_itau.ipynb`.
 
 ---
 
@@ -302,7 +368,7 @@ write — investigar `sidra_to_sql`.
 ```sql
 SELECT TOP 10 series_id, date, value FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
-                    WHERE haver_code LIKE 'PARETO_IPCA:livres/V63%')
+                    WHERE bls_code LIKE 'IPCA:livres%')
 ORDER BY series_id, date;
 ```
 Compare com:

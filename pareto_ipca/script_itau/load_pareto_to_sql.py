@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -65,20 +65,16 @@ CATEGORY_LABELS = {
     "nucleo_medio":    "IPCA: Nucleo Medio (media dos 5)",
 }
 
-# Proveniencia: aponta pra documentacao oficial da metodologia (BCB Tab.5)
-# embora o calculo seja 100% IBGE/SIDRA. Inclui git sha se disponivel.
-def _git_sha() -> str:
-    try:
-        sha = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL
-        ).decode().strip()
-        return sha
-    except Exception:
-        return "nogit"
-
-SIDRA_CODE_VAR  = "PARETO_IPCA:{cat}/V63/RECON-{sha}"
-SIDRA_CODE_IDX  = "PARETO_IPCA:{cat}/V63/Index/RECON-{sha}"
-SIDRA_CODE_PESO = "PARETO_IPCA:{cat}/V66/RECON-{sha}"
+# Sync 2026-07-17: codes simplificados gravados em bls_code; haver_code fica
+# NULL em tudo que este loader escreve como INSERT novo (nao entra no dict de
+# meta). Rows do formato antigo (`haver_code LIKE 'PARETO_IPCA:%'`) sao
+# migradas por _migrate_haver_to_bls antes do main loop — la SIM o UPDATE
+# desassocia a row do haver_code antigo setando explicitamente NULL. 2 codes
+# por cat:
+#   IPCA:{cat}         -> lado var/label (var NSA, var SA, Weight-label)
+#   IPCA:{cat}/Index   -> lado idx (idx NSA, idx SA, Weight-Index)
+CODE_VAR   = "IPCA:{cat}"
+CODE_INDEX = "IPCA:{cat}/Index"
 
 
 def sidra_to_sql(
@@ -90,11 +86,13 @@ def sidra_to_sql(
     data_type: str,
     frequency: str,
     description: str,
-    haver_code: str,
+    bls_code: str,
     session: SQLConnector,
     replace: bool = True,
 ) -> int:
-    """Espelho do sidra_to_sql do sidra_itau.ipynb (limpo)."""
+    """Espelho do sidra_to_sql do sidra_itau.ipynb (limpo).
+    Novos INSERTs NAO tocam em haver_code (fica NULL por default do SQL);
+    o code novo grava em bls_code."""
     df_existing = pd.read_sql(
         """
         SELECT series_id FROM OPT_Macro_Series_2
@@ -114,7 +112,7 @@ def sidra_to_sql(
             "data_type": data_type,
             "frequency": frequency,
             "description": description,
-            "haver_code": haver_code,
+            "bls_code": bls_code,
         }])
         session.write_sql_table_from_dataframe("OPT_Macro_Series_2", df_meta, chunk_size=50)
         df_new = pd.read_sql(
@@ -200,8 +198,9 @@ def _load_csv_long(path: Path, value_col: str) -> dict[str, pd.Series]:
 
 def _preflight(session, max_desc_len: int) -> bool:
     """Roda checagens read-only antes de escrever: conexao, existencia das
-    tabelas, largura da coluna description, e lista series pre-existentes
-    com nossa proveniencia (haver_code LIKE 'PARETO_IPCA:%')."""
+    tabelas, coluna bls_code presente, largura da description, e lista series
+    pre-existentes tanto no formato novo (bls_code LIKE 'IPCA:%') quanto no
+    antigo (haver_code LIKE 'PARETO_IPCA:%', pendentes de migracao)."""
     print("\n[preflight] Validando ambiente SQL...")
     ok = True
 
@@ -213,7 +212,23 @@ def _preflight(session, max_desc_len: int) -> bool:
         except Exception as e:
             print(f"  [FAIL] {tbl}: {e}"); ok = False
 
-    # 2. Coluna description suporta nosso pior caso
+    # 2. Coluna bls_code existe (necessaria pra sync 2026-07-17)
+    try:
+        col = pd.read_sql(
+            """SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS
+               WHERE table_name = 'OPT_Macro_Series_2' AND column_name = 'bls_code'""",
+            session.conn,
+        )
+        if col.empty:
+            print("  [FAIL] coluna bls_code NAO existe em OPT_Macro_Series_2 — "
+                  "rode ALTER TABLE OPT_Macro_Series_2 ADD bls_code VARCHAR(255) NULL;")
+            ok = False
+        else:
+            print("  [OK] coluna bls_code presente")
+    except Exception as e:
+        print(f"  [WARN] nao foi possivel checar coluna bls_code: {e}")
+
+    # 3. Coluna description suporta nosso pior caso
     try:
         col = pd.read_sql(
             """SELECT character_maximum_length AS n
@@ -234,24 +249,86 @@ def _preflight(session, max_desc_len: int) -> bool:
     except Exception as e:
         print(f"  [WARN] nao foi possivel checar tamanho de description: {e}")
 
-    # 3. Series ja cadastradas com nossa proveniencia
+    # 4. Series ja cadastradas — dois grupos:
+    #    (a) formato NOVO (bls_code LIKE 'IPCA:%') — serao reusadas por series_id
+    #    (b) formato ANTIGO (haver_code LIKE 'PARETO_IPCA:%') — pendentes de
+    #        migracao (executada logo antes do main loop)
     try:
-        df = pd.read_sql(
+        df_new = pd.read_sql(
+            """SELECT series_id, series_name, data_type, bls_code
+               FROM OPT_Macro_Series_2
+               WHERE bls_code LIKE 'IPCA:%'
+               ORDER BY series_id""",
+            session.conn,
+        )
+        print(f"\n  Series formato NOVO (bls_code LIKE 'IPCA:%'): {len(df_new)}")
+        if not df_new.empty:
+            with pd.option_context("display.max_colwidth", 60, "display.width", 200):
+                print(df_new.head(20).to_string(index=False))
+
+        df_old = pd.read_sql(
             """SELECT series_id, series_name, data_type, haver_code
                FROM OPT_Macro_Series_2
                WHERE haver_code LIKE 'PARETO_IPCA:%'
                ORDER BY series_id""",
             session.conn,
         )
-        print(f"\n  Series PARETO_IPCA ja cadastradas: {len(df)}")
-        if not df.empty:
+        print(f"\n  Series formato ANTIGO (haver_code LIKE 'PARETO_IPCA:%'): {len(df_old)}")
+        if not df_old.empty:
             with pd.option_context("display.max_colwidth", 60, "display.width", 200):
-                print(df.head(20).to_string(index=False))
-            print("  -> serao reusadas (mesmo series_id); dados antigos serao apagados se --replace.")
+                print(df_old.head(20).to_string(index=False))
+            print("  -> serao migradas (haver_code -> NULL, bls_code populado, "
+                  "Peso->Weight) antes do main loop.")
     except Exception as e:
-        print(f"  [WARN] nao foi possivel listar series PARETO: {e}")
+        print(f"  [WARN] nao foi possivel listar series: {e}")
 
     return ok
+
+
+# Padroes do formato antigo pra descobrir se a linha eh do lado var/label ou
+# do lado index. Usado pela migracao. Sha varia por commit, cat varia por serie.
+_OLD_INDEX_PATTERN = re.compile(r"^PARETO_IPCA:[^/]+/V63/Index/")
+
+
+def _migrate_haver_to_bls(session, cats: set[str]) -> int:
+    """Encontra series com haver_code no formato antigo (PARETO_IPCA:{cat}/...)
+    e migra:
+      - haver_code -> NULL (desassocia da string antiga)
+      - bls_code   -> novo simplificado (IPCA:{cat} ou IPCA:{cat}/Index)
+      - data_type  -> Weight (se antes era Peso)
+    Somente linhas cuja categoria aparece em `cats` (evita mexer em ranges
+    fora do escopo do run). Retorna quantas linhas atualizou."""
+    print("\n[migracao] Procurando series com haver_code no formato antigo...")
+    df = pd.read_sql(
+        """SELECT series_id, series_name, data_type, haver_code
+           FROM OPT_Macro_Series_2
+           WHERE haver_code LIKE 'PARETO_IPCA:%'
+           ORDER BY series_id""",
+        session.conn,
+    )
+    if df.empty:
+        print("  nenhuma serie no formato antigo — nada a migrar.")
+        return 0
+
+    n_updated = 0
+    for _, row in df.iterrows():
+        haver = row["haver_code"]
+        cat = haver.split(":", 1)[1].split("/", 1)[0]
+        if cat not in cats:
+            continue
+        is_index_side = bool(_OLD_INDEX_PATTERN.match(haver))
+        new_code = (CODE_INDEX if is_index_side else CODE_VAR).format(cat=cat)
+        new_dtype = "Weight" if row["data_type"] == "Peso" else row["data_type"]
+        session.execute(
+            "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
+            "data_type = ? WHERE series_id = ?",
+            params=[new_code, new_dtype, int(row["series_id"])],
+        )
+        n_updated += 1
+        print(f"  [UPDATE] id={row['series_id']:5d} {row['series_name']:55s} "
+              f"{row['data_type']:6s} -> {new_dtype:6s}  bls_code={new_code}")
+    print(f"  {n_updated} series migradas.")
+    return n_updated
 
 
 def main():
@@ -268,7 +345,6 @@ def main():
                         help="Pula confirmacao interativa antes de escrever no SQL.")
     args = parser.parse_args()
 
-    sha = _git_sha()
     only = set(args.only.split(",")) if args.only else None
 
     print(f"[1] Lendo {VAR_CSV.relative_to(ROOT)}...")
@@ -299,8 +375,11 @@ def main():
         for c in cats:
             label = CATEGORY_LABELS[c]
             sp = peso_series.get(c)
-            peso_info = f"peso: {len(sp)} obs" if sp is not None else "sem peso"
-            print(f"  - {label:45s}  var: {len(var_series[c])} obs   idx: {len(idx_series[c])} obs   {peso_info}")
+            peso_info = f"Weight x2: {len(sp)} obs" if sp is not None else "sem Weight"
+            print(f"  - {label:45s}  var: {len(var_series[c])} obs   "
+                  f"idx: {len(idx_series[c])} obs   {peso_info}")
+            print(f"    bls_code (var/label): {CODE_VAR.format(cat=c)}")
+            print(f"    bls_code (idx/Index): {CODE_INDEX.format(cat=c)}")
             if args.sa:
                 print(f"  - {label + ' (SA)':45s}  var/idx dessazonalizados (X-13)")
         return
@@ -319,50 +398,69 @@ def main():
             return
         if not ok:
             sys.exit("\n[ABORT] preflight reprovou. Veja [FAIL] acima.")
+
+        # Migracao: linhas antigas (haver_code LIKE 'PARETO_IPCA:%') sao movidas
+        # pro novo esquema (haver_code=NULL, bls_code preenchido, Peso->Weight)
+        # antes de qualquer novo write. Idempotente: reruns nao encontram nada.
+        _migrate_haver_to_bls(session, set(cats))
+
         if not args.no_confirm:
             n_peso = sum(1 for c in cats if c in peso_series)
-            n_writes = len(cats) * 2 * (2 if args.sa else 1) + n_peso
+            # Convencao 2026-07-17: peso duplicado (label + label Indice), por
+            # isso n_peso × 2. Var+idx multiplicam por 2 se --sa (NSA + SA).
+            n_writes = len(cats) * 2 * (2 if args.sa else 1) + n_peso * 2
             resp = input(f"\nConfirma gravacao de ate {n_writes} series no SQL? [s/N] ").strip().lower()
             if resp != "s":
                 sys.exit("[ABORT] confirmacao negada.")
 
         for c in cats:
             label = CATEGORY_LABELS[c]
+            label_idx = f"{label} (Indice)"
             sv = var_series[c]
             si = idx_series[c]
             sp = peso_series.get(c)
+            bls_var = CODE_VAR.format(cat=c)
+            bls_idx = CODE_INDEX.format(cat=c)
             print(f"\n--- {label} ({c}) ---")
             print(f"    var: {len(sv)} obs {sv.index.min().date()} -> {sv.index.max().date()}")
             print(f"    idx: {len(si)} obs (base 100 em dez/2006)")
             if sp is not None:
-                print(f"    peso: {len(sp)} obs {sp.index.min().date()} -> {sp.index.max().date()}")
+                print(f"    Weight x2: {len(sp)} obs {sp.index.min().date()} -> {sp.index.max().date()}")
 
-            # 1) Variacao mensal NSA
+            # 1) Variacao mensal NSA (lado label)
             sidra_to_sql(
                 series=sv, country="BR", subject="Prices", indicator="IPCA",
                 series_name=label, data_type="NSA", frequency="M",
                 description=f"{label} - Variacao mensal (%) - recon IBGE-only via NT_57/Dez-2025",
-                haver_code=SIDRA_CODE_VAR.format(cat=c, sha=sha),
+                bls_code=bls_var,
                 session=session, replace=True,
             )
-            # 2) Indice NSA
+            # 2) Indice NSA (lado Indice)
             sidra_to_sql(
                 series=si, country="BR", subject="Prices", indicator="IPCA",
-                series_name=f"{label} (Indice)", data_type="NSA", frequency="M",
+                series_name=label_idx, data_type="NSA", frequency="M",
                 description=f"{label} - Indice (dez/2006=100) - recon IBGE-only via NT_57/Dez-2025",
-                haver_code=SIDRA_CODE_IDX.format(cat=c, sha=sha),
+                bls_code=bls_idx,
                 session=session, replace=True,
             )
-            # 3) Peso Laspeyres (quando disponivel).
-            # Convencao (sincronizada com maquina corp em 2026-07-14): peso
-            # compartilha series_name com var NSA; so data_type diferencia
-            # (NSA/SA/Peso). Facilita join no SQL sem parsear sufixo.
+            # 3) Weight duplicado (sync 2026-07-17): grava 2 vezes com o mesmo
+            # array de valores, pareado por series_name/bls_code — o frontend
+            # capta o peso via casamento de series_name + country + indicator,
+            # trocando apenas data_type. Um Weight pareia com o lado label
+            # (var), outro com o lado Indice (idx).
             if sp is not None:
                 sidra_to_sql(
                     series=sp, country="BR", subject="Prices", indicator="IPCA",
-                    series_name=label, data_type="Peso", frequency="M",
-                    description=f"{label} - Peso mensal (V66 IBGE/SIDRA, Laspeyres)",
-                    haver_code=SIDRA_CODE_PESO.format(cat=c, sha=sha),
+                    series_name=label, data_type="Weight", frequency="M",
+                    description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com var",
+                    bls_code=bls_var,
+                    session=session, replace=True,
+                )
+                sidra_to_sql(
+                    series=sp, country="BR", subject="Prices", indicator="IPCA",
+                    series_name=label_idx, data_type="Weight", frequency="M",
+                    description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com idx",
+                    bls_code=bls_idx,
                     session=session, replace=True,
                 )
 
@@ -382,14 +480,14 @@ def main():
                         series=sv_sa, country="BR", subject="Prices", indicator="IPCA",
                         series_name=label, data_type="SA", frequency="M",
                         description=f"{label} - Variacao mensal (%) - SA derivada do idx_SA (X-13 no nivel)",
-                        haver_code=SIDRA_CODE_VAR.format(cat=c, sha=sha) + "/SA",
+                        bls_code=bls_var,
                         session=session, replace=True,
                     )
                     sidra_to_sql(
                         series=si_sa, country="BR", subject="Prices", indicator="IPCA",
-                        series_name=f"{label} (Indice)", data_type="SA", frequency="M",
+                        series_name=label_idx, data_type="SA", frequency="M",
                         description=f"{label} - Indice (dez/2006=100) - dessazonalizada X-13",
-                        haver_code=SIDRA_CODE_IDX.format(cat=c, sha=sha) + "/SA",
+                        bls_code=bls_idx,
                         session=session, replace=True,
                     )
                 except Exception as e:
@@ -399,7 +497,9 @@ def main():
         session.close()
 
     n_peso_ok = sum(1 for c in cats if c in peso_series)
-    print(f"\n[OK] {len(cats)} categorias carregadas (var+idx+{n_peso_ok} pesos) em OPT_Macro_Series_2 / OPT_Macro_Series_Data_2.")
+    print(f"\n[OK] {len(cats)} categorias carregadas "
+          f"(var+idx+{n_peso_ok * 2} Weight (x2)) em "
+          f"OPT_Macro_Series_2 / OPT_Macro_Series_Data_2.")
 
 
 if __name__ == "__main__":

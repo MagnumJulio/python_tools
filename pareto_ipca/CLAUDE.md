@@ -53,15 +53,15 @@ python script_itau/load_pareto_to_sql.py             # NSA: var + idx das 20 sé
 python script_itau/load_pareto_to_sql.py --sa        # adiciona versão SA (X-13)
 python script_itau/load_pareto_to_sql.py --dry-run   # só lista o que faria
 ```
-Grava em `OPT_Macro_Series_2` (metadados) + `OPT_Macro_Series_Data_2` (long EAV: `date, series_id, value, release_date, vintage_date`), mesmo padrão do `sidra_itau.ipynb`. Cada categoria vira 2 séries (variação + índice); com `--sa`, vira 4 (NSA + SA pra cada). Proveniência fica em `haver_code = PARETO_IPCA:<cat>/V63/RECON-<git-sha>`.
+Grava em `OPT_Macro_Series_2` (metadados) + `OPT_Macro_Series_Data_2` (long EAV: `date, series_id, value, release_date, vintage_date`), mesmo padrão do `sidra_itau.ipynb`. Cada categoria vira 4 séries NSA (var, idx, Weight×2); com `--sa`, vira 6 (adiciona var+idx SA). Sync 2026-07-17: **Weight duplicado** — mesmo array gravado 2x com `series_name=label` (par com var) e `series_name="{label} (Indice)"` (par com idx), ambos `data_type="Weight"`. Frontend capta o peso via casamento `series_name+country+indicator`, trocando só `data_type`. Proveniência migrou do campo `haver_code` (formato antigo `PARETO_IPCA:<cat>/V63/RECON-<git-sha>`) pro campo **`bls_code`** (novo formato `IPCA:<cat>` ou `IPCA:<cat>/Index`); INSERTs novos não setam `haver_code` (o SQL preenche como `NULL` por default). Migração idempotente rodada antes do main loop: linhas antigas (`haver_code LIKE 'PARETO_IPCA:%'`) sofrem `UPDATE` explícito `SET haver_code = NULL, bls_code = <novo>, data_type = 'Weight' se antes Peso`.
 
 Simulação local (sem `opt_utils`/SQL — útil pra testar mapping em casa):
 ```bash
-python script_itau/simulate_pareto_to_sql.py                       # roda os 20
+python script_itau/simulate_pareto_to_sql.py                       # roda todas as cats do CSV
 python script_itau/simulate_pareto_to_sql.py --only livres,nucleo_ex0
 python script_itau/simulate_pareto_to_sql.py --save                 # CSVs em sim_output/
 ```
-`MockSQLConnector` mantém as 2 tabelas em DataFrames pandas, auto-incrementa `series_id` como SQL Server faria, e imprime preview + contagens. Trocar `MockSQLConnector` por `SQLConnector(connector="pyodbc")` no corp é a única diferença lógica entre os dois scripts. Smoke test full (20 categorias): 40 séries, 9520 linhas, ~2s.
+`MockSQLConnector` mantém as 2 tabelas em DataFrames pandas, auto-incrementa `series_id` como SQL Server faria, e imprime preview + contagens. Trocar `MockSQLConnector` por `SQLConnector(connector="pyodbc")` no corp é a única diferença lógica entre os dois scripts. Smoke test full (27 categorias, 21 com Weight): **96 séries, 22 944 linhas** (2026-07-17).
 
 **Política de merge**: `reconstruct_ipca.R` sobrescreve qualquer período coberto pelo run atual e preserva o restante. `seed_ibge_history.R` orquestra 3 chamadas ao recon (uma por tabela SIDRA), cada uma com sua janela e máscara apropriada.
 
