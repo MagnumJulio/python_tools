@@ -216,7 +216,12 @@ def parse_input(cats_arg: str | None, codes_arg: str | None) -> set[str]:
 
     cats: set[str] = set()
     if cats_arg:
-        cats.update(c.strip() for c in cats_arg.split(",") if c.strip())
+        raw_cats = [c.strip() for c in cats_arg.split(",") if c.strip()]
+        # Keyword "all" -> todas as base cats do ITEM_CODES.
+        if any(c.lower() == "all" for c in raw_cats):
+            cats.update(ITEM_CODES.keys())
+            raw_cats = [c for c in raw_cats if c.lower() != "all"]
+        cats.update(raw_cats)
     if codes_arg:
         for raw in codes_arg.split(","):
             raw = raw.strip()
@@ -232,9 +237,9 @@ def parse_input(cats_arg: str | None, codes_arg: str | None) -> set[str]:
     if unknown:
         # Cats fora do CATEGORY_LABELS podem ser customs — orientar
         sys.exit(
-            f"[ERR] cats desconhecidas: {unknown}. Este script suporta so as 39 base cats "
-            f"do BLS Table 1. Pra customs (core_ex_oer, supercore_powell_old, etc), use "
-            f"`script_itau/load_cpius_to_sql.py` completo."
+            f"[ERR] cats desconhecidas: {unknown}. Este script suporta so as {len(ITEM_CODES)} "
+            f"base cats do BLS Table 1 (ou 'all' pra todas). Pra customs (core_ex_oer, "
+            f"supercore_powell_old, etc), use `script_itau/load_cpius_to_sql.py` completo."
         )
     return cats
 
