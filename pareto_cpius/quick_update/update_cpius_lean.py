@@ -22,6 +22,9 @@ Regras:
     - Weight: ajuste implicito BLS `w(m) = w(Dez_prev) x I(m) / I(Dez_prev)`,
       renormalizado pros 3 top-1 (food+energy+core) somarem 100. all_items
       forcado 100.0 constante.
+    - Upsert incremental: cada re-run so DELETE+INSERT os ultimos
+      INCREMENTAL_MONTHS (=24) por serie no SQL corp. Primeira vez pra uma
+      serie faz seed full. Nao preserva vintages (release_date=today em tudo).
     - Base cats only (39 do release BLS Table 1). Custom aggregations
       (`core_ex_oer`, `supercore_powell_old`, etc.) NAO sao suportados —
       use `script_itau/load_cpius_to_sql.py` pra elas.
@@ -213,6 +216,14 @@ CODE_FMT = "CPIUS:{cat}"                  # sync 2026-07-20: sem sufixo /Index
 TOP3 = ("food", "energy", "core")         # renormalizacao Weight
 DEFAULT_START_YEAR = 2000
 DEFAULT_END_YEAR = date.today().year
+
+# Janela de replace incremental no SQL. Toda re-run so re-envia os ultimos N
+# meses de cada serie (DELETE + INSERT restrito). Cobre revisoes SA anuais
+# tipicas (BLS revisa ate 5 anos em fev/YYYY, mas 24m pega 99% dos casos
+# praticos) e recalculo de Weight, que so depende de RI(base_year)+idx dentro
+# do proprio ano. Primeira insercao de uma serie (SELECT nao retorna nada)
+# ainda faz full seed. Custo por run: ~O(24 x n_cats) vs ~O(300 x n_cats).
+INCREMENTAL_MONTHS = 24
 
 
 # ============================================================================
@@ -422,7 +433,9 @@ def upsert_series(
     description: str, bls_code: str,
     series: pd.Series,
 ) -> int:
-    """Upsert em OPT_Macro_Series_2 + replace-all em OPT_Macro_Series_Data_2."""
+    """Upsert em OPT_Macro_Series_2 + replace incremental (ultimos N meses) em
+    OPT_Macro_Series_Data_2. Se serie nao tem nenhuma linha ainda, faz seed
+    full. Vintage nao eh preservada (release_date=today em tudo que reescreve)."""
     df_existing = pd.read_sql(
         """SELECT series_id FROM OPT_Macro_Series_2
            WHERE country=? AND subject=? AND indicator=?
@@ -449,11 +462,41 @@ def upsert_series(
     else:
         sid = int(df_existing.iloc[0]["series_id"])
 
-    session.execute(
-        "DELETE FROM OPT_Macro_Series_Data_2 WHERE series_id = ?",
+    s = series.dropna()
+    if s.empty:
+        return sid
+
+    # Detecta se ja existe alguma linha em Data_2 pra decidir seed full vs incremental
+    df_check = pd.read_sql(
+        "SELECT TOP 1 date FROM OPT_Macro_Series_Data_2 WHERE series_id = ?",
+        session.conn,
         params=[sid],
     )
-    s = series.dropna()
+    has_data = not df_check.empty
+
+    if has_data:
+        # Incremental: recorta os ultimos N meses da serie e faz DELETE+INSERT
+        # so nessa janela. Comparacao SQL usa start-of-month; jan/2024 stored
+        # como 2024-01-31 sempre satisfaz `>= 2024-01-01`.
+        last_m = s.index.max()
+        cutoff_som = pd.Timestamp(last_m.year, last_m.month, 1) - pd.DateOffset(
+            months=INCREMENTAL_MONTHS - 1
+        )
+        cutoff_som = pd.Timestamp(cutoff_som.year, cutoff_som.month, 1)
+        s = s[s.index >= cutoff_som]
+        session.execute(
+            "DELETE FROM OPT_Macro_Series_Data_2 WHERE series_id = ? AND date >= ?",
+            params=[sid, cutoff_som.date()],
+        )
+        log(f"      incremental (>= {cutoff_som:%Y-%m}): {len(s)} rows")
+    else:
+        # Primeira vez pra essa serie no SQL: seed full
+        session.execute(
+            "DELETE FROM OPT_Macro_Series_Data_2 WHERE series_id = ?",
+            params=[sid],
+        )
+        log(f"      seed full (primeira vez): {len(s)} rows")
+
     today = date.today()
     dates_eom = (pd.to_datetime(s.index) + pd.offsets.MonthEnd(0)).date
     df_data = pd.DataFrame({
@@ -488,11 +531,18 @@ class MockSQLConnector:
         self.conn = self  # pandas.read_sql aceita conn arbitraria via callback
 
     def execute(self, sql: str, params=None):
-        # Simplificado: so trata DELETE FROM ...Data_2 WHERE series_id=?
-        if "DELETE FROM OPT_Macro_Series_Data_2" in sql and params:
-            sid = params[0]
+        # Trata DELETE FROM Data_2 (full ou incremental por date >= ?)
+        sql_up = " ".join(sql.split()).upper()
+        if "DELETE FROM OPT_MACRO_SERIES_DATA_2" in sql_up and params:
             t = self.tables["OPT_Macro_Series_Data_2"]
-            self.tables["OPT_Macro_Series_Data_2"] = t[t.series_id != sid].reset_index(drop=True)
+            if "AND DATE >= ?" in sql_up:
+                sid, cutoff = params
+                cutoff_ts = pd.Timestamp(cutoff)
+                keep = ~((t.series_id == sid) & (pd.to_datetime(t.date) >= cutoff_ts))
+                self.tables["OPT_Macro_Series_Data_2"] = t[keep].reset_index(drop=True)
+            else:
+                sid = params[0]
+                self.tables["OPT_Macro_Series_Data_2"] = t[t.series_id != sid].reset_index(drop=True)
 
     def write_sql_table_from_dataframe(self, table: str, df: pd.DataFrame, chunk_size: int = 50):
         if table == "OPT_Macro_Series_2":
@@ -516,6 +566,12 @@ def _read_sql_mock(sql: str, conn, params=None):
         m = ((t.country == c) & (t.subject == s) & (t.indicator == i)
              & (t.series_name == sn) & (t.data_type == dt))
         return t.loc[m, ["series_id"]].reset_index(drop=True)
+    if "FROM OPT_MACRO_SERIES_DATA_2" in sql_up:
+        # Check pra decidir seed vs incremental
+        t = conn.tables["OPT_Macro_Series_Data_2"]
+        sid = params[0]
+        matched = t[t.series_id == sid]
+        return matched.head(1)[["date"]] if not matched.empty else pd.DataFrame(columns=["date"])
     return pd.DataFrame()
 
 
