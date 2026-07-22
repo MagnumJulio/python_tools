@@ -59,14 +59,16 @@ CATEGORY_LABELS = {
     "electricity":             "CPI-U: Electricity",
     "utility_gas":             "CPI-U: Utility (piped) Gas Service",
     "core":                    "CPI-U: All Items Less Food and Energy (Core)",
-    "core_goods":              "CPI-U: Commodities Less Food and Energy Commodities",
+    "core_goods":              "CPI-U: Core Goods",
     "apparel":                 "CPI-U: Apparel",
     "new_vehicles":            "CPI-U: New Vehicles",
     "used_cars_trucks":        "CPI-U: Used Cars and Trucks",
+    "car_truck_rental":        "CPI-U: Car and Truck Rental",
+    "medical_care":            "CPI-U: Medical Care",
     "medical_goods":           "CPI-U: Medical Care Commodities",
     "alcoholic_bev":           "CPI-U: Alcoholic Beverages",
     "tobacco":                 "CPI-U: Tobacco and Smoking Products",
-    "core_services":           "CPI-U: Services Less Energy Services",
+    "core_services":           "CPI-U: Core Services",
     "shelter":                 "CPI-U: Shelter",
     "rent":                    "CPI-U: Rent of Primary Residence",
     "oer":                     "CPI-U: Owners' Equivalent Rent of Residences",
@@ -79,6 +81,15 @@ CATEGORY_LABELS = {
     "public_transportation":   "CPI-U: Public Transportation",
     "airline_fares":           "CPI-U: Airline Fares",
     "lodging_away":            "CPI-U: Lodging Away from Home",
+}
+
+# Definicao BLS oficial pra cats cujo `series_name` foi encurtado (sync
+# 2026-07-21). Injetada no `description` do SQL pra preservar rastreabilidade
+# da definicao formal do release. Se a cat nao estiver aqui, description
+# permanece sem sufixo de definicao.
+CATEGORY_BLS_DEFS = {
+    "core_goods":    "Commodities less food and energy commodities (BLS item SACL1E)",
+    "core_services": "Services less energy services (BLS item SASL5)",
 }
 
 # Agregacoes custom derivadas via algebra Laspeyres (build_custom_aggregations.R).
@@ -280,6 +291,8 @@ def main():
         is_custom = c in custom_cats
         bls = CODE.format(cat=c)
         src = "custom aggregation (Laspeyres algebra)" if is_custom else "BLS API v2 direto"
+        bls_def = CATEGORY_BLS_DEFS.get(c)
+        def_suffix = f" - {bls_def}" if bls_def else ""
         for sa in ("NSA", "SA"):
             key = (c, sa)
             if key not in idx_by_key:
@@ -291,7 +304,7 @@ def main():
             sim_sidra_to_sql(
                 series=si, country="US", subject="Prices", indicator="CPI",
                 series_name=f"{label} (Index)", data_type=sa, frequency="M",
-                description=f"{label} - Indice [{sa}] (rebased jan/2000=100) - {src}",
+                description=f"{label} - Indice [{sa}] (rebased jan/2000=100){def_suffix} - {src}",
                 bls_code=bls,
                 session=session,
             )
@@ -304,8 +317,8 @@ def main():
         if sp is not None:
             print(f"    weight={len(sp):4d}")
             peso_desc = (
-                f"{label} - Weight derivado (algebra Laspeyres da recipe)"
-                if is_custom else f"{label} - Weight (Relative Importance, Table 6 BLS)"
+                f"{label} - Weight derivado (algebra Laspeyres da recipe){def_suffix}"
+                if is_custom else f"{label} - Weight (Relative Importance, Table 6 BLS){def_suffix}"
             )
             sim_sidra_to_sql(
                 series=sp, country="US", subject="Prices", indicator="CPI",

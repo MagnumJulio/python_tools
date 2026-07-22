@@ -14,10 +14,18 @@
 #   sum:     var_agg(m) = Σ var_i × w_i / Σ w_i
 #            (i em includes; usado quando nao existe agregado BLS pronto)
 #
-# Ambos os metodos usam pesos MENSAIS ajustados (o mesmo do fetch_bls_pesos.R
-# v2). Indices reconstruidos por composicao mensal a partir do primeiro ponto:
-#   I_agg(m) = I_agg(m-1) × (1 + var_agg(m)/100)
-#   I_agg(2000-01) = 100  (base rebased pra comparabilidade)
+# Algebra (2026-07-21) — Laspeyres modificado Dez-anchor (BLS canonico):
+# Para cada mes m, pivot = Dez do ano anterior. Fallback jan/2000 pra 2000.
+# Formula:
+#   ratio_i(m)  = I_i(m) / I_i(pivot)
+#   ratio_ex(m) = [W_base*ratio_base - Sum w_i*ratio_i] / [W_base - Sum w_i]
+#   I_ex(m)     = I_ex(pivot) * ratio_ex(m)
+# Pesos e indices no pivot vem de cpi_cpius_pesos.csv e cpi_cpius_recon.csv.
+# Var mm derivada do chain de indices reconstruidos.
+# Peso servido (OUT_PESOS_CSV) continua mensal ajustado — reflete peso
+# corrente do agregado no consumo; nao muda com o refactor.
+# Motivacao: substitui algebra antiga (var-nivel c/ peso mensal), que
+# acumulava erro conforme # excludes crescia. Ver memory project_pareto_cpius_customs_laspeyres_test.md
 #
 # Saida:
 #   data/cpi_cpius_custom.csv  — mesmo schema do recon (long: date,
@@ -106,64 +114,105 @@ for (ri in seq_len(nrow(recipe))) {
               paste(incl, collapse=",")))
 
   for (sf in sa_flags) {
-    vw <- var_wide[[sf]]
     iw <- idx_wide[[sf]]
 
-    var_series <- rep(NA_real_, length(datas))
+    idx_series  <- rep(NA_real_, length(datas))
     peso_series <- rep(NA_real_, length(datas))
+    idx_series[1] <- 100  # jan/2000 = 100 (rebase)
+
     for (k in seq_along(datas)) {
       dk <- format(datas[k])
-      if (!(dk %in% rownames(vw))) next
+      if (!(dk %in% rownames(iw))) next
       if (!(dk %in% rownames(w_peso))) next
-      vrow <- vw[dk, ]
-      wrow <- w_peso[dk, ]
+
+      wrow_m <- w_peso[dk, ]  # pesos mensais adjusted (pro OUT_PESOS_CSV)
+
+      # === peso mensal do agregado (para SQL Weight) ===
       if (method == "exclude") {
-        if (is.na(base_cat) || !(base_cat %in% names(vrow))) next
-        v_base <- as.numeric(vrow[[base_cat]])
-        w_base <- as.numeric(wrow[[base_cat]])
-        num <- v_base * w_base
-        den <- w_base
-        ok <- is.finite(v_base) && is.finite(w_base)
+        if (is.na(base_cat) || !(base_cat %in% names(wrow_m))) next
+        w_base_m <- as.numeric(wrow_m[[base_cat]])
+        p_num <- w_base_m; p_ok <- is.finite(w_base_m)
         for (e in excl) {
-          if (!(e %in% names(vrow))) { ok <- FALSE; break }
-          ve <- as.numeric(vrow[[e]])
-          we <- as.numeric(wrow[[e]])
-          if (!is.finite(ve) || !is.finite(we)) { ok <- FALSE; break }
-          num <- num - ve * we
-          den <- den - we
+          if (!p_ok) break
+          we <- as.numeric(wrow_m[[e]])
+          if (!is.finite(we)) { p_ok <- FALSE; break }
+          p_num <- p_num - we
         }
-        if (ok && is.finite(den) && den > 0) {
-          var_series[k] <- num / den
-          peso_series[k] <- den
-        }
+        if (p_ok && p_num > 0) peso_series[k] <- p_num
       } else if (method == "sum") {
-        num <- 0; den <- 0; ok <- length(incl) > 0
+        p_num <- 0; p_ok <- length(incl) > 0
         for (i in incl) {
-          if (!(i %in% names(vrow))) { ok <- FALSE; break }
-          vi <- as.numeric(vrow[[i]])
-          wi <- as.numeric(wrow[[i]])
-          if (!is.finite(vi) || !is.finite(wi)) { ok <- FALSE; break }
-          num <- num + vi * wi
-          den <- den + wi
+          if (!p_ok) break
+          wi <- as.numeric(wrow_m[[i]])
+          if (!is.finite(wi)) { p_ok <- FALSE; break }
+          p_num <- p_num + wi
         }
-        if (ok && den > 0) {
-          var_series[k] <- num / den
-          peso_series[k] <- den
-        }
+        if (p_ok && p_num > 0) peso_series[k] <- p_num
       } else {
         stop(sprintf("method desconhecido: %s", method))
       }
+
+      # === indice via Laspeyres Dez-anchor ===
+      if (k == 1) next  # idx_series[1] = 100 ja setado
+
+      y  <- as.integer(format(datas[k], "%Y"))
+      pd <- as.Date(sprintf("%d-12-01", y - 1))
+      if (pd < datas[1]) pd <- datas[1]  # fallback jan/2000 pra ano 2000
+      pdk <- format(pd)
+      if (!(pdk %in% rownames(iw))) next
+      if (!(pdk %in% rownames(w_peso))) next
+
+      pk <- which(datas == pd)
+      if (length(pk) == 0) next
+      i_ex_pivot <- idx_series[pk]
+      if (!is.finite(i_ex_pivot)) next
+
+      irow_m <- iw[dk, ]
+      irow_p <- iw[pdk, ]
+      wrow_p <- w_peso[pdk, ]
+
+      if (method == "exclude") {
+        if (!(base_cat %in% names(irow_m))) next
+        i_b_m <- as.numeric(irow_m[[base_cat]])
+        i_b_p <- as.numeric(irow_p[[base_cat]])
+        w_b_p <- as.numeric(wrow_p[[base_cat]])
+        ok <- is.finite(i_b_m) && is.finite(i_b_p) && is.finite(w_b_p) && i_b_p > 0
+        num <- w_b_p * (i_b_m / i_b_p)
+        den <- w_b_p
+        for (e in excl) {
+          if (!ok) break
+          i_e_m <- as.numeric(irow_m[[e]])
+          i_e_p <- as.numeric(irow_p[[e]])
+          w_e_p <- as.numeric(wrow_p[[e]])
+          if (!is.finite(i_e_m) || !is.finite(i_e_p) || !is.finite(w_e_p) || i_e_p == 0) {
+            ok <- FALSE; break
+          }
+          num <- num - w_e_p * (i_e_m / i_e_p)
+          den <- den - w_e_p
+        }
+        if (ok && den > 0) idx_series[k] <- i_ex_pivot * (num / den)
+      } else if (method == "sum") {
+        num <- 0; den <- 0; ok <- length(incl) > 0
+        for (i in incl) {
+          if (!ok) break
+          i_m <- as.numeric(irow_m[[i]])
+          i_p <- as.numeric(irow_p[[i]])
+          w_p <- as.numeric(wrow_p[[i]])
+          if (!is.finite(i_m) || !is.finite(i_p) || !is.finite(w_p) || i_p == 0) {
+            ok <- FALSE; break
+          }
+          num <- num + w_p * (i_m / i_p)
+          den <- den + w_p
+        }
+        if (ok && den > 0) idx_series[k] <- i_ex_pivot * (num / den)
+      }
     }
 
-    # Reconstroi indice: base jan/2000 = 100. Primeiro var eh NA (jan/2000).
-    idx_series <- rep(NA_real_, length(datas))
-    idx_series[1] <- 100
+    # var mm derivado do chain de indices reconstruidos
+    var_series <- rep(NA_real_, length(datas))
     for (k in 2:length(datas)) {
-      if (is.finite(var_series[k]) && is.finite(idx_series[k-1])) {
-        idx_series[k] <- idx_series[k-1] * (1 + var_series[k] / 100)
-      } else {
-        # gap: carry forward
-        idx_series[k] <- idx_series[k-1]
+      if (is.finite(idx_series[k]) && is.finite(idx_series[k-1]) && idx_series[k-1] > 0) {
+        var_series[k] <- (idx_series[k] / idx_series[k-1] - 1) * 100
       }
     }
 
@@ -204,6 +253,14 @@ out <- do.call(rbind, out_rows)
 out <- out[order(out$date, out$category_code, out$sa_flag), ]
 
 dir.create("data", showWarnings = FALSE, recursive = TRUE)
+
+# Backup do output antigo (var-nivel) na primeira execucao pos-refactor
+BACKUP_CSV <- sub("\\.csv$", ".pre_laspeyres_test.csv", OUT_CSV)
+if (file.exists(OUT_CSV) && !file.exists(BACKUP_CSV)) {
+  file.copy(OUT_CSV, BACKUP_CSV, overwrite = FALSE)
+  cat(sprintf("[backup] %s -> %s\n", OUT_CSV, BACKUP_CSV))
+}
+
 write.csv(out, OUT_CSV, row.names = FALSE, fileEncoding = "UTF-8")
 cat(sprintf("\n[3] %d linhas -> %s\n", nrow(out), OUT_CSV))
 

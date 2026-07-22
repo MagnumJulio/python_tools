@@ -38,6 +38,8 @@ CATS = [
     ("apparel", "Apparel", []),
     ("new_vehicles", "New vehicles", []),
     ("used_cars_trucks", "Used cars and trucks", []),
+    ("car_truck_rental", "Car and truck rental", []),
+    ("medical_care", "Medical care", []),
     ("medical_goods", "Medical care commodities", []),
     ("alcoholic_bev", "Alcoholic beverages", []),
     ("tobacco", "Tobacco and smoking products", []),
@@ -60,6 +62,7 @@ CATS = [
 # Cats derivaveis por soma quando labels historicos nao existem.
 DERIVED = {
     "energy_services": ["electricity", "utility_gas"],
+    "medical_care":    ["medical_goods", "medical_services"],  # 2000-2002 nao lista SAM
 }
 
 
@@ -181,7 +184,7 @@ def main():
         miss = [c for c, _, _ in CATS if c not in resolved]
         if miss:
             missing[year] = miss
-        print(f"  {year} ({kind}): {len(resolved)}/37 cats, all_items={resolved.get('all_items','?')}")
+        print(f"  {year} ({kind}): {len(resolved)}/{len(CATS)} cats, all_items={resolved.get('all_items','?')}")
 
     # Sanity checks
     print("\n[sanity] Validando hierarquia food+energy+core = 100.000 por ano:")

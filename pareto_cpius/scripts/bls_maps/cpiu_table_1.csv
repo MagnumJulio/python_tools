@@ -22,6 +22,8 @@ core_goods,Commodities less food and energy commodities,SACL1E,2,18.737,Core goo
 apparel,Apparel,SAA,3,2.457,Clothing aggregate
 new_vehicles,New vehicles,SETA01,3,3.734,New cars + trucks
 used_cars_trucks,Used cars and trucks,SETA02,3,2.629,Used cars + trucks
+car_truck_rental,Car and truck rental,SETA03,3,0.080,Rental cars + light trucks (BLS series)
+medical_care,Medical care,SAM,2,8.424,Medical care combined (goods + services)
 medical_goods,Medical care commodities,SAM1,3,1.409,Prescription + OTC meds + supplies
 alcoholic_bev,Alcoholic beverages,SEAF,3,0.82,Alcohol at home + away
 tobacco,Tobacco and smoking products,SEGA,3,0.447,Cigarettes + other tobacco products

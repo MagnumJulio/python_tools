@@ -63,14 +63,16 @@ CATEGORY_LABELS = {
     "electricity":             "CPI-U: Electricity",
     "utility_gas":             "CPI-U: Utility (piped) Gas Service",
     "core":                    "CPI-U: All Items Less Food and Energy (Core)",
-    "core_goods":              "CPI-U: Commodities Less Food and Energy Commodities",
+    "core_goods":              "CPI-U: Core Goods",
     "apparel":                 "CPI-U: Apparel",
     "new_vehicles":            "CPI-U: New Vehicles",
     "used_cars_trucks":        "CPI-U: Used Cars and Trucks",
+    "car_truck_rental":        "CPI-U: Car and Truck Rental",
+    "medical_care":            "CPI-U: Medical Care",
     "medical_goods":           "CPI-U: Medical Care Commodities",
     "alcoholic_bev":           "CPI-U: Alcoholic Beverages",
     "tobacco":                 "CPI-U: Tobacco and Smoking Products",
-    "core_services":           "CPI-U: Services Less Energy Services",
+    "core_services":           "CPI-U: Core Services",
     "shelter":                 "CPI-U: Shelter",
     "rent":                    "CPI-U: Rent of Primary Residence",
     "oer":                     "CPI-U: Owners' Equivalent Rent of Residences",
@@ -83,6 +85,23 @@ CATEGORY_LABELS = {
     "public_transportation":   "CPI-U: Public Transportation",
     "airline_fares":           "CPI-U: Airline Fares",
     "lodging_away":            "CPI-U: Lodging Away from Home",
+}
+
+# Definicao BLS oficial pra cats cujo `series_name` foi encurtado (sync
+# 2026-07-21). Injetada no `description` do SQL pra preservar rastreabilidade
+# da definicao formal do release. Se a cat nao estiver aqui, description
+# permanece sem sufixo de definicao.
+CATEGORY_BLS_DEFS = {
+    "core_goods":    "Commodities less food and energy commodities (BLS item SACL1E)",
+    "core_services": "Services less energy services (BLS item SASL5)",
+}
+
+# Labels antigos (pre sync 2026-07-21) mantidos aqui pra migracao renomear
+# rows existentes no SQL do label longo pro curto. Fora do escopo da migracao
+# se a row estiver com series_name que nao contem o label antigo.
+LEGACY_LABELS = {
+    "core_goods":    "CPI-U: Commodities Less Food and Energy Commodities",
+    "core_services": "CPI-U: Services Less Energy Services",
 }
 
 # Agregacoes custom derivadas via algebra Laspeyres (build_custom_aggregations.R).
@@ -316,6 +335,7 @@ def _migrate_cpius_to_current(session, cats: set[str]) -> int:
 
     n_updated = 0
     n_orphan_var = 0
+    n_renamed = 0
     for _, row in df.iterrows():
         code_src = row["haver_code"] if row["haver_code"] else row["bls_code"]
         cat = code_src.split(":", 1)[1].split("/", 1)[0]
@@ -324,28 +344,34 @@ def _migrate_cpius_to_current(session, cats: set[str]) -> int:
         new_code  = CODE.format(cat=cat)
         new_dtype = "Weight" if row["data_type"] == "Peso" else row["data_type"]
         new_ind   = "CPI"
+        # Sync 2026-07-21: rename series_name se estava com label antigo longo.
+        legacy = LEGACY_LABELS.get(cat)
+        current_name = row["series_name"] or ""
+        new_name = current_name.replace(legacy, CATEGORY_LABELS[cat]) if (legacy and legacy in current_name) else current_name
         already_ok = (
             row["haver_code"] is None
             and row["bls_code"]  == new_code
             and row["indicator"] == new_ind
             and row["data_type"] == new_dtype
+            and new_name == current_name
         )
         if already_ok:
             continue
         session.execute(
             "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
-            "indicator = ?, data_type = ? WHERE series_id = ?",
-            params=[new_code, new_ind, new_dtype, int(row["series_id"])],
+            "indicator = ?, data_type = ?, series_name = ? WHERE series_id = ?",
+            params=[new_code, new_ind, new_dtype, new_name, int(row["series_id"])],
         )
         n_updated += 1
-        # Detecta var-side (nao tem '(Index)' no series_name e nao eh Weight) —
-        # essas rows viram orphan pois o main loop nao escreve mais var.
-        if new_dtype in ("NSA", "SA") and "(Index)" not in (row["series_name"] or ""):
+        if new_name != current_name:
+            n_renamed += 1
+        if new_dtype in ("NSA", "SA") and "(Index)" not in current_name:
             n_orphan_var += 1
-        print(f"  [UPDATE] id={row['series_id']:5d} {row['series_name']:55s} "
+        print(f"  [UPDATE] id={row['series_id']:5d} {current_name:55s} "
               f"{row['data_type']:6s}/{row['indicator']:6s} -> "
-              f"{new_dtype:6s}/{new_ind:3s}  bls_code={new_code}")
-    print(f"  {n_updated} series migradas.")
+              f"{new_dtype:6s}/{new_ind:3s}  bls_code={new_code}"
+              f"{'  RENAME->' + new_name if new_name != current_name else ''}")
+    print(f"  {n_updated} series migradas ({n_renamed} com rename de series_name).")
     if n_orphan_var:
         print(f"  [WARN] {n_orphan_var} rows de VAR (NSA/SA sem '(Index)') ficaram "
               f"orphan — dados nao serao atualizados. Se quiser deletar, peca "
@@ -463,6 +489,8 @@ def main():
             is_custom = c in custom_cats
             bls = CODE.format(cat=c)
             src = "custom aggregation (Laspeyres algebra)" if is_custom else "BLS API v2 direto"
+            bls_def = CATEGORY_BLS_DEFS.get(c)
+            def_suffix = f" - {bls_def}" if bls_def else ""
             print(f"\n--- {label} ({c}){' [CUSTOM]' if is_custom else ''} ---")
             for sa in ("NSA", "SA"):
                 key = (c, sa)
@@ -475,7 +503,7 @@ def main():
                 sidra_to_sql(
                     series=si, country="US", subject="Prices", indicator="CPI",
                     series_name=f"{label} (Index)", data_type=sa, frequency="M",
-                    description=f"{label} - Indice [{sa}] (rebased jan/2000=100) - {src}",
+                    description=f"{label} - Indice [{sa}] (rebased jan/2000=100){def_suffix} - {src}",
                     bls_code=bls,
                     session=session, replace=True,
                 )
@@ -487,8 +515,8 @@ def main():
             if sp is not None:
                 print(f"    [Weight] {len(sp)} obs {sp.index.min().date()} -> {sp.index.max().date()}")
                 peso_desc = (
-                    f"{label} - Weight derivado (algebra Laspeyres da recipe)"
-                    if is_custom else f"{label} - Weight (Relative Importance, Table 6 BLS)"
+                    f"{label} - Weight derivado (algebra Laspeyres da recipe){def_suffix}"
+                    if is_custom else f"{label} - Weight (Relative Importance, Table 6 BLS){def_suffix}"
                 )
                 sidra_to_sql(
                     series=sp, country="US", subject="Prices", indicator="CPI",
