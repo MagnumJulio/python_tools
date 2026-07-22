@@ -38,11 +38,22 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from datetime import date
 from typing import Iterable
 
 import pandas as pd
 import requests
+
+
+# Wall-clock relativa ao start pra prefixar todos os logs.
+_T0 = time.monotonic()
+
+
+def log(msg: str) -> None:
+    """Print com [t=Xs] pra dar noção de progresso a olho nu."""
+    dt = time.monotonic() - _T0
+    print(f"[t={dt:6.1f}s] {msg}", flush=True)
 
 
 # ============================================================================
@@ -266,12 +277,16 @@ def fetch_bls_batched(
         windows.append((y0, y1))
         y0 = y1 + 1
 
-    print(f"[fetch] {len(series_ids)} series_ids x {len(windows)} janela(s) "
-          f"({max_years}a) x batches de {max_per_batch}", flush=True)
+    log(f"[fetch] {len(series_ids)} series_ids x {len(windows)} janela(s) "
+        f"({max_years}a) x batches de {max_per_batch}"
+        f"  (API key {'ON' if api_key else 'OFF'})")
 
     accum: dict[str, dict[pd.Timestamp, float]] = {sid: {} for sid in series_ids}
+    total_batches = len(windows) * ((len(series_ids) + max_per_batch - 1) // max_per_batch)
+    b_ix = 0
     for (yw0, yw1) in windows:
         for i in range(0, len(series_ids), max_per_batch):
+            b_ix += 1
             batch = series_ids[i:i + max_per_batch]
             payload = {
                 "seriesid": batch,
@@ -280,11 +295,14 @@ def fetch_bls_batched(
             }
             if api_key:
                 payload["registrationkey"] = api_key
+            t_req = time.monotonic()
+            log(f"  batch {b_ix}/{total_batches} [{yw0}-{yw1}] POST {len(batch)} ids...")
             resp = requests.post(BLS_API_URL, json=payload, timeout=90)
             resp.raise_for_status()
             j = resp.json()
             if j.get("status") != "REQUEST_SUCCEEDED":
                 raise RuntimeError(f"[BLS] {j.get('status')}: {j.get('message')}")
+            n_new = 0
             for s in j["Results"]["series"]:
                 sid = s["seriesID"]
                 for pt in s["data"]:
@@ -293,19 +311,24 @@ def fetch_bls_batched(
                     d = pd.Timestamp(int(pt["year"]), int(pt["period"][1:]), 1)
                     try:
                         accum[sid][d] = float(pt["value"])
+                        n_new += 1
                     except (ValueError, TypeError):
                         continue
-            print(f"  batch [{yw0}-{yw1}] +{len(batch)} ids "
-                  f"({sum(len(accum[b]) for b in batch)} obs acumuladas)", flush=True)
+            log(f"    done in {time.monotonic()-t_req:.1f}s  (+{n_new} obs, "
+                f"acumulado={sum(len(v) for v in accum.values())})")
 
     out = {}
+    n_empty = 0
     for sid, obs in accum.items():
         if not obs:
-            print(f"  [WARN] sem dados: {sid}")
+            log(f"  [WARN] sem dados: {sid}")
+            n_empty += 1
             continue
         s = pd.Series(obs).sort_index()
         s.name = sid
         out[sid] = s
+    log(f"[fetch] concluido: {len(out)}/{len(series_ids)} series c/ dados "
+        f"({n_empty} vazias)")
     return out
 
 
@@ -512,11 +535,11 @@ def check_ri_freshness(idx_max_date: pd.Timestamp) -> None:
     """[WARN] se RI_BASE_DATE > 12 meses atras em relacao ao ultimo idx."""
     base = pd.Timestamp(RI_BASE_DATE + "-01")
     gap_months = (idx_max_date.year - base.year) * 12 + (idx_max_date.month - base.month)
-    print(f"[quick_update] RI_BASE_DATE = {RI_BASE_DATE}  |  ultimo mes idx BLS = {idx_max_date:%Y-%m}")
+    log(f"RI_BASE_DATE = {RI_BASE_DATE}  |  ultimo mes idx BLS = {idx_max_date:%Y-%m}")
     if gap_months > 12:
-        print(f"[WARN] RI_BASE_DATE esta {gap_months} meses atras. Se BLS ja publicou "
-              f"novo release (~fev/{idx_max_date.year}), atualize RI_BASE_DATE + "
-              f"RI_HISTORICAL[{idx_max_date.year - 1}] no update_cpius_lean.py.")
+        log(f"[WARN] RI_BASE_DATE esta {gap_months} meses atras. Se BLS ja publicou "
+            f"novo release (~fev/{idx_max_date.year}), atualize RI_BASE_DATE + "
+            f"RI_HISTORICAL[{idx_max_date.year - 1}] no update_cpius_lean.py.")
 
 
 def main():
@@ -534,7 +557,7 @@ def main():
     args = p.parse_args()
 
     requested_cats = parse_input(args.cats, args.codes)
-    print(f"[quick_update] cats pedidas: {sorted(requested_cats)}", flush=True)
+    log(f"cats pedidas ({len(requested_cats)}): {sorted(requested_cats)}")
 
     # Fetch idx: sempre inclui TOP3 pra renormalizar Weight (mesmo se nao pedidos)
     fetch_cats = requested_cats | set(TOP3)
@@ -542,6 +565,7 @@ def main():
     raw = fetch_bls_batched(ids, args.start_year, args.end_year, args.api_key)
 
     # Reagrupa em wide por (cat, sa)
+    log(f"reagrupando idx em wide (NSA/SA) e rebasando jan/2000=100...")
     idx_wide: dict[str, pd.DataFrame] = {}  # sa_flag -> wide (index=date, cols=cat)
     for sid, s in raw.items():
         cat, sa = id_map[sid]
@@ -549,6 +573,8 @@ def main():
         idx_wide[sa][cat] = rebase_jan2000(s)
     idx_nsa = pd.DataFrame(idx_wide.get("NSA", {})).sort_index()
     idx_sa  = pd.DataFrame(idx_wide.get("SA",  {})).sort_index()
+    log(f"  NSA wide: {idx_nsa.shape[0]} meses x {idx_nsa.shape[1]} cats  |  "
+        f"SA wide: {idx_sa.shape[0]} x {idx_sa.shape[1]}")
 
     if idx_nsa.empty:
         sys.exit("[ERR] BLS nao retornou dados NSA — abortando.")
@@ -556,34 +582,44 @@ def main():
     check_ri_freshness(idx_nsa.index.max())
 
     # Weight (usa NSA pra evitar poluicao por revisoes SA anuais)
+    t_w = time.monotonic()
+    log(f"computando Weight (ajuste implicito BLS) sobre {len(idx_nsa)} meses x "
+        f"{len(idx_nsa.columns)} cats...")
     weights = compute_weights(idx_nsa, requested_cats)
+    log(f"  weights: {len(weights)} linhas em {time.monotonic()-t_w:.1f}s")
 
     # Conecta SQL
     if args.simulate:
         session = MockSQLConnector()
         pd.read_sql = _patched_read_sql
-        print("[quick_update] MODO SIMULATE — sem SQL real", flush=True)
+        log("MODO SIMULATE — sem SQL real")
     else:
+        log("conectando SQL corp (opt_utils.database.SQLConnector pyodbc)...")
         try:
             from opt_utils.database import SQLConnector  # type: ignore
         except ImportError:
             sys.exit("[ERR] opt_utils.database nao disponivel. Rode em corp OU use --simulate.")
+        t_sql = time.monotonic()
         session = SQLConnector(connector="pyodbc")
+        log(f"  SQL conectado em {time.monotonic()-t_sql:.1f}s")
 
     try:
-        for cat in sorted(requested_cats):
+        n_cats = len(requested_cats)
+        for i, cat in enumerate(sorted(requested_cats), start=1):
             label = CATEGORY_LABELS[cat]
             bls_code = CODE_FMT.format(cat=cat)
             bls_def = CATEGORY_BLS_DEFS.get(cat)
             def_suffix = f" - {bls_def}" if bls_def else ""
-            print(f"\n--- {label} ({cat}) ---")
+            log(f"[{i}/{n_cats}] {cat}  ({label})")
+            t_cat = time.monotonic()
 
             for sa, wide in (("NSA", idx_nsa), ("SA", idx_sa)):
                 if cat not in wide.columns:
-                    print(f"    [{sa}] SKIP (BLS sem dados)")
+                    log(f"    [{sa}] SKIP (BLS sem dados)")
                     continue
                 s = wide[cat].dropna()
-                print(f"    [{sa}] idx = {len(s)} obs  {s.index.min():%Y-%m} -> {s.index.max():%Y-%m}")
+                log(f"    [{sa}] idx = {len(s)} obs "
+                    f"{s.index.min():%Y-%m} -> {s.index.max():%Y-%m}, upserting...")
                 upsert_series(
                     session, "US", "Prices", "CPI",
                     f"{label} (Index)", sa, "M",
@@ -593,7 +629,8 @@ def main():
 
             w_series = weights[weights.cat == cat].set_index("date").weight.sort_index()
             if not w_series.empty:
-                print(f"    [Weight] {len(w_series)} obs  {w_series.index.min():%Y-%m} -> {w_series.index.max():%Y-%m}")
+                log(f"    [Weight] {len(w_series)} obs "
+                    f"{w_series.index.min():%Y-%m} -> {w_series.index.max():%Y-%m}, upserting...")
                 upsert_series(
                     session, "US", "Prices", "CPI",
                     f"{label} (Index)", "Weight", "M",
@@ -601,19 +638,21 @@ def main():
                     bls_code, w_series,
                 )
             else:
-                print(f"    [Weight] SKIP (sem RI historico pra '{cat}')")
+                log(f"    [Weight] SKIP (sem RI historico pra '{cat}')")
+            log(f"    cat done in {time.monotonic()-t_cat:.1f}s")
     finally:
+        log("fechando session SQL...")
         session.close()
 
     cats_with_weight = set(weights["cat"].unique()) if not weights.empty else set()
     n_no_weight = len(requested_cats - cats_with_weight)
-    print(f"\n[OK] {len(requested_cats)} cats: 2 idx + Weight (Weight skipped em {n_no_weight}).")
+    log(f"[OK] {len(requested_cats)} cats: 2 idx + Weight (Weight skipped em {n_no_weight}).")
 
     if args.simulate:
         meta = session.tables["OPT_Macro_Series_2"]
         data = session.tables["OPT_Macro_Series_Data_2"]
-        print(f"\n[simulate] OPT_Macro_Series_2      = {len(meta)} rows")
-        print(f"[simulate] OPT_Macro_Series_Data_2 = {len(data)} rows")
+        log(f"[simulate] OPT_Macro_Series_2      = {len(meta)} rows")
+        log(f"[simulate] OPT_Macro_Series_Data_2 = {len(data)} rows")
         print(meta[["series_id", "series_name", "data_type", "bls_code"]].to_string(index=False))
 
 
