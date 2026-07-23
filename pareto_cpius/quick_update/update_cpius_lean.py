@@ -25,9 +25,10 @@ Regras:
     - Upsert incremental: cada re-run so DELETE+INSERT os ultimos
       INCREMENTAL_MONTHS (=24) por serie no SQL corp. Primeira vez pra uma
       serie faz seed full. Nao preserva vintages (release_date=today em tudo).
-    - Base cats only (39 do release BLS Table 1). Custom aggregations
-      (`core_ex_oer`, `supercore_powell_old`, etc.) NAO sao suportados —
-      use `script_itau/load_cpius_to_sql.py` pra elas.
+    - Base cats (41 do release BLS Table 1) + customs (8 agregacoes Laspeyres
+      Dez-anchor, espelhando build_custom_aggregations.R). Deps das customs
+      (base/excludes/includes) sao automaticamente adicionadas ao fetch mas
+      NAO sao inseridas no SQL se nao pedidas explicitamente.
 
 ATENCAO — atualizar 1x/ano:
     RI_BASE_DATE e RI_HISTORICAL[novo_ano] precisam ser atualizados quando BLS
@@ -165,6 +166,75 @@ CATEGORY_BLS_DEFS = {
 
 
 # ============================================================================
+# CUSTOM AGGREGATIONS — Laspeyres Dez-anchor (BLS canonico)
+# Espelha scripts/bls_maps/custom_aggregations.csv + build_custom_aggregations.R.
+# ============================================================================
+
+CUSTOM_LABELS = {
+    "rent_of_shelter":                           "CPI-U: Rent of Shelter (Custom)",
+    "core_ex_oer":                               "CPI-U: Core ex OER (Custom)",
+    "cpi_ex_oer":                                "CPI-U: All Items ex OER (Custom)",
+    "core_services_ex_shelter":                  "CPI-U: Core Services ex Rent of Shelter (Custom)",
+    "supercore_powell_old":                      "CPI-U: Core Services ex RPR & OER (Old Powell Supercore, Custom)",
+    "core_services_ex_shelter_pubtrans_medical": "CPI-U: Core Services ex Shelter/PubTrans/Medical (Custom)",
+    "super_super_core":                          "CPI-U: Super Super Core (Custom)",
+    "core_services_ex_volatiles":                "CPI-U: Core Services ex Volatiles (Custom)",
+}
+
+# method: "exclude" (base - Σ excludes) ou "sum" (Σ includes).
+CUSTOM_RECIPES: dict[str, dict] = {
+    "rent_of_shelter": {
+        "method": "sum", "base": None,
+        "excludes": [], "includes": ["rent", "oer", "lodging_away"],
+    },
+    "core_ex_oer": {
+        "method": "exclude", "base": "core",
+        "excludes": ["oer"], "includes": [],
+    },
+    "cpi_ex_oer": {
+        "method": "exclude", "base": "all_items",
+        "excludes": ["oer"], "includes": [],
+    },
+    "core_services_ex_shelter": {
+        "method": "exclude", "base": "core_services",
+        "excludes": ["rent", "oer", "lodging_away"], "includes": [],
+    },
+    "supercore_powell_old": {
+        "method": "exclude", "base": "core_services",
+        "excludes": ["rent", "oer"], "includes": [],
+    },
+    "core_services_ex_shelter_pubtrans_medical": {
+        "method": "exclude", "base": "core_services",
+        "excludes": ["rent", "oer", "lodging_away", "public_transportation", "medical_services"],
+        "includes": [],
+    },
+    "super_super_core": {
+        "method": "exclude", "base": "core_services",
+        "excludes": ["rent", "oer", "lodging_away", "airline_fares", "medical_services"],
+        "includes": [],
+    },
+    "core_services_ex_volatiles": {
+        "method": "exclude", "base": "core_services",
+        "excludes": ["airline_fares", "medical_services"], "includes": [],
+    },
+}
+
+
+def custom_deps(cats: Iterable[str]) -> set[str]:
+    """Union das base cats necessarias pra construir as customs pedidas."""
+    deps: set[str] = set()
+    for c in cats:
+        r = CUSTOM_RECIPES.get(c)
+        if not r:
+            continue
+        if r["base"]:
+            deps.add(r["base"])
+        deps.update(r["excludes"])
+        deps.update(r["includes"])
+    return deps
+
+
+# ============================================================================
 # WEIGHT BASE — Relative Importance historica Table 6 BLS
 # ATENCAO: RI_BASE_DATE deve refletir o mais recente ano em RI_HISTORICAL.
 # Atualizar quando BLS publicar novo release em fev/YYYY.
@@ -232,17 +302,24 @@ INCREMENTAL_MONTHS = 24
 
 def parse_input(cats_arg: str | None, codes_arg: str | None) -> set[str]:
     """Aceita --cats (lista de cats) ou --codes (lista de bls_codes CPIUS:*).
-    Retorna set de cats validas. Rejeita customs e cats desconhecidas."""
+    Retorna set de cats validas (base + customs). Keywords: 'all' pra tudo,
+    'all-base' so ITEM_CODES, 'all-customs' so CUSTOM_RECIPES."""
     if not cats_arg and not codes_arg:
         sys.exit("[ERR] --cats ou --codes obrigatorio")
 
+    known = set(ITEM_CODES.keys()) | set(CUSTOM_RECIPES.keys())
     cats: set[str] = set()
     if cats_arg:
         raw_cats = [c.strip() for c in cats_arg.split(",") if c.strip()]
-        # Keyword "all" -> todas as base cats do ITEM_CODES.
-        if any(c.lower() == "all" for c in raw_cats):
+        keywords = {c.lower() for c in raw_cats}
+        if "all" in keywords:
             cats.update(ITEM_CODES.keys())
-            raw_cats = [c for c in raw_cats if c.lower() != "all"]
+            cats.update(CUSTOM_RECIPES.keys())
+        if "all-base" in keywords:
+            cats.update(ITEM_CODES.keys())
+        if "all-customs" in keywords:
+            cats.update(CUSTOM_RECIPES.keys())
+        raw_cats = [c for c in raw_cats if c.lower() not in {"all", "all-base", "all-customs"}]
         cats.update(raw_cats)
     if codes_arg:
         for raw in codes_arg.split(","):
@@ -255,13 +332,12 @@ def parse_input(cats_arg: str | None, codes_arg: str | None) -> set[str]:
             cat = raw.split(":", 1)[1].split("/", 1)[0]
             cats.add(cat)
 
-    unknown = [c for c in cats if c not in ITEM_CODES]
+    unknown = [c for c in cats if c not in known]
     if unknown:
-        # Cats fora do CATEGORY_LABELS podem ser customs — orientar
         sys.exit(
-            f"[ERR] cats desconhecidas: {unknown}. Este script suporta so as {len(ITEM_CODES)} "
-            f"base cats do BLS Table 1 (ou 'all' pra todas). Pra customs (core_ex_oer, "
-            f"supercore_powell_old, etc), use `script_itau/load_cpius_to_sql.py` completo."
+            f"[ERR] cats desconhecidas: {unknown}. Suportadas: "
+            f"{len(ITEM_CODES)} base cats + {len(CUSTOM_RECIPES)} customs. "
+            f"Keywords: 'all', 'all-base', 'all-customs'."
         )
     return cats
 
@@ -420,6 +496,111 @@ def compute_weights(idx_nsa: pd.DataFrame, requested_cats: set[str]) -> pd.DataF
                 rows.append({"date": m, "cat": c, "weight": w[c]})
 
     return pd.DataFrame(rows)
+
+
+# ============================================================================
+# CUSTOM BUILDERS — Laspeyres Dez-anchor (BLS canonico)
+# ============================================================================
+
+def build_custom_idx(
+    recipe: dict,
+    idx_wide: pd.DataFrame,   # index=date (month-start), cols=base cats
+    peso_wide: pd.DataFrame,  # index=date (month-start), cols=base cats
+) -> pd.Series:
+    """Constroi indice custom via Laspeyres Dez-anchor. Pivot p/ mes m = Dez do
+    ano-1 (fallback jan/2000 pra 2000). Formulas:
+      exclude: I_ex(m) = I_ex(pivot) * [w_b_p·(I_b_m/I_b_p) - Σ w_e_p·(I_e_m/I_e_p)] /
+                                       [w_b_p - Σ w_e_p]
+      sum:     I_agg(m) = I_agg(pivot) * Σ w_i_p·(I_i_m/I_i_p) / Σ w_i_p"""
+    method = recipe["method"]
+    base = recipe["base"]
+    excl = list(recipe["excludes"])
+    incl = list(recipe["includes"])
+
+    dates = idx_wide.index
+    idx_out = pd.Series(index=dates, dtype=float)
+    if len(dates) == 0:
+        return idx_out
+    idx_out.iloc[0] = 100.0  # jan/2000 = 100
+    first_date = dates[0]
+
+    for k in range(1, len(dates)):
+        m = dates[k]
+        pivot = pd.Timestamp(m.year - 1, 12, 1)
+        if pivot < first_date:
+            pivot = first_date
+        if pivot not in idx_wide.index or pivot not in peso_wide.index:
+            continue
+        if pivot not in idx_out.index:
+            continue
+        i_pivot = idx_out.loc[pivot]
+        if not pd.notna(i_pivot):
+            continue
+
+        irow_m = idx_wide.loc[m]
+        irow_p = idx_wide.loc[pivot]
+        wrow_p = peso_wide.loc[pivot]
+
+        if method == "exclude":
+            i_b_m = irow_m.get(base)
+            i_b_p = irow_p.get(base)
+            w_b_p = wrow_p.get(base)
+            if not (pd.notna(i_b_m) and pd.notna(i_b_p) and pd.notna(w_b_p) and i_b_p > 0):
+                continue
+            num = w_b_p * (i_b_m / i_b_p)
+            den = w_b_p
+            ok = True
+            for e in excl:
+                i_e_m = irow_m.get(e)
+                i_e_p = irow_p.get(e)
+                w_e_p = wrow_p.get(e)
+                if not (pd.notna(i_e_m) and pd.notna(i_e_p) and pd.notna(w_e_p) and i_e_p > 0):
+                    ok = False
+                    break
+                num -= w_e_p * (i_e_m / i_e_p)
+                den -= w_e_p
+            if ok and den > 0:
+                idx_out.iloc[k] = i_pivot * (num / den)
+        else:  # sum
+            num = 0.0
+            den = 0.0
+            ok = len(incl) > 0
+            for c in incl:
+                i_m = irow_m.get(c)
+                i_p = irow_p.get(c)
+                w_p = wrow_p.get(c)
+                if not (pd.notna(i_m) and pd.notna(i_p) and pd.notna(w_p) and i_p > 0):
+                    ok = False
+                    break
+                num += w_p * (i_m / i_p)
+                den += w_p
+            if ok and den > 0:
+                idx_out.iloc[k] = i_pivot * (num / den)
+
+    return idx_out
+
+
+def build_custom_weight(recipe: dict, peso_wide: pd.DataFrame) -> pd.Series:
+    """Peso mensal do agregado custom, usando pesos mensais ja ajustados."""
+    method = recipe["method"]
+    base = recipe["base"]
+    excl = list(recipe["excludes"])
+    incl = list(recipe["includes"])
+
+    if method == "exclude":
+        if base not in peso_wide.columns:
+            return pd.Series(dtype=float)
+        s = peso_wide[base].copy()
+        for e in excl:
+            if e not in peso_wide.columns:
+                return pd.Series(dtype=float)
+            s = s - peso_wide[e]
+    else:  # sum
+        if not incl or not all(c in peso_wide.columns for c in incl):
+            return pd.Series(dtype=float)
+        s = peso_wide[incl].sum(axis=1)
+
+    return s.where(s > 0).dropna()
 
 
 # ============================================================================
@@ -613,10 +794,16 @@ def main():
     args = p.parse_args()
 
     requested_cats = parse_input(args.cats, args.codes)
-    log(f"cats pedidas ({len(requested_cats)}): {sorted(requested_cats)}")
+    base_req = requested_cats & set(ITEM_CODES.keys())
+    custom_req = requested_cats & set(CUSTOM_RECIPES.keys())
+    log(f"cats pedidas: {len(base_req)} base + {len(custom_req)} custom "
+        f"= {len(requested_cats)}: {sorted(requested_cats)}")
 
-    # Fetch idx: sempre inclui TOP3 pra renormalizar Weight (mesmo se nao pedidos)
-    fetch_cats = requested_cats | set(TOP3)
+    # Fetch precisa cobrir base pedidas + deps das customs + TOP3 (renormalizacao Weight)
+    fetch_cats = base_req | custom_deps(custom_req) | set(TOP3)
+    if custom_req:
+        log(f"custom deps adicionadas ao fetch: "
+            f"{sorted(custom_deps(custom_req) - base_req)}")
     ids, id_map = build_series_ids(fetch_cats)
     raw = fetch_bls_batched(ids, args.start_year, args.end_year, args.api_key)
 
@@ -637,12 +824,31 @@ def main():
 
     check_ri_freshness(idx_nsa.index.max())
 
-    # Weight (usa NSA pra evitar poluicao por revisoes SA anuais)
+    # Weight (usa NSA pra evitar poluicao por revisoes SA anuais). Computa pra
+    # TODAS as fetch_cats — customs usam peso_wide como input do Dez-anchor.
     t_w = time.monotonic()
     log(f"computando Weight (ajuste implicito BLS) sobre {len(idx_nsa)} meses x "
         f"{len(idx_nsa.columns)} cats...")
-    weights = compute_weights(idx_nsa, requested_cats)
+    weights = compute_weights(idx_nsa, fetch_cats)
     log(f"  weights: {len(weights)} linhas em {time.monotonic()-t_w:.1f}s")
+
+    # Constroi idx + Weight das customs pedidas e injeta em idx_nsa/idx_sa/weights
+    if custom_req:
+        t_c = time.monotonic()
+        peso_wide = weights.pivot_table(index="date", columns="cat",
+                                        values="weight").sort_index()
+        log(f"construindo {len(custom_req)} customs via Laspeyres Dez-anchor...")
+        for cc in sorted(custom_req):
+            r = CUSTOM_RECIPES[cc]
+            idx_nsa[cc] = build_custom_idx(r, idx_nsa, peso_wide)
+            idx_sa[cc]  = build_custom_idx(r, idx_sa,  peso_wide)
+            ws = build_custom_weight(r, peso_wide)
+            if not ws.empty:
+                weights = pd.concat([
+                    weights,
+                    pd.DataFrame({"date": ws.index, "cat": cc, "weight": ws.values}),
+                ], ignore_index=True)
+        log(f"  customs em {time.monotonic()-t_c:.1f}s")
 
     # Conecta SQL
     if args.simulate:
@@ -659,42 +865,53 @@ def main():
         session = SQLConnector(connector="pyodbc")
         log(f"  SQL conectado em {time.monotonic()-t_sql:.1f}s")
 
+    all_labels = {**CATEGORY_LABELS, **CUSTOM_LABELS}
     try:
         n_cats = len(requested_cats)
         for i, cat in enumerate(sorted(requested_cats), start=1):
-            label = CATEGORY_LABELS[cat]
+            label = all_labels[cat]
             bls_code = CODE_FMT.format(cat=cat)
+            is_custom = cat in CUSTOM_RECIPES
             bls_def = CATEGORY_BLS_DEFS.get(cat)
             def_suffix = f" - {bls_def}" if bls_def else ""
-            log(f"[{i}/{n_cats}] {cat}  ({label})")
+            src_desc = ("custom aggregation (Laspeyres Dez-anchor algebra)"
+                        if is_custom else "BLS API v2 direto (lean)")
+            tag = "[CUSTOM]" if is_custom else ""
+            log(f"[{i}/{n_cats}] {cat} {tag} ({label})")
             t_cat = time.monotonic()
 
             for sa, wide in (("NSA", idx_nsa), ("SA", idx_sa)):
                 if cat not in wide.columns:
-                    log(f"    [{sa}] SKIP (BLS sem dados)")
+                    log(f"    [{sa}] SKIP (sem dados)")
                     continue
                 s = wide[cat].dropna()
+                if s.empty:
+                    log(f"    [{sa}] SKIP (serie vazia)")
+                    continue
                 log(f"    [{sa}] idx = {len(s)} obs "
                     f"{s.index.min():%Y-%m} -> {s.index.max():%Y-%m}, upserting...")
                 upsert_series(
                     session, "US", "Prices", "CPI",
                     f"{label} (Index)", sa, "M",
-                    f"{label} - Indice [{sa}] (rebased jan/2000=100){def_suffix} - BLS API v2 direto (lean)",
+                    f"{label} - Indice [{sa}] (rebased jan/2000=100){def_suffix} - {src_desc}",
                     bls_code, s,
                 )
 
             w_series = weights[weights.cat == cat].set_index("date").weight.sort_index()
             if not w_series.empty:
+                w_desc = (f"{label} - Weight (custom aggregation, derivado dos pesos base)"
+                          if is_custom else
+                          f"{label} - Weight (Relative Importance BLS, ajuste implicito, base {RI_BASE_DATE})")
                 log(f"    [Weight] {len(w_series)} obs "
                     f"{w_series.index.min():%Y-%m} -> {w_series.index.max():%Y-%m}, upserting...")
                 upsert_series(
                     session, "US", "Prices", "CPI",
                     f"{label} (Index)", "Weight", "M",
-                    f"{label} - Weight (Relative Importance BLS, ajuste implicito, base {RI_BASE_DATE}){def_suffix}",
+                    f"{w_desc}{def_suffix}",
                     bls_code, w_series,
                 )
             else:
-                log(f"    [Weight] SKIP (sem RI historico pra '{cat}')")
+                log(f"    [Weight] SKIP (sem peso pra '{cat}')")
             log(f"    cat done in {time.monotonic()-t_cat:.1f}s")
     finally:
         log("fechando session SQL...")
@@ -702,7 +919,8 @@ def main():
 
     cats_with_weight = set(weights["cat"].unique()) if not weights.empty else set()
     n_no_weight = len(requested_cats - cats_with_weight)
-    log(f"[OK] {len(requested_cats)} cats: 2 idx + Weight (Weight skipped em {n_no_weight}).")
+    log(f"[OK] {len(requested_cats)} cats ({len(base_req)} base + {len(custom_req)} custom): "
+        f"2 idx + Weight (Weight skipped em {n_no_weight}).")
 
     if args.simulate:
         meta = session.tables["OPT_Macro_Series_2"]
