@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -65,16 +64,19 @@ CATEGORY_LABELS = {
     "nucleo_medio":    "IPCA: Nucleo Medio (media dos 5)",
 }
 
-# Sync 2026-07-17: codes simplificados gravados em bls_code; haver_code fica
-# NULL em tudo que este loader escreve como INSERT novo (nao entra no dict de
-# meta). Rows do formato antigo (`haver_code LIKE 'PARETO_IPCA:%'`) sao
-# migradas por _migrate_haver_to_bls antes do main loop — la SIM o UPDATE
-# desassocia a row do haver_code antigo setando explicitamente NULL. 2 codes
-# por cat:
-#   IPCA:{cat}         -> lado var/label (var NSA, var SA, Weight-label)
-#   IPCA:{cat}/Index   -> lado idx (idx NSA, idx SA, Weight-Index)
-CODE_VAR   = "IPCA:{cat}"
-CODE_INDEX = "IPCA:{cat}/Index"
+# Sync 2026-07-27: bls_code colapsado pra 1 unico formato IPCA:{cat} — sem
+# sufixo /Index. Analogo ao CPI-US 2026-07-20. A distincao var-side vs
+# idx-side (e Weight companheiro) sai de series_name + data_type; nao ha mais
+# 2 codes por cat. Todas as 4-6 rows por cat (var NSA, idx NSA, Weight x2,
+# opc. var SA + idx SA) compartilham o mesmo bls_code.
+#
+# haver_code (legado) fica NULL nos INSERTs novos e eh setado explicitamente
+# pra NULL na migracao. _migrate_pareto_to_current cobre 3 estados possiveis:
+#   (0) ancestral: haver_code LIKE 'PARETO_IPCA:%' (nunca migrado)
+#   (1) intermediario: bls_code LIKE 'IPCA:%/Index' (migrado em 2026-07-17
+#                                                     mas ainda com sufixo)
+#   (2) alvo:    bls_code = 'IPCA:{cat}' (formato atual — no-op idempotente)
+CODE = "IPCA:{cat}"
 
 
 def sidra_to_sql(
@@ -249,76 +251,72 @@ def _preflight(session, max_desc_len: int) -> bool:
     except Exception as e:
         print(f"  [WARN] nao foi possivel checar tamanho de description: {e}")
 
-    # 4. Series ja cadastradas — dois grupos:
-    #    (a) formato NOVO (bls_code LIKE 'IPCA:%') — serao reusadas por series_id
-    #    (b) formato ANTIGO (haver_code LIKE 'PARETO_IPCA:%') — pendentes de
-    #        migracao (executada logo antes do main loop)
+    # 4. Series ja cadastradas — lista qualquer row IPCA (novo ou pre-colapso).
+    # _migrate_pareto_to_current normaliza tudo que nao estiver no formato
+    # final (haver_code=NULL, bls_code='IPCA:{cat}' sem sufixo).
     try:
-        df_new = pd.read_sql(
-            """SELECT series_id, series_name, data_type, bls_code
+        df_all = pd.read_sql(
+            """SELECT series_id, series_name, data_type, haver_code, bls_code
                FROM OPT_Macro_Series_2
-               WHERE bls_code LIKE 'IPCA:%'
+               WHERE haver_code LIKE 'PARETO_IPCA:%' OR bls_code LIKE 'IPCA:%'
                ORDER BY series_id""",
             session.conn,
         )
-        print(f"\n  Series formato NOVO (bls_code LIKE 'IPCA:%'): {len(df_new)}")
-        if not df_new.empty:
+        print(f"\n  Series IPCA existentes (qualquer formato): {len(df_all)}")
+        if not df_all.empty:
             with pd.option_context("display.max_colwidth", 60, "display.width", 200):
-                print(df_new.head(20).to_string(index=False))
-
-        df_old = pd.read_sql(
-            """SELECT series_id, series_name, data_type, haver_code
-               FROM OPT_Macro_Series_2
-               WHERE haver_code LIKE 'PARETO_IPCA:%'
-               ORDER BY series_id""",
-            session.conn,
-        )
-        print(f"\n  Series formato ANTIGO (haver_code LIKE 'PARETO_IPCA:%'): {len(df_old)}")
-        if not df_old.empty:
-            with pd.option_context("display.max_colwidth", 60, "display.width", 200):
-                print(df_old.head(20).to_string(index=False))
-            print("  -> serao migradas (haver_code -> NULL, bls_code populado, "
-                  "Peso->Weight) antes do main loop.")
+                print(df_all.head(30).to_string(index=False))
+            print("  -> qualquer row fora do formato atual (haver_code=NULL, "
+                  "bls_code='IPCA:{cat}' sem sufixo /Index) sera normalizada "
+                  "antes do main loop.")
     except Exception as e:
-        print(f"  [WARN] nao foi possivel listar series: {e}")
+        print(f"  [WARN] nao foi possivel listar series IPCA: {e}")
 
     return ok
 
 
-# Padroes do formato antigo pra descobrir se a linha eh do lado var/label ou
-# do lado index. Usado pela migracao. Sha varia por commit, cat varia por serie.
-_OLD_INDEX_PATTERN = re.compile(r"^PARETO_IPCA:[^/]+/V63/Index/")
-
-
-def _migrate_haver_to_bls(session, cats: set[str]) -> int:
-    """Encontra series com haver_code no formato antigo (PARETO_IPCA:{cat}/...)
-    e migra:
-      - haver_code -> NULL (desassocia da string antiga)
-      - bls_code   -> novo simplificado (IPCA:{cat} ou IPCA:{cat}/Index)
-      - data_type  -> Weight (se antes era Peso)
-    Somente linhas cuja categoria aparece em `cats` (evita mexer em ranges
-    fora do escopo do run). Retorna quantas linhas atualizou."""
-    print("\n[migracao] Procurando series com haver_code no formato antigo...")
+def _migrate_pareto_to_current(session, cats: set[str]) -> int:
+    """Traz TODA row IPCA pareto pro formato atual (sync 2026-07-27). Cobre 3
+    origens de rows possivelmente coexistindo em prod:
+      (0) haver_code LIKE 'PARETO_IPCA:%' — nunca migradas (formato ancestral).
+      (1) bls_code LIKE 'IPCA:%/Index'    — migradas em 2026-07-17 mas com
+                                             sufixo /Index (pre-colapso).
+      (2) bls_code = 'IPCA:{cat}'         — ja no formato final: pulado.
+    Atualiza pra:
+      - haver_code -> NULL (idempotente pra rows ja migradas)
+      - bls_code   -> IPCA:{cat} puro (colapsa /Index; distincao via series_name)
+      - data_type  -> 'Weight' (se antes era 'Peso' em rows muito antigas)
+    Idempotente: rows ja no formato final sao puladas (nao gera UPDATE). Somente
+    cats no escopo do run — evita mexer em ranges fora do escopo. Retorna
+    quantas linhas atualizou de fato."""
+    print("\n[migracao] Normalizando series IPCA pareto pro formato atual (sync 2026-07-27)...")
     df = pd.read_sql(
-        """SELECT series_id, series_name, data_type, haver_code
+        """SELECT series_id, series_name, data_type, haver_code, bls_code
            FROM OPT_Macro_Series_2
-           WHERE haver_code LIKE 'PARETO_IPCA:%'
+           WHERE haver_code LIKE 'PARETO_IPCA:%' OR bls_code LIKE 'IPCA:%'
            ORDER BY series_id""",
         session.conn,
     )
     if df.empty:
-        print("  nenhuma serie no formato antigo — nada a migrar.")
+        print("  nenhuma serie IPCA encontrada — nada a migrar.")
         return 0
 
     n_updated = 0
     for _, row in df.iterrows():
-        haver = row["haver_code"]
-        cat = haver.split(":", 1)[1].split("/", 1)[0]
+        # Extrai cat do primeiro code disponivel (haver antigo ou bls atual).
+        code_src = row["haver_code"] if row["haver_code"] else row["bls_code"]
+        cat = code_src.split(":", 1)[1].split("/", 1)[0]
         if cat not in cats:
             continue
-        is_index_side = bool(_OLD_INDEX_PATTERN.match(haver))
-        new_code = (CODE_INDEX if is_index_side else CODE_VAR).format(cat=cat)
+        new_code  = CODE.format(cat=cat)
         new_dtype = "Weight" if row["data_type"] == "Peso" else row["data_type"]
+        already_ok = (
+            row["haver_code"] is None
+            and row["bls_code"]  == new_code
+            and row["data_type"] == new_dtype
+        )
+        if already_ok:
+            continue
         session.execute(
             "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
             "data_type = ? WHERE series_id = ?",
@@ -327,7 +325,7 @@ def _migrate_haver_to_bls(session, cats: set[str]) -> int:
         n_updated += 1
         print(f"  [UPDATE] id={row['series_id']:5d} {row['series_name']:55s} "
               f"{row['data_type']:6s} -> {new_dtype:6s}  bls_code={new_code}")
-    print(f"  {n_updated} series migradas.")
+    print(f"  {n_updated} series migradas ({len(df) - n_updated} ja no formato final ou fora do escopo).")
     return n_updated
 
 
@@ -378,8 +376,7 @@ def main():
             peso_info = f"Weight x2: {len(sp)} obs" if sp is not None else "sem Weight"
             print(f"  - {label:45s}  var: {len(var_series[c])} obs   "
                   f"idx: {len(idx_series[c])} obs   {peso_info}")
-            print(f"    bls_code (var/label): {CODE_VAR.format(cat=c)}")
-            print(f"    bls_code (idx/Index): {CODE_INDEX.format(cat=c)}")
+            print(f"    bls_code: {CODE.format(cat=c)}")
             if args.sa:
                 print(f"  - {label + ' (SA)':45s}  var/idx dessazonalizados (X-13)")
         return
@@ -399,10 +396,11 @@ def main():
         if not ok:
             sys.exit("\n[ABORT] preflight reprovou. Veja [FAIL] acima.")
 
-        # Migracao: linhas antigas (haver_code LIKE 'PARETO_IPCA:%') sao movidas
-        # pro novo esquema (haver_code=NULL, bls_code preenchido, Peso->Weight)
-        # antes de qualquer novo write. Idempotente: reruns nao encontram nada.
-        _migrate_haver_to_bls(session, set(cats))
+        # Migracao: normaliza qualquer row IPCA antiga (haver_code preenchido
+        # OU bls_code com sufixo /Index) pro formato atual (haver_code=NULL,
+        # bls_code='IPCA:{cat}' puro, Peso->Weight). Idempotente: rows ja no
+        # formato final sao puladas sem gerar UPDATE.
+        _migrate_pareto_to_current(session, set(cats))
 
         if not args.no_confirm:
             n_peso = sum(1 for c in cats if c in peso_series)
@@ -419,8 +417,7 @@ def main():
             sv = var_series[c]
             si = idx_series[c]
             sp = peso_series.get(c)
-            bls_var = CODE_VAR.format(cat=c)
-            bls_idx = CODE_INDEX.format(cat=c)
+            bls = CODE.format(cat=c)
             print(f"\n--- {label} ({c}) ---")
             print(f"    var: {len(sv)} obs {sv.index.min().date()} -> {sv.index.max().date()}")
             print(f"    idx: {len(si)} obs (base 100 em dez/2006)")
@@ -432,7 +429,7 @@ def main():
                 series=sv, country="BR", subject="Prices", indicator="IPCA",
                 series_name=label, data_type="NSA", frequency="M",
                 description=f"{label} - Variacao mensal (%) - recon IBGE-only via NT_57/Dez-2025",
-                bls_code=bls_var,
+                bls_code=bls,
                 session=session, replace=True,
             )
             # 2) Indice NSA (lado Indice)
@@ -440,27 +437,28 @@ def main():
                 series=si, country="BR", subject="Prices", indicator="IPCA",
                 series_name=label_idx, data_type="NSA", frequency="M",
                 description=f"{label} - Indice (dez/2006=100) - recon IBGE-only via NT_57/Dez-2025",
-                bls_code=bls_idx,
+                bls_code=bls,
                 session=session, replace=True,
             )
             # 3) Weight duplicado (sync 2026-07-17): grava 2 vezes com o mesmo
-            # array de valores, pareado por series_name/bls_code — o frontend
-            # capta o peso via casamento de series_name + country + indicator,
-            # trocando apenas data_type. Um Weight pareia com o lado label
-            # (var), outro com o lado Indice (idx).
+            # array de valores, pareado por series_name — o frontend capta o
+            # peso via casamento de series_name + country + indicator, trocando
+            # apenas data_type. Um Weight pareia com o lado label (var), outro
+            # com o lado Indice (idx). Ambos compartilham o mesmo bls_code
+            # (sync 2026-07-27: 1 code por cat).
             if sp is not None:
                 sidra_to_sql(
                     series=sp, country="BR", subject="Prices", indicator="IPCA",
                     series_name=label, data_type="Weight", frequency="M",
                     description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com var",
-                    bls_code=bls_var,
+                    bls_code=bls,
                     session=session, replace=True,
                 )
                 sidra_to_sql(
                     series=sp, country="BR", subject="Prices", indicator="IPCA",
                     series_name=label_idx, data_type="Weight", frequency="M",
                     description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com idx",
-                    bls_code=bls_idx,
+                    bls_code=bls,
                     session=session, replace=True,
                 )
 
@@ -480,14 +478,14 @@ def main():
                         series=sv_sa, country="BR", subject="Prices", indicator="IPCA",
                         series_name=label, data_type="SA", frequency="M",
                         description=f"{label} - Variacao mensal (%) - SA derivada do idx_SA (X-13 no nivel)",
-                        bls_code=bls_var,
+                        bls_code=bls,
                         session=session, replace=True,
                     )
                     sidra_to_sql(
                         series=si_sa, country="BR", subject="Prices", indicator="IPCA",
                         series_name=label_idx, data_type="SA", frequency="M",
                         description=f"{label} - Indice (dez/2006=100) - dessazonalizada X-13",
-                        bls_code=bls_idx,
+                        bls_code=bls,
                         session=session, replace=True,
                     )
                 except Exception as e:

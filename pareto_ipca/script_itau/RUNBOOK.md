@@ -1,8 +1,8 @@
 # RUNBOOK — carga do pareto_ipca no SQL Itaú
 
-Procedimento controlado, em 5 estágios, com pontos de parada explícitos.
-Cada estágio é independente — se algo der errado, dá pra parar e investigar
-sem ter sujado o banco.
+Procedimento controlado, em 6 estágios (4 obrigatórios + 5 e 6 opcionais),
+com pontos de parada explícitos. Cada estágio é independente — se algo der
+errado, dá pra parar e investigar sem ter sujado o banco.
 
 ## Sync local ↔ máquina corp (deltas conhecidos)
 
@@ -16,8 +16,8 @@ Ao migrar mudanças de um lado pro outro, revisar item a item.
 | Bloco `PESO_ONLY` no loader | ❌ removido (código morto pós-`total`) | ⚠️ pode ainda existir referenciando `ipca_total` — remover ao sincronizar | 2026-07-14 (local) |
 | `data_type="Weight"` (era `"Peso"`) | ✅ sync 2026-07-17 | migração faz Peso→Weight nas linhas antigas | 2026-07-17 |
 | Weight gravado 2× (label + label Indice) | ✅ sync 2026-07-17 (par com var e par com idx) | ✅ frontend depende disso pra casar peso via series_name+country+indicator | 2026-07-17 |
-| Code simplificado + campo `bls_code` | ✅ sync 2026-07-17 — `IPCA:{cat}` / `IPCA:{cat}/Index` gravado em `bls_code`; INSERTs novos não setam `haver_code` (fica `NULL` por default) | precisa ALTER TABLE `ADD bls_code VARCHAR(255) NULL` se ainda não tiver | 2026-07-17 |
-| Migração de rows antigas (`haver_code LIKE 'PARETO_IPCA:%'`) | ✅ `_migrate_haver_to_bls` roda antes do main loop (idempotente) | ⚠️ rodar 1x no corp; próximos runs viram no-op | 2026-07-17 |
+| Code simplificado + campo `bls_code` | ✅ sync 2026-07-17 (2 codes) → sync 2026-07-27 (colapso pra `IPCA:{cat}` unico, sem `/Index`); INSERTs novos não setam `haver_code` (fica `NULL` por default) | precisa ALTER TABLE `ADD bls_code VARCHAR(255) NULL` se ainda não tiver | 2026-07-27 |
+| Migração de rows antigas (haver_code OU bls_code com `/Index`) | ✅ `_migrate_pareto_to_current` roda antes do main loop (idempotente); cobre 3 estados: `haver_code LIKE 'PARETO_IPCA:%'`, `bls_code LIKE 'IPCA:%/Index'`, e formato final | ⚠️ rodar 1x no corp; próximos runs viram no-op | 2026-07-27 |
 
 **Não reintroduzir `f"{label} (Peso)"`** nem `data_type="Peso"` ao mesclar código.
 
@@ -35,23 +35,27 @@ Ao migrar mudanças de um lado pro outro, revisar item a item.
 Se ainda não rodou o pipeline R:
 ```bash
 cd pareto_ipca
-Rscript scripts/seed_ibge_history.R     # ~50s, gera ipca_pareto_recon.csv
-Rscript scripts/build_pareto_indice.R   # ~5s, gera ipca_pareto_indice.csv
+Rscript scripts/seed_ibge_history.R              # ~50s, gera ipca_pareto_recon.csv (+ pesos)
+Rscript scripts/build_pareto_indice.R            # ~5s,  gera ipca_pareto_indice.csv
+# Opcional em release day (BCB fora do ar / lento):
+Rscript scripts/seed_ibge_history.R --no-bcb     # pula validação vs SGS
 ```
+`--no-bcb` também aceito pelo `reconstruct_ipca.R`; propagado ao subprocesso
+via env var `SKIP_BCB_VALIDATION=1`.
 
 ---
 
 ## Estágio 1 — `--dry-run` (zero conexão SQL)
 
-**Objetivo:** confirmar que os 2 CSVs são lidos OK e a lista de 28 categorias
-está correta. Não toca SQL, não importa `opt_utils`.
+**Objetivo:** confirmar que os 3 CSVs (recon, indice, pesos) são lidos OK e
+a lista de 28 categorias está correta. Não toca SQL, não importa `opt_utils`.
 
 ```bash
 python script_itau/load_pareto_to_sql.py --dry-run
 ```
 
 **Sucesso:** imprime "28 categorias" três vezes (recon / índice / pesos) e lista
-28 itens (IPCA: Total, IPCA: Monitorados, IPCA: Livres, ..., IPCA: Indice de Difusao, IPCA: Nucleo P55, IPCA: Nucleo Medio). Cada linha mostra `Weight x2: N obs` (quando há peso) e os 2 bls_codes (`IPCA:{cat}` e `IPCA:{cat}/Index`).
+28 itens (IPCA: Total, IPCA: Monitorados, IPCA: Livres, ..., IPCA: Indice de Difusao, IPCA: Nucleo P55, IPCA: Nucleo Medio). Cada linha mostra `Weight x2: N obs` (quando há peso) e 1 bls_code por cat (`IPCA:{cat}`, sem sufixo `/Index` — sync 2026-07-27).
 **Se falhar aqui:** problema é nos CSVs (rode o pipeline R) ou nos labels
 em `CATEGORY_LABELS` (faltaram códigos).
 
@@ -62,17 +66,21 @@ em `CATEGORY_LABELS` (faltaram códigos).
 **Objetivo:** abrir conexão SQL e validar que: (a) o `SQLConnector` realmente
 funciona com `connector="pyodbc"` (b) as 2 tabelas existem (c) a coluna
 **`bls_code`** existe em `OPT_Macro_Series_2` (d) a coluna `description`
-aguenta nosso pior caso (~95 chars) (e) listar séries pré-existentes tanto
-no formato NOVO (`bls_code LIKE 'IPCA:%'`) quanto no ANTIGO (`haver_code
-LIKE 'PARETO_IPCA:%'`, pendentes de migração no próximo write).
+aguenta nosso pior caso (~95 chars) (e) listar séries pré-existentes em
+qualquer um dos 3 estados possíveis: **ancestral** (`haver_code LIKE
+'PARETO_IPCA:%'`), **intermediário** (`bls_code LIKE 'IPCA:%/Index'`,
+sync 2026-07-17), ou **atual** (`bls_code = 'IPCA:{cat}'`, sync 2026-07-27).
+Rows fora do formato atual são normalizadas antes do main loop.
 
 ```bash
 python script_itau/load_pareto_to_sql.py --check
 ```
 
-**Sucesso:** 5 linhas `[OK]` e zero `[FAIL]`. Mostra contagem de linhas
-atuais de cada tabela + lista de séries formato NOVO já cadastradas + lista
-de séries formato ANTIGO pendentes de migração.
+**Sucesso:** 4 linhas `[OK]` e zero `[FAIL]` (OPT_Macro_Series_2 acessível,
+OPT_Macro_Series_Data_2 acessível, coluna bls_code presente, description
+com largura suficiente). Depois, seção lista consolidada de séries IPCA em
+qualquer formato (ancestral haver, intermediário `/Index`, ou atual).
+Qualquer row fora do formato atual é normalizada antes do main loop.
 
 **Se falhar aqui:**
 - `ModuleNotFoundError: opt_utils` → instalação local quebrada
@@ -87,9 +95,10 @@ de séries formato ANTIGO pendentes de migração.
 
 **Objetivo:** gravar 8 séries (2 categorias × [var NSA, idx NSA, Weight-label,
 Weight-Indice]) e verificar no SSMS antes de soltar a carga completa. Se já
-havia linhas antigas dessas cats (`haver_code LIKE 'PARETO_IPCA:livres/%'`
-etc.), a migração antes do main loop reaproveita os `series_id` — nenhum
-INSERT duplicado.
+havia linhas antigas dessas cats em qualquer estado (`haver_code LIKE
+'PARETO_IPCA:livres/%'` OU `bls_code LIKE 'IPCA:livres/Index'`), a migração
+antes do main loop normaliza pro formato atual e reaproveita os `series_id`
+— nenhum INSERT duplicado.
 
 ```bash
 python script_itau/load_pareto_to_sql.py --only livres,nucleo_ex0
@@ -106,14 +115,18 @@ WHERE bls_code LIKE 'IPCA:livres%' OR bls_code LIKE 'IPCA:nucleo_ex0%'
 ORDER BY series_id;
 -- esperado: até 8 linhas; haver_code = NULL em todas (INSERT novo não seta o
 -- campo; migração de row antiga faz UPDATE SET haver_code = NULL);
--- bls_code em 4 valores:
---   IPCA:livres, IPCA:livres/Index, IPCA:nucleo_ex0, IPCA:nucleo_ex0/Index
+-- bls_code em 2 valores unicos (sync 2026-07-27, sem sufixo /Index):
+--   IPCA:livres  (compartilhado por 4 rows: var NSA, idx NSA, Weight label, Weight Indice)
+--   IPCA:nucleo_ex0  (mesma coisa; nucleo_ex0 nao tem peso, entao 2 rows)
+-- Distincao var-side vs idx-side sai do series_name ("(Indice)" no fim).
 
--- Confirma que nenhuma linha PARETO_IPCA sobrou pra estas cats:
+-- Confirma que nenhuma linha PARETO_IPCA nem bls_code /Index sobrou pra estas cats:
 SELECT COUNT(*) FROM OPT_Macro_Series_2
 WHERE haver_code LIKE 'PARETO_IPCA:livres%'
-   OR haver_code LIKE 'PARETO_IPCA:nucleo_ex0%';
--- esperado: 0 (a migração setou haver_code=NULL).
+   OR haver_code LIKE 'PARETO_IPCA:nucleo_ex0%'
+   OR bls_code   LIKE 'IPCA:livres/Index%'
+   OR bls_code   LIKE 'IPCA:nucleo_ex0/Index%';
+-- esperado: 0 (migracao setou haver_code=NULL e colapsou /Index).
 
 SELECT s.series_name, s.data_type, COUNT(*) AS n
 FROM OPT_Macro_Series_Data_2 d
@@ -156,9 +169,12 @@ WHERE bls_code LIKE 'IPCA:livres%' OR bls_code LIKE 'IPCA:nucleo_ex0%';
 **Objetivo:** gravar até **100 séries** (28 var + 28 idx + até 22 pesos × 2)
 com `data_type='NSA'`/`'Weight'`. Re-roda séries já cadastradas no Estágio 3 —
 `replace=True` apaga dados antigos antes do reinsert, sem duplicar. Antes do
-main loop, `_migrate_haver_to_bls` reescreve qualquer linha antiga
-(`haver_code LIKE 'PARETO_IPCA:%'`) das cats que estão no scope: `haver_code`
-→ `NULL`, `bls_code` populado, `data_type` migra `Peso→Weight`.
+main loop, `_migrate_pareto_to_current` reescreve qualquer linha em formato
+não-atual das cats que estão no scope (ancestral `haver_code LIKE
+'PARETO_IPCA:%'` OU intermediário `bls_code LIKE 'IPCA:%/Index'`):
+`haver_code` → `NULL`, `bls_code` colapsado pra `IPCA:{cat}` (sem
+`/Index`), `data_type` migra `Peso→Weight`. Idempotente: rows já no formato
+final são puladas sem gerar UPDATE.
 
 ```bash
 python script_itau/load_pareto_to_sql.py
@@ -174,13 +190,15 @@ GROUP BY data_type;
 -- esperado: NSA=56 (28 var + 28 idx), Weight=até 44 (até 22 pesos × 2 — label + Indice).
 -- núcleos estatísticos MA/MS/DP/P55/medio/difusao não têm peso.
 
--- Distingue Weight-label (par com var) vs Weight-Indice (par com idx):
+-- Distingue Weight-label (par com var) vs Weight-Indice (par com idx).
+-- Sync 2026-07-27: bls_code eh unico por cat; discriminacao sai do series_name
+-- (sufixo "(Indice)" no lado idx).
 SELECT
-  CASE WHEN bls_code LIKE '%/Index' THEN 'Weight (Indice)' ELSE 'Weight (label)' END AS weight_role,
+  CASE WHEN series_name LIKE '%(Indice)' THEN 'Weight (Indice)' ELSE 'Weight (label)' END AS weight_role,
   COUNT(*) AS n
 FROM OPT_Macro_Series_2
 WHERE bls_code LIKE 'IPCA:%' AND data_type = 'Weight'
-GROUP BY CASE WHEN bls_code LIKE '%/Index' THEN 'Weight (Indice)' ELSE 'Weight (label)' END;
+GROUP BY CASE WHEN series_name LIKE '%(Indice)' THEN 'Weight (Indice)' ELSE 'Weight (label)' END;
 -- esperado: Weight (label)=22, Weight (Indice)=22.
 
 -- total (headline) Weight = 100 constante nas 238+ datas:
@@ -199,16 +217,20 @@ GROUP BY s.data_type;
 -- Weight: até 44 séries × N obs (22 pares label + Indice)
 -- nucleo_medio começa jan/2007 (warm-up DP 6m); as outras a partir jul/2006.
 
--- Nenhuma linha antiga PARETO_IPCA deve sobrar apos a migracao:
-SELECT COUNT(*) FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
--- esperado: 0
+-- Nenhuma linha em formato pre-colapso deve sobrar apos a migracao:
+SELECT
+  SUM(CASE WHEN haver_code LIKE 'PARETO_IPCA:%'    THEN 1 ELSE 0 END) AS n_ancestral,
+  SUM(CASE WHEN bls_code   LIKE 'IPCA:%/Index%'    THEN 1 ELSE 0 END) AS n_intermediario
+FROM OPT_Macro_Series_2;
+-- esperado: n_ancestral=0, n_intermediario=0
 ```
 
 ---
 
 ## Estágio 5 (opcional) — versão dessazonalizada (X-13)
 
-**Objetivo:** gerar e gravar `data_type='SA'` pras 54 séries (total: 108).
+**Objetivo:** gerar e gravar `data_type='SA'` pras 56 séries (28 var + 28 idx),
+totalizando 112 séries NSA+SA (+ até 44 Weight×2 = 156 no máximo).
 Só faz sentido se `x13as` está instalado no ambiente.
 
 ```bash
@@ -255,10 +277,11 @@ python script_itau/_fix_dp_medio_sa.py
 **Atenção — bug do upsert por chave natural:** se já existem metas legadas
 Haver com `series_name` igual e `data_type='SA'` (ex.: "IPCA: Servicos
 (Indice)" SA importado do Haver antes), o `sidra_to_sql` faz upsert
-**na meta legada** em vez de criar nova com `haver_code='PARETO_IPCA:%/SA'`.
-Sintoma: script imprime `[OK] gravado` mas a query
-`WHERE haver_code LIKE 'PARETO_IPCA:%/SA'` não retorna nada. Mitigação:
-deletar a meta legada antes de rodar o workaround.
+**na meta legada** em vez de criar nova com o `bls_code='IPCA:{cat}'` do
+pareto. Sintoma pós sync 2026-07-27: script imprime `[OK] gravado` mas a
+query `WHERE bls_code = 'IPCA:{cat}' AND data_type = 'SA'` não retorna a
+row esperada (ela grudou na meta legada Haver que tem `bls_code=NULL`).
+Mitigação: deletar a meta legada antes de rodar o workaround.
 
 ---
 
@@ -318,13 +341,15 @@ Output:
 ## Rollback completo (se precisar desfazer tudo)
 
 ```sql
--- Rollback pos-migracao (formato NOVO):
+-- Rollback pos-migracao (formato atual, sync 2026-07-27):
+-- bls_code LIKE 'IPCA:%' captura tanto o formato ATUAL (IPCA:{cat}) quanto o
+-- INTERMEDIARIO (IPCA:{cat}/Index) — se por algum motivo a migracao nao rodou.
 DELETE FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
                     WHERE bls_code LIKE 'IPCA:%');
 DELETE FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'IPCA:%';
 
--- Rollback do formato ANTIGO (caso alguma linha nao tenha sido migrada):
+-- Rollback do formato ANCESTRAL (haver_code, pre-sync 2026-07-17):
 DELETE FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (SELECT series_id FROM OPT_Macro_Series_2
                     WHERE haver_code LIKE 'PARETO_IPCA:%');
@@ -332,8 +357,8 @@ DELETE FROM OPT_Macro_Series_2 WHERE haver_code LIKE 'PARETO_IPCA:%';
 ```
 
 Isso só remove o que este loader inseriu (filtra por `bls_code LIKE 'IPCA:%'`
-no formato novo ou `haver_code LIKE 'PARETO_IPCA:%'` no antigo) — não afeta
-as séries SIDRA inseridas pelo `sidra_itau.ipynb`.
+nos formatos novo/intermediário ou `haver_code LIKE 'PARETO_IPCA:%'` no
+ancestral) — não afeta as séries SIDRA inseridas pelo `sidra_itau.ipynb`.
 
 ---
 
@@ -349,6 +374,14 @@ python script_itau/load_pareto_to_sql.py --no-confirm # sem prompt
 
 `reconstruct_ipca.R` sem args usa T7060 (POF 2017-18) e janela dos últimos
 24 meses. Para reconstruir toda a história (raro): use `seed_ibge_history.R`.
+
+**Release day (BCB fora do ar ou lento):** adicione `--no-bcb` no script R
+pra pular a validação vs SGS (não afeta a recon em si — só desliga a
+comparação de auditoria e evita ruído/timeout se a API BCB estiver com
+problema no dia do release IBGE):
+```bash
+Rscript scripts/reconstruct_ipca.R --no-bcb
+```
 
 `--no-confirm` pula o prompt interativo. O loader imprime log de cada série
 gravada no stdout — redirecione pra arquivo se quiser auditoria:

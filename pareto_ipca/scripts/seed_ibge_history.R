@@ -21,6 +21,10 @@
 #   Rscript scripts/seed_ibge_history.R                  # janela completa default
 #   Rscript scripts/seed_ibge_history.R --skip-current   # só 2006-07 → 2019-12
 #                                                          (não roda T7060)
+#   Rscript scripts/seed_ibge_history.R --no-bcb         # pula validação vs SGS
+#                                                          em cada subprocesso do
+#                                                          reconstruct_ipca.R
+#                                                          (release day / BCB off)
 
 suppressPackageStartupMessages({})
 
@@ -34,6 +38,7 @@ if (length(.farg)) {
 
 args <- commandArgs(trailingOnly = TRUE)
 SKIP_CURRENT <- "--skip-current" %in% args
+NO_BCB       <- "--no-bcb"       %in% args
 
 MASK_BASE     <- "scripts/ipca_masks/classificacao.csv"
 MASK_EXTENDED <- "scripts/ipca_masks/classificacao_extended.csv"
@@ -68,6 +73,7 @@ for (w in WINDOWS) {
   cat(sprintf("  %-20s  %d → %d  máscara=%s\n",
               w$label, w$ini, w$fim, basename(w$mask)))
 }
+if (NO_BCB) cat("\n  --no-bcb: validação vs SGS desligada em todos os subprocessos\n")
 cat("\n")
 
 run_one <- function(w) {
@@ -75,6 +81,9 @@ run_one <- function(w) {
   # Env vars novas pro subprocesso (não polui o atual)
   Sys.setenv(SIDRA_AGG_ID        = as.character(w$tbl))
   Sys.setenv(MASK_CLASS_PATH_OVR = w$mask)
+  # --no-bcb propaga via env var pro subprocesso (mais robusto que arg CLI:
+  # não conflita com o parser posicional PERIODO_INI/PERIODO_FIM).
+  if (NO_BCB) Sys.setenv(SKIP_BCB_VALIDATION = "1")
   # Roda o reconstruct via Rscript (processo isolado, mesma R version).
   # Capture exit code; aborta se falhar.
   rc <- system2("Rscript",
@@ -82,6 +91,7 @@ run_one <- function(w) {
                 stdout = "", stderr = "")
   Sys.unsetenv("SIDRA_AGG_ID")
   Sys.unsetenv("MASK_CLASS_PATH_OVR")
+  if (NO_BCB) Sys.unsetenv("SKIP_BCB_VALIDATION")
   if (rc != 0) {
     stop(sprintf("[%s] reconstruct_ipca.R retornou exit=%d", w$label, rc))
   }

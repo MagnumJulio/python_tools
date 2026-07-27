@@ -60,13 +60,12 @@ CATEGORY_LABELS = {
     "nucleo_medio":    "IPCA: Nucleo Medio (media dos 5)",
 }
 
-# Sync 2026-07-17: codes simplificados sem sha / sem PARETO. 2 codes por cat:
-#   IPCA:{cat}         -> lado var/label (var NSA/SA, Weight-label)
-#   IPCA:{cat}/Index   -> lado idx (idx NSA/SA, Weight-Index)
-# haver_code (legado) fica NULL em INSERTs novos (nao setamos o campo — SQL
-# resolve como NULL por default); code novo vai no campo bls_code.
-CODE_VAR   = "IPCA:{cat}"
-CODE_INDEX = "IPCA:{cat}/Index"
+# Sync 2026-07-27: bls_code colapsado pra 1 unico formato IPCA:{cat} — sem
+# sufixo /Index. Analogo ao CPI-US 2026-07-20. A distincao var-side vs
+# idx-side (e Weight companheiro) sai de series_name + data_type; nao ha mais
+# 2 codes por cat. haver_code (legado) fica NULL em INSERTs novos (nao setamos
+# o campo — SQL resolve como NULL por default); code novo vai em bls_code.
+CODE = "IPCA:{cat}"
 
 SERIES_COLS = ["series_id", "country", "subject", "indicator", "series_name",
                "data_type", "frequency", "description", "haver_code", "bls_code"]
@@ -213,8 +212,7 @@ def main():
         label_idx = f"{label} (Indice)"
         sv, si = var_series[c], idx_series[c]
         sp = peso_series.get(c)
-        bls_var = CODE_VAR.format(cat=c)
-        bls_idx = CODE_INDEX.format(cat=c)
+        bls = CODE.format(cat=c)
         peso_info = f"Weight x2={len(sp):4d}" if sp is not None else "Weight=N/A "
         print(f"  - {label:45s}  var={len(sv):4d}   idx={len(si):4d}   {peso_info}")
 
@@ -222,33 +220,34 @@ def main():
             series=sv, country="BR", subject="Prices", indicator="IPCA",
             series_name=label, data_type="NSA", frequency="M",
             description=f"{label} - Variacao mensal (%) - recon IBGE-only via NT_57/Dez-2025",
-            bls_code=bls_var,
+            bls_code=bls,
             session=session,
         )
         sim_sidra_to_sql(
             series=si, country="BR", subject="Prices", indicator="IPCA",
             series_name=label_idx, data_type="NSA", frequency="M",
             description=f"{label} - Indice (dez/2006=100) - recon IBGE-only via NT_57/Dez-2025",
-            bls_code=bls_idx,
+            bls_code=bls,
             session=session,
         )
         if sp is not None:
             # Weight duplicado (sync 2026-07-17): mesmo array de peso gravado
             # 2x — series_name=label (par com var) e series_name=label (Indice)
             # (par com idx). Frontend capta o Weight via casamento de
-            # series_name+country+indicator, trocando so o data_type.
+            # series_name+country+indicator, trocando so o data_type. Ambos
+            # compartilham o mesmo bls_code (sync 2026-07-27: 1 code por cat).
             sim_sidra_to_sql(
                 series=sp, country="BR", subject="Prices", indicator="IPCA",
                 series_name=label, data_type="Weight", frequency="M",
                 description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com var",
-                bls_code=bls_var,
+                bls_code=bls,
                 session=session,
             )
             sim_sidra_to_sql(
                 series=sp, country="BR", subject="Prices", indicator="IPCA",
                 series_name=label_idx, data_type="Weight", frequency="M",
                 description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com idx",
-                bls_code=bls_idx,
+                bls_code=bls,
                 session=session,
             )
 

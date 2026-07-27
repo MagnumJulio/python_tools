@@ -38,6 +38,10 @@
 #   cd backend
 #   Rscript scripts/reconstruct_ipca.R              # roda últimos 24 meses
 #   Rscript scripts/reconstruct_ipca.R 202401 202604  # janela específica
+#   Rscript scripts/reconstruct_ipca.R --no-bcb     # pula validação vs SGS
+#                                                    (útil no dia do release
+#                                                    se BCB estiver instável
+#                                                    ou pra rodar mais rápido)
 
 suppressPackageStartupMessages({
   library(httr)
@@ -174,6 +178,11 @@ dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 # Janela de períodos (YYYYMM). Default: últimos 24 meses.
 
 args <- commandArgs(trailingOnly = TRUE)
+# Flag --no-bcb: pula seção [5] (fetch SGS + comparação) e não grava
+# ipca_validacao_bcb.csv. Também pode ser ativada via env SKIP_BCB_VALIDATION=1
+# (usado pelo seed_ibge_history.R pra propagar aos subprocessos).
+SKIP_BCB <- ("--no-bcb" %in% args) || nzchar(Sys.getenv("SKIP_BCB_VALIDATION", unset = ""))
+args <- args[args != "--no-bcb"]
 if (length(args) >= 2) {
   PERIODO_INI <- as.integer(args[[1]])
   PERIODO_FIM <- as.integer(args[[2]])
@@ -185,6 +194,7 @@ if (length(args) >= 2) {
   PERIODO_INI <- ymd(ref[25])
 }
 cat(sprintf("[CFG] janela: %d → %d\n", PERIODO_INI, PERIODO_FIM))
+if (SKIP_BCB) cat("[CFG] --no-bcb: validação vs SGS desligada\n")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -821,6 +831,10 @@ print(classes_print, row.names = FALSE)
 # ---------------------------------------------------------------------------
 # 5. Validação contra BCB SGS
 
+if (SKIP_BCB) {
+  cat("\n[5] Validação BCB pulada (--no-bcb).\n")
+} else {
+
 cat("\n[5] Validação contra BCB SGS...\n")
 sgs_admin      <- fetch_bcb_sgs(BCB_SGS_ADMIN)
 sgs_livres     <- fetch_bcb_sgs(BCB_SGS_LIVRES)
@@ -1028,6 +1042,8 @@ v7 <- val[, c("periodo", "var_comerc", "bcb_comerc", "diff_comerc",
 v7[, -1] <- lapply(v7[, -1], function(x) round(x, 4))
 print(v7, row.names = FALSE)
 
+}  # fim if (!SKIP_BCB)
+
 # ---------------------------------------------------------------------------
 # 6. Auditoria do último mês: lista subitens da máscara com peso + var
 
@@ -1051,8 +1067,10 @@ cat(sprintf("    soma contribuições / soma pesos = %.4f (= var_admin)\n",
 cat("\n[7] Escrevendo CSVs...\n")
 write.csv(out, file.path(OUT_DIR, "ipca_reconstruido.csv"),
           row.names = FALSE, fileEncoding = "UTF-8")
-write.csv(val, file.path(OUT_DIR, "ipca_validacao_bcb.csv"),
-          row.names = FALSE, fileEncoding = "UTF-8")
+if (!SKIP_BCB) {
+  write.csv(val, file.path(OUT_DIR, "ipca_validacao_bcb.csv"),
+            row.names = FALSE, fileEncoding = "UTF-8")
+}
 write.csv(aud, file.path(OUT_DIR, sprintf("ipca_auditoria_%s.csv", ultimo)),
           row.names = FALSE, fileEncoding = "UTF-8")
 cat("    OK. Outputs em", OUT_DIR, "\n")
