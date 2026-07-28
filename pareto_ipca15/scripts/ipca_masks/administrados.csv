@@ -1,0 +1,38 @@
+cod_ibge,nome,source,nota
+2101004,Taxa de água e esgoto,BCB RI Dez/2019 Tab.5,Tarifa pública municipal/estadual
+2201004,Gás de botijão,BCB RI Dez/2019 Tab.5,GLP residencial - preço regulado pela ANP
+2201005,Gás encanado,BCB RI Dez/2019 Tab.5,Distribuição regulada por agência estadual
+2202003,Energia elétrica residencial,BCB RI Dez/2019 Tab.5,Tarifa ANEEL
+5101001,Ônibus urbano,BCB RI Dez/2019 Tab.5,Tarifa autorizada pelo município
+5101002,Táxi,BCB RI Dez/2019 Tab.5,Tarifa autorizada pelo município
+5101004,Trem,BCB RI Dez/2019 Tab.5,Tarifa autorizada por concessionária pública
+5101006,Ônibus intermunicipal,BCB RI Dez/2019 Tab.5,Tarifa autorizada pelo estado
+5101007,Ônibus interestadual,BCB RI Dez/2019 Tab.5,Tarifa autorizada pela ANTT
+5101011,Metrô,BCB RI Dez/2019 Tab.5,Tarifa autorizada pelo estado
+5101053,Integração transporte público,BCB RI Dez/2019 Tab.5,Tarifa de integração regulada
+5102004,Emplacamento e licença,BCB RI Dez/2019 Tab.5,DETRAN estadual
+5102006,Multa,BCB RI Dez/2019 Tab.5,Tabela CTB / órgão estadual
+5102015,Pedágio,BCB RI Dez/2019 Tab.5,Tarifa concessionária regulada por ANTT/agência estadual
+5104001,Gasolina,BCB RI Dez/2019 Tab.5,ICMS+CIDE; preço refinaria Petrobras + distribuição
+5104003,Óleo diesel,BCB RI Dez/2019 Tab.5,Preço refinaria Petrobras + tributos
+5104005,Gás veicular,BCB RI Dez/2019 Tab.5,GNV - tributação e distribuição reguladas
+6101001,Anti-infeccioso e antibiótico,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos (preço-teto CMED)
+6101002,Analgésico e antitérmico,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101003,Anti-inflamatório e antirreumático,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101004,Antigripal e antitussígeno,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101006,Dermatológico,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101007,Antialérgico e broncodilatador,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101009,Gastroprotetor,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101010,Vitamina e fortificante,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101011,Hormonal,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101013,Psicotrópico e anorexígeno,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101014,Hipotensor e hipocolesterolêmico,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101051,Oftalmológico,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos
+6101064,Antidiabético,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos (novo POF 2017-2018)
+6101148,Neurológico,BCB RI Dez/2019 Tab.5,Produtos farmacêuticos (novo POF 2017-2018)
+6203001,Plano de saúde,BCB RI Dez/2019 Tab.5,Reajuste anual ANS para individuais
+7101034,Cartório,BCB RI Dez/2019 Tab.5,Tabela CNJ / corregedorias estaduais (novo POF 2017-2018)
+7101090,Conselho de classe,BCB RI Dez/2019 Tab.5,Reclassificado em jan/2020 (era serviço)
+7201063,Jogos de azar,BCB RI Dez/2019 Tab.5,Loterias - tabela CEF
+9101001,Correio,BCB RI Dez/2019 Tab.5,Tarifa fixada pelo MCom
+9101002,Plano de telefonia fixa,BCB RI Dez/2019 Tab.5,STFC regulado pela ANATEL
