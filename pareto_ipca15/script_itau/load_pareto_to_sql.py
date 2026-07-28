@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # load_pareto_to_sql.py (pareto_ipca15)
-# Carrega as 40 categorias do pareto_ipca15 (variacao + indice + peso) na base SQL
+# Carrega as 43 categorias do pareto_ipca15 (variacao + indice + peso) na base SQL
 # corp (OPT_Macro_Series_2 / OPT_Macro_Series_Data_2), seguindo o mesmo padrao do
 # sidra_itau.ipynb. Pre-requisito: pipeline R ja rodou e gerou
 # data/ipca15_pareto_recon.csv e data/ipca15_pareto_indice.csv.
@@ -35,7 +35,7 @@ VAR_CSV  = ROOT / "data" / "ipca15_pareto_recon.csv"
 IDX_CSV  = ROOT / "data" / "ipca15_pareto_indice.csv"
 PESO_CSV = ROOT / "data" / "ipca15_pareto_pesos.csv"
 
-# 40 category_code -> nome legivel (mesma estetica do sidra_itau).
+# 43 category_code -> nome legivel (mesma estetica do sidra_itau).
 # NOTA: ex3_serv (estrito, sem alim_fora) é distinto de servicos_subj (subjacente
 # tradicional, COM alim_fora). SGS 29683 do BCB bate com servicos_subj, não ex3_serv.
 CATEGORY_LABELS = {
@@ -76,9 +76,12 @@ CATEGORY_LABELS = {
     "artigos_residencia": "IPCA-15: Artigos de Residencia (grupo 3)",
     "vestuario":          "IPCA-15: Vestuario (grupo 4)",
     "transportes":        "IPCA-15: Transportes (grupo 5)",
+    "saude":              "IPCA-15: Saude e Cuidados Pessoais (grupo 6)",
     "despesas_pessoais":  "IPCA-15: Despesas Pessoais (grupo 7)",
     "educacao":           "IPCA-15: Educacao (grupo 8)",
+    "comunicacao":        "IPCA-15: Comunicacao (grupo 9)",
     "alim_fora":          "IPCA-15: Alimentacao Fora do Domicilio (subgrupo 12)",
+    "higiene_pessoal":    "IPCA-15: Higiene Pessoal (subgrupo 63)",
     "energia_eletrica":   "IPCA-15: Energia Eletrica Residencial (item 2202)",
     "passagem_aerea":     "IPCA-15: Passagem Aerea (subitem 5101010)",
     "auto_novo":          "IPCA-15: Automovel Novo (subitem 5102001)",
