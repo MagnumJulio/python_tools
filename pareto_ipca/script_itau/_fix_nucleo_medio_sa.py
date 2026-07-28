@@ -12,35 +12,25 @@
 # Pre-req: load_pareto_to_sql.py --sa rodado (5 componentes SA no SQL).
 
 import sys
-import subprocess
 from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "script_itau"))
 
-from load_pareto_to_sql import sidra_to_sql, SIDRA_CODE_VAR, SIDRA_CODE_IDX, CATEGORY_LABELS
-
-
-def _git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True
-        ).strip()
-    except Exception:
-        return "nogit"
-
+from load_pareto_to_sql import sidra_to_sql, CODE, CATEGORY_LABELS
 
 CAT = "nucleo_medio"
 LABEL = CATEGORY_LABELS[CAT]
+BLS = CODE.format(cat=CAT)
 COMPS = ["nucleo_ex0", "nucleo_ex3", "nucleo_ms", "nucleo_dp", "nucleo_p55"]
-sha = _git_sha()
 
 from opt_utils.database import SQLConnector
 
 session = SQLConnector(connector="pyodbc")
 try:
-    # 1) Le var SA dos 5 componentes
+    # 1) Le var SA dos 5 componentes.
+    # Sync 2026-07-27: SA var identificada por (bls_code, data_type, series_name).
     pieces = {}
     for c in COMPS:
         df = pd.read_sql(
@@ -48,11 +38,11 @@ try:
             SELECT d.date, d.value
             FROM OPT_Macro_Series_Data_2 d
             JOIN OPT_Macro_Series_2 m ON d.series_id = m.series_id
-            WHERE m.haver_code LIKE ?
+            WHERE m.bls_code = ? AND m.data_type = 'SA' AND m.series_name = ?
             ORDER BY d.date
             """,
             session.conn,
-            params=[f"PARETO_IPCA:{c}/V63/RECON-%/SA"],
+            params=[CODE.format(cat=c), CATEGORY_LABELS[c]],
         )
         if df.empty:
             sys.exit(f"[FAIL] var SA de {c} nao encontrada no SQL. "
@@ -94,14 +84,14 @@ try:
         series=var_sa, country="BR", subject="Prices", indicator="IPCA",
         series_name=LABEL, data_type="SA", frequency="M",
         description=f"{LABEL} - Variacao mensal (%) - SA via media dos 5 componentes SA",
-        haver_code=SIDRA_CODE_VAR.format(cat=CAT, sha=sha) + "/SA",
+        bls_code=BLS,
         session=session, replace=True,
     )
     sidra_to_sql(
         series=idx_sa, country="BR", subject="Prices", indicator="IPCA",
         series_name=f"{LABEL} (Indice)", data_type="SA", frequency="M",
         description=f"{LABEL} - Indice (base=100) - SA via media dos 5 componentes SA",
-        haver_code=SIDRA_CODE_IDX.format(cat=CAT, sha=sha) + "/SA",
+        bls_code=BLS,
         session=session, replace=True,
     )
     print(f"[OK] var SA + idx SA de {CAT} gravados no SQL.")

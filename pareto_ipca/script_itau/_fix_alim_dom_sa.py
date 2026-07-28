@@ -14,7 +14,6 @@
 # Uso: python script_itau/_fix_alim_dom_sa.py
 
 import sys
-import subprocess
 from pathlib import Path
 import pandas as pd
 
@@ -23,22 +22,12 @@ sys.path.insert(0, str(ROOT / "script_itau"))
 
 from load_pareto_to_sql import (
     sidra_to_sql, _try_sa, _load_csv_long,
-    SIDRA_CODE_VAR, SIDRA_CODE_IDX, CATEGORY_LABELS,
+    CODE, CATEGORY_LABELS,
 )
-
-
-def _git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True
-        ).strip()
-    except Exception:
-        return "nogit"
-
 
 CAT = "alim_domicilio"
 LABEL = CATEGORY_LABELS[CAT]
-sha = _git_sha()
+BLS = CODE.format(cat=CAT)
 
 from opt_utils.database import SQLConnector
 
@@ -72,7 +61,7 @@ try:
         series_name=LABEL, data_type="SA", frequency="M",
         description=f"{LABEL} - Variacao mensal (%) - SA derivada do idx_SA "
                     "(workaround: var path nao converge no aditivo)",
-        haver_code=SIDRA_CODE_VAR.format(cat=CAT, sha=sha) + "/SA",
+        bls_code=BLS,
         session=session, replace=True,
     )
     sidra_to_sql(
@@ -80,7 +69,7 @@ try:
         series_name=f"{LABEL} (Indice)", data_type="SA", frequency="M",
         description=f"{LABEL} - Indice (dez/2006=100) - SA via x13_custom corp "
                     "(Haver_Spec.spc com regressores de calendario BCB)",
-        haver_code=SIDRA_CODE_IDX.format(cat=CAT, sha=sha) + "/SA",
+        bls_code=BLS,
         session=session, replace=True,
     )
     print(f"[OK] var SA + idx SA de {CAT} gravados no SQL.")

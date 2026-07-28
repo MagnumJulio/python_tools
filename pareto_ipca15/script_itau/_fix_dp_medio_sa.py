@@ -5,40 +5,28 @@
 # 'NoneType' object has no attribute 'startswith').
 #
 # Pre-req 1: Rscript scripts/_sa_dp_nucleo_medio.R rodado, produzindo
-#            data/ipca_pareto_sa_dp_medio.csv (long: date, category_code,
+#            data/ipca15_pareto_sa_dp_medio.csv (long: date, category_code,
 #            var_sa, idx_sa).
 # Pre-req 2: load_pareto_to_sql.py NSA rodado (DP + nucleo_medio NSA no SQL).
 #
 # Uso: python script_itau/_fix_dp_medio_sa.py
 
 import sys
-import subprocess
 from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "script_itau"))
 
-from load_pareto_to_sql import sidra_to_sql, SIDRA_CODE_VAR, SIDRA_CODE_IDX, CATEGORY_LABELS
+from load_pareto_to_sql import sidra_to_sql, CODE, CATEGORY_LABELS
 
-
-def _git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True
-        ).strip()
-    except Exception:
-        return "nogit"
-
-
-SA_CSV = ROOT / "data" / "ipca_pareto_sa_dp_medio.csv"
+SA_CSV = ROOT / "data" / "ipca15_pareto_sa_dp_medio.csv"
 if not SA_CSV.exists():
     sys.exit(f"[FAIL] {SA_CSV} nao existe. Rode antes:\n"
              "  Rscript scripts/_sa_dp_nucleo_medio.R")
 
 df = pd.read_csv(SA_CSV)
 df["date"] = pd.to_datetime(df["date"])
-sha = _git_sha()
 
 from opt_utils.database import SQLConnector
 
@@ -55,24 +43,25 @@ try:
         idx_sa = sub["idx_sa"].astype(float).rename(f"{cat} (Indice)")
 
         label = CATEGORY_LABELS[cat]
+        bls = CODE.format(cat=cat)
         print(f"\n[{cat}] var SA: {len(var_sa)} obs "
               f"({var_sa.index.min().date()} -> {var_sa.index.max().date()})")
         print(f"[{cat}] idx SA: {len(idx_sa)} obs "
               f"({idx_sa.index.min().date()} -> {idx_sa.index.max().date()})")
 
         sidra_to_sql(
-            series=var_sa, country="BR", subject="Prices", indicator="IPCA",
+            series=var_sa, country="BR", subject="Prices", indicator="IPCA-15",
             series_name=label, data_type="SA", frequency="M",
             description=f"{label} - Variacao mensal (%) - SA via R seasonal "
                         "(workaround do wrapper x13_custom corp)",
-            haver_code=SIDRA_CODE_VAR.format(cat=cat, sha=sha) + "/SA",
+            bls_code=bls,
             session=session, replace=True,
         )
         sidra_to_sql(
-            series=idx_sa, country="BR", subject="Prices", indicator="IPCA",
+            series=idx_sa, country="BR", subject="Prices", indicator="IPCA-15",
             series_name=f"{label} (Indice)", data_type="SA", frequency="M",
-            description=f"{label} - Indice (dez/2006=100) - SA via R seasonal",
-            haver_code=SIDRA_CODE_IDX.format(cat=cat, sha=sha) + "/SA",
+            description=f"{label} - Indice (dez/2012=100) - SA via R seasonal",
+            bls_code=bls,
             session=session, replace=True,
         )
         print(f"[OK] {cat} var+idx SA gravados no SQL.")

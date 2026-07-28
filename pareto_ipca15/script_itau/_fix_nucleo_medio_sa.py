@@ -12,35 +12,25 @@
 # Pre-req: load_pareto_to_sql.py --sa rodado (5 componentes SA no SQL).
 
 import sys
-import subprocess
 from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "script_itau"))
 
-from load_pareto_to_sql import sidra_to_sql, SIDRA_CODE_VAR, SIDRA_CODE_IDX, CATEGORY_LABELS
-
-
-def _git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True
-        ).strip()
-    except Exception:
-        return "nogit"
-
+from load_pareto_to_sql import sidra_to_sql, CODE, CATEGORY_LABELS
 
 CAT = "nucleo_medio"
 LABEL = CATEGORY_LABELS[CAT]
+BLS = CODE.format(cat=CAT)
 COMPS = ["nucleo_ex0", "nucleo_ex3", "nucleo_ms", "nucleo_dp", "nucleo_p55"]
-sha = _git_sha()
 
 from opt_utils.database import SQLConnector
 
 session = SQLConnector(connector="pyodbc")
 try:
-    # 1) Le var SA dos 5 componentes
+    # 1) Le var SA dos 5 componentes.
+    # Sync 2026-07-27: SA var identificada por (bls_code, data_type, series_name).
     pieces = {}
     for c in COMPS:
         df = pd.read_sql(
@@ -48,11 +38,11 @@ try:
             SELECT d.date, d.value
             FROM OPT_Macro_Series_Data_2 d
             JOIN OPT_Macro_Series_2 m ON d.series_id = m.series_id
-            WHERE m.haver_code LIKE ?
+            WHERE m.bls_code = ? AND m.data_type = 'SA' AND m.series_name = ?
             ORDER BY d.date
             """,
             session.conn,
-            params=[f"PARETO_IPCA:{c}/V63/RECON-%/SA"],
+            params=[CODE.format(cat=c), CATEGORY_LABELS[c]],
         )
         if df.empty:
             sys.exit(f"[FAIL] var SA de {c} nao encontrada no SQL. "
@@ -68,40 +58,40 @@ try:
     print(f"\n[OK] var SA do {CAT}: {len(var_sa)} obs "
           f"({var_sa.index.min().date()} -> {var_sa.index.max().date()})")
 
-    # 3) Idx SA: idx_sa[t] = idx_sa[t-1] * (1 + var_sa[t]/100), rebase dez/2006=100
+    # 3) Idx SA: idx_sa[t] = idx_sa[t-1] * (1 + var_sa[t]/100), rebase dez/2012=100
     idx_vals = [100.0]
     for v in var_sa.values:
         idx_vals.append(idx_vals[-1] * (1 + v / 100))
     idx_sa = pd.Series(idx_vals[1:], index=var_sa.index)
 
-    ref_date = pd.Timestamp("2006-12-01")
+    ref_date = pd.Timestamp("2012-12-01")
     if ref_date in idx_sa.index:
         ref = float(idx_sa.loc[ref_date])
         idx_sa = idx_sa / ref * 100.0
-        print(f"[OK] Rebase dez/2006=100 aplicado (ref pre-rebase={ref:.4f})")
+        print(f"[OK] Rebase dez/2012=100 aplicado (ref pre-rebase={ref:.4f})")
     else:
-        # nucleo_medio comeca em 2007-01 por causa do warm-up DP; usa
+        # nucleo_medio comeca uns meses depois de 2012-02 por warm-up DP; usa
         # 1o mes disponivel como fallback
         first = idx_sa.iloc[0]
         idx_sa = idx_sa / first * 100.0
-        print(f"[WARN] dez/2006 ausente; base 100 em {idx_sa.index.min().date()}")
+        print(f"[WARN] dez/2012 ausente; base 100 em {idx_sa.index.min().date()}")
 
     print(f"[preview] var_sa.tail():\n{var_sa.tail().to_string()}\n")
     print(f"[preview] idx_sa.tail():\n{idx_sa.tail().to_string()}\n")
 
     # 4) Grava var SA + idx SA no SQL
     sidra_to_sql(
-        series=var_sa, country="BR", subject="Prices", indicator="IPCA",
+        series=var_sa, country="BR", subject="Prices", indicator="IPCA-15",
         series_name=LABEL, data_type="SA", frequency="M",
         description=f"{LABEL} - Variacao mensal (%) - SA via media dos 5 componentes SA",
-        haver_code=SIDRA_CODE_VAR.format(cat=CAT, sha=sha) + "/SA",
+        bls_code=BLS,
         session=session, replace=True,
     )
     sidra_to_sql(
-        series=idx_sa, country="BR", subject="Prices", indicator="IPCA",
+        series=idx_sa, country="BR", subject="Prices", indicator="IPCA-15",
         series_name=f"{LABEL} (Indice)", data_type="SA", frequency="M",
         description=f"{LABEL} - Indice (base=100) - SA via media dos 5 componentes SA",
-        haver_code=SIDRA_CODE_IDX.format(cat=CAT, sha=sha) + "/SA",
+        bls_code=BLS,
         session=session, replace=True,
     )
     print(f"[OK] var SA + idx SA de {CAT} gravados no SQL.")

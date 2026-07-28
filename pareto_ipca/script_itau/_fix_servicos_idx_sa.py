@@ -13,42 +13,33 @@
 # existir (vai colidir com upsert por chave natural — mesmo bug ja conhecido).
 
 import sys
-import subprocess
 from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "script_itau"))
 
-from load_pareto_to_sql import sidra_to_sql, SIDRA_CODE_IDX, CATEGORY_LABELS
-
-
-def _git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True
-        ).strip()
-    except Exception:
-        return "nogit"
-
+from load_pareto_to_sql import sidra_to_sql, CODE, CATEGORY_LABELS
 
 CAT = "servicos"
 LABEL = CATEGORY_LABELS[CAT]
-sha = _git_sha()
+BLS = CODE.format(cat=CAT)
 
 from opt_utils.database import SQLConnector
 
 session = SQLConnector(connector="pyodbc")
 try:
+    # Sync 2026-07-27: SA var identificada por (bls_code, data_type, series_name).
     df = pd.read_sql(
         """
         SELECT d.date, d.value
         FROM OPT_Macro_Series_Data_2 d
         JOIN OPT_Macro_Series_2 m ON d.series_id = m.series_id
-        WHERE m.haver_code LIKE 'PARETO_IPCA:servicos/V63/RECON-%/SA'
+        WHERE m.bls_code = ? AND m.data_type = 'SA' AND m.series_name = ?
         ORDER BY d.date
         """,
         session.conn,
+        params=[BLS, LABEL],
     )
     if df.empty:
         sys.exit("[FAIL] Var SA de servicos nao encontrada no SQL. "
@@ -82,7 +73,7 @@ try:
         series=idx_sa, country="BR", subject="Prices", indicator="IPCA",
         series_name=f"{LABEL} (Indice)", data_type="SA", frequency="M",
         description=f"{LABEL} - Indice (dez/2006=100) - SA reconstruido via var SA",
-        haver_code=SIDRA_CODE_IDX.format(cat=CAT, sha=sha) + "/SA",
+        bls_code=BLS,
         session=session, replace=True,
     )
     print(f"[OK] Indice SA de {CAT} gravado no SQL.")

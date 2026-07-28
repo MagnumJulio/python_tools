@@ -6,7 +6,7 @@
 # Estrategia: dessazonalizar o INDICE (sempre positivo, log funciona), depois
 # derivar var_sa via var[t] = (idx_sa[t]/idx_sa[t-1] - 1) * 100.
 #
-# Saida: data/ipca_pareto_sa_dp_medio.csv (long: date, category_code, var_sa, idx_sa)
+# Saida: data/ipca15_pareto_sa_dp_medio.csv (long: date, category_code, var_sa, idx_sa)
 # Uso: Rscript scripts/_sa_dp_nucleo_medio.R
 
 suppressPackageStartupMessages(library(seasonal))
@@ -19,7 +19,7 @@ if (length(.farg)) {
 }
 
 IDX_CSV <- "data/ipca15_pareto_indice.csv"
-OUT_CSV <- "data/ipca_pareto_sa_dp_medio.csv"
+OUT_CSV <- "data/ipca15_pareto_sa_dp_medio.csv"
 
 if (!file.exists(IDX_CSV)) {
   stop(sprintf("CSV de indice nao existe: %s — rode build_pareto_indice.R antes",
