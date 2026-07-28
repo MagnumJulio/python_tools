@@ -181,7 +181,32 @@ if (length(args) >= 2) {
   hoje <- Sys.Date()
   ref  <- seq(hoje, by = "-1 month", length.out = 25)
   ymd <- function(d) as.integer(format(d, "%Y%m"))
-  PERIODO_FIM <- ymd(ref[2])   # mês passado (mês corrente raramente publicado)
+  # IPCA-15 sai ~dia 24 do próprio mês. Probe mês corrente antes de cair pro
+  # anterior — sem isso a rotina sistematicamente perdia o release do dia
+  # (bug herdado do fork do IPCA cheio, que só sai no mês seguinte).
+  probe_ok <- function(per) {
+    url <- sprintf("https://servicodados.ibge.gov.br/api/v3/agregados/%d/periodos/%d/variaveis/%d?localidades=N1[all]&classificacao=315[7169]",
+                   SIDRA_AGG, per, SIDRA_VAR_VAR)
+    tryCatch({
+      r <- GET(url, timeout(30))
+      if (status_code(r) != 200) return(FALSE)
+      txt <- content(r, "text", encoding = "UTF-8")
+      if (startsWith(trimws(txt), "<") || !nzchar(txt) || txt == "[]") return(FALSE)
+      raw <- fromJSON(txt, simplifyDataFrame = FALSE)
+      if (!length(raw)) return(FALSE)
+      v <- raw[[1]]$resultados[[1]]$series[[1]]$serie[[1]]
+      !is.null(v) && !is.na(suppressWarnings(as.numeric(v)))
+    }, error = function(e) FALSE)
+  }
+  per_atual <- ymd(hoje)
+  per_prev  <- ymd(ref[2])
+  if (probe_ok(per_atual)) {
+    PERIODO_FIM <- per_atual
+    cat(sprintf("[CFG] mês corrente %d já disponível no SIDRA — usando como fim.\n", per_atual))
+  } else {
+    PERIODO_FIM <- per_prev
+    cat(sprintf("[CFG] mês corrente %d ainda não publicado — usando anterior (%d).\n", per_atual, per_prev))
+  }
   PERIODO_INI <- ymd(ref[25])
 }
 cat(sprintf("[CFG] janela: %d → %d\n", PERIODO_INI, PERIODO_FIM))

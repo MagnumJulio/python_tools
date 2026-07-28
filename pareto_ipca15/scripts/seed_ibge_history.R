@@ -49,13 +49,37 @@ if (!file.exists(MASK_EXTENDED)) {
 }
 if (!file.exists(RECON_SCRIPT)) stop("Script não encontrado: ", RECON_SCRIPT)
 
-# Último período: mês passado (mês corrente raramente publicado pelo IBGE no
-# dia 1). IPCA-15 é publicado ~dia 24 do mês de referência (adianta o IPCA
-# cheio), então o mês "atual" às vezes já está disponível — mesmo assim,
-# defaultamos pro mês anterior; usuário pode passar janela explícita.
+# Último período: IPCA-15 sai ~dia 24 do próprio mês (adianta o IPCA cheio).
+# Probe SIDRA T7062 pra mês corrente antes de cair pro anterior — sem isso a
+# rotina sistematicamente perdia o release do dia (bug herdado do fork do
+# IPCA cheio, que só publica no mês seguinte).
+suppressPackageStartupMessages({
+  library(httr); library(jsonlite)
+})
 hoje <- Sys.Date()
 ref_prev <- seq(hoje, by = "-1 month", length.out = 2)[2]
-PER_LATEST <- as.integer(format(ref_prev, "%Y%m"))
+per_atual <- as.integer(format(hoje, "%Y%m"))
+per_prev  <- as.integer(format(ref_prev, "%Y%m"))
+probe_ipca15 <- function(per) {
+  url <- sprintf("https://servicodados.ibge.gov.br/api/v3/agregados/7062/periodos/%d/variaveis/355?localidades=N1[all]&classificacao=315[7169]", per)
+  tryCatch({
+    r <- GET(url, timeout(30))
+    if (status_code(r) != 200) return(FALSE)
+    txt <- content(r, "text", encoding = "UTF-8")
+    if (startsWith(trimws(txt), "<") || !nzchar(txt) || txt == "[]") return(FALSE)
+    raw <- fromJSON(txt, simplifyDataFrame = FALSE)
+    if (!length(raw)) return(FALSE)
+    v <- raw[[1]]$resultados[[1]]$series[[1]]$serie[[1]]
+    !is.null(v) && !is.na(suppressWarnings(as.numeric(v)))
+  }, error = function(e) FALSE)
+}
+PER_LATEST <- if (probe_ipca15(per_atual)) {
+  cat(sprintf("[probe] mês corrente %d já publicado — usando como fim.\n", per_atual))
+  per_atual
+} else {
+  cat(sprintf("[probe] mês corrente %d ainda não publicado — usando anterior (%d).\n", per_atual, per_prev))
+  per_prev
+}
 
 WINDOWS <- list(
   list(tbl = 1705L, ini = 201202L, fim = 202001L, mask = MASK_EXTENDED,
