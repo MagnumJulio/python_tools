@@ -773,8 +773,35 @@ agg_nucleo_p55 <- data.frame(
   stringsAsFactors = FALSE
 )
 
+# ---------------------------------------------------------------------------
+# Onda 6 — Grupos IPCA + subgrupos/itens/subitens de interesse (direto do IBGE).
+# Sem reconstrução: SIDRA publica esses agregados prontos via classificacao=
+# 315[all]. Extraimos var_mm / peso_mm diretamente do df para cada cod_ibge.
+# Preserva merge por periodo com os demais agregados.
+
+extrair_agg_direto <- function(codigo_ibge, var_col, peso_col) {
+  d <- df[!is.na(df$cod_ibge) & df$cod_ibge == codigo_ibge,
+          c("periodo", "var_mm", "peso_mm")]
+  d <- d[order(d$periodo), ]
+  names(d) <- c("periodo", var_col, peso_col)
+  d
+}
+
+agg_g1        <- extrair_agg_direto("1",       "var_g1_alim_beb",    "peso_g1_alim_beb")
+agg_g2        <- extrair_agg_direto("2",       "var_g2_habitacao",   "peso_g2_habitacao")
+agg_g3        <- extrair_agg_direto("3",       "var_g3_artigos",     "peso_g3_artigos")
+agg_g4        <- extrair_agg_direto("4",       "var_g4_vestuario",   "peso_g4_vestuario")
+agg_g5        <- extrair_agg_direto("5",       "var_g5_transportes", "peso_g5_transportes")
+agg_g7        <- extrair_agg_direto("7",       "var_g7_desp_pess",   "peso_g7_desp_pess")
+agg_g8        <- extrair_agg_direto("8",       "var_g8_educacao",    "peso_g8_educacao")
+agg_alim_fora <- extrair_agg_direto("12",      "var_alim_fora",      "peso_alim_fora")
+agg_energia   <- extrair_agg_direto("2202",    "var_energia_el",     "peso_energia_el")
+agg_pass_aer  <- extrair_agg_direto("5101010", "var_passagem_aerea", "peso_passagem_aerea")
+agg_auto_novo <- extrair_agg_direto("5102001", "var_auto_novo",      "peso_auto_novo")
+agg_auto_usad <- extrair_agg_direto("5102020", "var_auto_usado",     "peso_auto_usado")
+
 # Versão alternativa: livres via álgebra residual (controle de consistência)
-out <- Reduce(function(a, b) merge(a, b, by = "periodo"),
+out <- Reduce(function(a, b) merge(a, b, by = "periodo", all = TRUE),
               list(agg_admin, agg_livres, agg_industr, agg_serv, agg_alim_dom,
                    agg_nucleo_ex0, agg_nucleo_ex3,
                    agg_duravel, agg_semidur, agg_ndind,
@@ -785,6 +812,9 @@ out <- Reduce(function(a, b) merge(a, b, by = "periodo"),
                    agg_nucleo_exfe, agg_nucleo_ex1,
                    agg_ex3_serv, agg_ex3_ind, agg_difusao,
                    agg_nucleo_p55,
+                   agg_g1, agg_g2, agg_g3, agg_g4, agg_g5, agg_g7, agg_g8,
+                   agg_alim_fora, agg_energia,
+                   agg_pass_aer, agg_auto_novo, agg_auto_usad,
                    ipca_geral))
 out$var_livres_alg <- (out$ipca_oficial * (out$peso_admin + out$peso_livres) -
                        out$var_admin * out$peso_admin) / out$peso_livres
@@ -934,7 +964,20 @@ recon_long <- rbind(
   stack_class("ex3_ind",        "var_ex3_ind"),
   stack_class("difusao",        "var_difusao"),
   stack_class("nucleo_p55",     "var_nucleo_p55"),
-  stack_class("nucleo_medio",   "var_nucleo_medio")
+  stack_class("nucleo_medio",   "var_nucleo_medio"),
+  # Onda 6 — grupos IPCA + subgrupos/itens/subitens direto do IBGE
+  stack_class("alim_e_bebidas",      "var_g1_alim_beb"),
+  stack_class("habitacao",           "var_g2_habitacao"),
+  stack_class("artigos_residencia",  "var_g3_artigos"),
+  stack_class("vestuario",           "var_g4_vestuario"),
+  stack_class("transportes",         "var_g5_transportes"),
+  stack_class("despesas_pessoais",   "var_g7_desp_pess"),
+  stack_class("educacao",            "var_g8_educacao"),
+  stack_class("alim_fora",           "var_alim_fora"),
+  stack_class("energia_eletrica",    "var_energia_el"),
+  stack_class("passagem_aerea",      "var_passagem_aerea"),
+  stack_class("auto_novo",           "var_auto_novo"),
+  stack_class("auto_usado",          "var_auto_usado")
 )
 recon_long <- recon_long[!is.na(recon_long$value), ]
 
@@ -1006,7 +1049,20 @@ pesos_long <- rbind(
   stack_peso("nucleo_exfe",     "peso_nucleo_exfe"),
   stack_peso("nucleo_ex1",      "peso_nucleo_ex1"),
   stack_peso("ex3_serv",        "peso_ex3_serv"),
-  stack_peso("ex3_ind",         "peso_ex3_ind")
+  stack_peso("ex3_ind",         "peso_ex3_ind"),
+  # Onda 6 — pesos dos grupos/subgrupos/itens/subitens diretos do IBGE
+  stack_peso("alim_e_bebidas",     "peso_g1_alim_beb"),
+  stack_peso("habitacao",          "peso_g2_habitacao"),
+  stack_peso("artigos_residencia", "peso_g3_artigos"),
+  stack_peso("vestuario",          "peso_g4_vestuario"),
+  stack_peso("transportes",        "peso_g5_transportes"),
+  stack_peso("despesas_pessoais",  "peso_g7_desp_pess"),
+  stack_peso("educacao",           "peso_g8_educacao"),
+  stack_peso("alim_fora",          "peso_alim_fora"),
+  stack_peso("energia_eletrica",   "peso_energia_el"),
+  stack_peso("passagem_aerea",     "peso_passagem_aerea"),
+  stack_peso("auto_novo",          "peso_auto_novo"),
+  stack_peso("auto_usado",         "peso_auto_usado")
 )
 pesos_long <- pesos_long[!is.na(pesos_long$value), ]
 

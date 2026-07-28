@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # load_pareto_to_sql.py (pareto_ipca15)
-# Carrega as 28 categorias do pareto_ipca15 (variacao + indice + peso) na base SQL
+# Carrega as 40 categorias do pareto_ipca15 (variacao + indice + peso) na base SQL
 # corp (OPT_Macro_Series_2 / OPT_Macro_Series_Data_2), seguindo o mesmo padrao do
 # sidra_itau.ipynb. Pre-requisito: pipeline R ja rodou e gerou
 # data/ipca15_pareto_recon.csv e data/ipca15_pareto_indice.csv.
@@ -35,7 +35,7 @@ VAR_CSV  = ROOT / "data" / "ipca15_pareto_recon.csv"
 IDX_CSV  = ROOT / "data" / "ipca15_pareto_indice.csv"
 PESO_CSV = ROOT / "data" / "ipca15_pareto_pesos.csv"
 
-# 28 category_code -> nome legivel (mesma estetica do sidra_itau).
+# 40 category_code -> nome legivel (mesma estetica do sidra_itau).
 # NOTA: ex3_serv (estrito, sem alim_fora) é distinto de servicos_subj (subjacente
 # tradicional, COM alim_fora). SGS 29683 do BCB bate com servicos_subj, não ex3_serv.
 CATEGORY_LABELS = {
@@ -68,6 +68,21 @@ CATEGORY_LABELS = {
     "difusao":         "IPCA-15: Indice de Difusao",
     "nucleo_p55":      "IPCA-15: Nucleo P55 (Percentil 55)",
     "nucleo_medio":    "IPCA-15: Nucleo Medio (media dos 5)",
+    # Onda 6 — grupos IPCA (top-level) + subgrupos/itens/subitens direto do IBGE.
+    # SIDRA publica esses agregados prontos via classificacao=315[all]; nao sao
+    # reconstruidos por Laspeyres — sao os valores oficiais do IBGE.
+    "alim_e_bebidas":     "IPCA-15: Alimentacao e Bebidas (grupo 1)",
+    "habitacao":          "IPCA-15: Habitacao (grupo 2)",
+    "artigos_residencia": "IPCA-15: Artigos de Residencia (grupo 3)",
+    "vestuario":          "IPCA-15: Vestuario (grupo 4)",
+    "transportes":        "IPCA-15: Transportes (grupo 5)",
+    "despesas_pessoais":  "IPCA-15: Despesas Pessoais (grupo 7)",
+    "educacao":           "IPCA-15: Educacao (grupo 8)",
+    "alim_fora":          "IPCA-15: Alimentacao Fora do Domicilio (subgrupo 12)",
+    "energia_eletrica":   "IPCA-15: Energia Eletrica Residencial (item 2202)",
+    "passagem_aerea":     "IPCA-15: Passagem Aerea (subitem 5101010)",
+    "auto_novo":          "IPCA-15: Automovel Novo (subitem 5102001)",
+    "auto_usado":         "IPCA-15: Automovel Usado (subitem 5102020)",
 }
 
 # Sync 2026-07-27: mesmo padrao do pareto_ipca — bls_code unico por cat (sem
