@@ -10,9 +10,8 @@
 # SIDRA do IPCA-15. Publicação IBGE do IPCA-15 é ~dia 24; entregar os
 # núcleos e agregações no mesmo dia do release.
 #
-# ⚠️ SGS BCB abaixo (4449, 11428, ...) são de IPCA CHEIO, não IPCA-15.
-# Auditoria automatizada gera comparações espúrias — rode com `--no-bcb`
-# até o mapeamento SGS específico do IPCA-15 ser feito.
+# ⚠️ Único SGS legítimo pro IPCA-15 é 7478 (headline). Validação vs BCB
+# fica DESLIGADA por default (rotina de atualização); opt-in via --with-bcb.
 #
 # Algebra (índice de Laspeyres com pesos mensais):
 #
@@ -41,12 +40,11 @@
 #
 # Uso:
 #   cd backend
-#   Rscript scripts/reconstruct_ipca.R              # roda últimos 24 meses
-#   Rscript scripts/reconstruct_ipca.R 202401 202604  # janela específica
-#   Rscript scripts/reconstruct_ipca.R --no-bcb     # pula validação vs SGS
-#                                                    (útil no dia do release
-#                                                    se BCB estiver instável
-#                                                    ou pra rodar mais rápido)
+#   Rscript scripts/reconstruct_ipca.R              # roda últimos 24 meses, SEM BCB
+#   Rscript scripts/reconstruct_ipca.R 202401 202604  # janela específica, SEM BCB
+#   Rscript scripts/reconstruct_ipca.R --with-bcb   # opt-in: valida headline vs SGS 7478
+#                                                     (rotina de atualização normal
+#                                                     roda MUDA — não fetch BCB)
 
 suppressPackageStartupMessages({
   library(httr)
@@ -168,11 +166,14 @@ dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 # Janela de períodos (YYYYMM). Default: últimos 24 meses.
 
 args <- commandArgs(trailingOnly = TRUE)
-# Flag --no-bcb: pula seção [5] (fetch SGS + comparação) e não grava
-# ipca_validacao_bcb.csv. Também pode ser ativada via env SKIP_BCB_VALIDATION=1
-# (usado pelo seed_ibge_history.R pra propagar aos subprocessos).
-SKIP_BCB <- ("--no-bcb" %in% args) || nzchar(Sys.getenv("SKIP_BCB_VALIDATION", unset = ""))
-args <- args[args != "--no-bcb"]
+# Default: NÃO valida contra BCB (rotina de atualização roda muda — SGS 7478
+# só publica D+1 mesmo, e o único SGS legítimo pro IPCA-15 é o headline). Pra
+# validar sob demanda passe --with-bcb (ou env WITH_BCB_VALIDATION=1, que o
+# seed_ibge_history.R propaga aos subprocessos quando invocado com --with-bcb).
+# --no-bcb aceito como no-op pra retrocompat com scripts externos.
+WITH_BCB <- ("--with-bcb" %in% args) || nzchar(Sys.getenv("WITH_BCB_VALIDATION", unset = ""))
+SKIP_BCB <- !WITH_BCB
+args <- args[!(args %in% c("--with-bcb", "--no-bcb"))]
 if (length(args) >= 2) {
   PERIODO_INI <- as.integer(args[[1]])
   PERIODO_FIM <- as.integer(args[[2]])
@@ -184,7 +185,8 @@ if (length(args) >= 2) {
   PERIODO_INI <- ymd(ref[25])
 }
 cat(sprintf("[CFG] janela: %d → %d\n", PERIODO_INI, PERIODO_FIM))
-if (SKIP_BCB) cat("[CFG] --no-bcb: validação vs SGS desligada\n")
+cat(sprintf("[CFG] validação BCB: %s\n",
+            if (SKIP_BCB) "desligada (default; use --with-bcb pra ativar)" else "LIGADA"))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -824,7 +826,7 @@ print(classes_print, row.names = FALSE)
 # metodológico, feita sob demanda em `_audit_ibge_vs_bcb.R`.
 
 if (SKIP_BCB) {
-  cat("\n[5] Validação BCB pulada (--no-bcb).\n")
+  cat("\n[5] Validação BCB pulada (default; use --with-bcb pra ativar).\n")
 } else {
 
 cat("\n[5] Validação IPCA-15 headline: recon vs SGS 7478...\n")

@@ -38,13 +38,13 @@ pareto_ipca15/
 
 ```bash
 cd pareto_ipca15
-Rscript scripts/seed_ibge_history.R --no-bcb   # 1) stitching IBGE 2012-02 → atual (~40s)
+Rscript scripts/seed_ibge_history.R            # 1) stitching IBGE 2012-02 → atual (~40s)
 Rscript scripts/build_pareto_indice.R          # 2) número-índice rebased dez/2012=100
 ```
 
 Atualização incremental (só janela recente, sem rebuild histórico):
 ```bash
-Rscript scripts/reconstruct_ipca.R --no-bcb    # default últimos 24 meses (T7062)
+Rscript scripts/reconstruct_ipca.R             # default últimos 24 meses (T7062), SEM BCB
 Rscript scripts/build_pareto_indice.R
 ```
 
@@ -91,7 +91,7 @@ Todas as categorias começam **2012-02** (T1705). Base do índice: **dez/2012=10
 
 - `reconstruct_ipca.R` seção [5] valida `total` vs SGS 7478 — mean|d| ~0.00pp esperado. É a única checagem BCB do pipeline principal.
 - `_audit_ibge_vs_bcb.R` é opcional / sob demanda: repete [A] o headline vs SGS 7478 e ainda faz [B] diagnóstico do gap (breakdowns nossos vs SGS IPCA cheio — mean|d| ~0.1-0.4pp esperado, NÃO é erro da recon). Não faz parte do pipeline de produção.
-- Rodar com `--no-bcb` só pra pular a rede em desenvolvimento local; em release day, rodar sem `--no-bcb` pra confirmar o headline.
+- **Rotina de atualização roda muda por default** (sem fetch BCB). Pra validar sob demanda passe `--with-bcb` (ou rode `_audit_ibge_vs_bcb.R`, que sempre faz o headline check).
 
 ## Algebra do `reconstruct_ipca.R`
 

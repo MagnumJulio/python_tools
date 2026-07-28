@@ -32,10 +32,10 @@ Namespace `IPCA15` no SQL é **estritamente disjunto** do IPCA cheio:
 Se ainda não rodou o pipeline R:
 ```bash
 cd pareto_ipca15
-Rscript scripts/seed_ibge_history.R               # ~40s + fetch BCB; gera os 3 CSVs
+Rscript scripts/seed_ibge_history.R               # ~40s, MUDA (sem fetch BCB); gera os 3 CSVs
 Rscript scripts/build_pareto_indice.R             # ~5s, gera ipca15_pareto_indice.csv
 ```
-Seção [5a] do reconstruct valida `total` vs SGS 7478 (mean|d| deve sair ~0.00pp). Seção [5b] só mostra o gap IPCA-15 vs IPCA cheio (~0.1-0.4pp esperado, não é erro). Rodar com `--no-bcb` só se rede tá indisponível.
+Validação BCB fica DESLIGADA por default (rotina). Pra confirmar o headline vs SGS 7478 (~0.00pp esperado) sob demanda, use `Rscript scripts/seed_ibge_history.R --with-bcb` ou rode `Rscript scripts/_audit_ibge_vs_bcb.R` que sempre valida.
 
 ---
 
@@ -271,9 +271,9 @@ python script_itau/load_pareto_to_sql.py --no-confirm # sem prompt
 ```
 
 `reconstruct_ipca.R` sem args usa T7062 (POF 2017-18, IPCA-15) e janela dos
-últimos 24 meses. Seção [5a] confirma que nosso `total` bate com SGS 7478
-(mean|d| ~0.00pp). Para reconstruir toda a história (raro): use
-`seed_ibge_history.R`. Passar `--no-bcb` só quando rede BCB estiver indisponível.
+últimos 24 meses, SEM fetch BCB (rotina de atualização é muda por default).
+Para reconstruir toda a história (raro): use `seed_ibge_history.R`. Se quiser
+validar `total` vs SGS 7478 (~0.00pp) numa rodada específica, passe `--with-bcb`.
 
 `--no-confirm` pula o prompt interativo:
 ```bash

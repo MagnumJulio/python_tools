@@ -13,16 +13,16 @@
 #
 # BCB SGS pra IPCA-15: só o HEADLINE tem código (7478). Confirmado por
 # sonda 2026-07-27 (`_probe_score.py` sobre ~230 SGS candidatos). O
-# reconstruct_ipca.R seção [5] agora faz [5a] validação real headline vs SGS
-# 7478 + [5b] diagnóstico do gap breakdowns vs SGS IPCA cheio. Rodar SEM
-# `--no-bcb` em release day pra confirmar que o headline bate.
+# reconstruct_ipca.R seção [5] valida headline vs SGS 7478 — desligada por
+# default (opt-in via --with-bcb). Diagnóstico do gap breakdowns vs IPCA
+# cheio fica em `_audit_ibge_vs_bcb.R`, fora do pipeline.
 #
 # Uso:
 #   cd pareto_ipca15
-#   Rscript scripts/seed_ibge_history.R                  # janela completa default
+#   Rscript scripts/seed_ibge_history.R                  # janela completa default (SEM BCB)
 #   Rscript scripts/seed_ibge_history.R --skip-current   # só 2012-02 → 2020-01
 #                                                          (não roda T7062)
-#   Rscript scripts/seed_ibge_history.R --no-bcb         # pula rede BCB (dev local)
+#   Rscript scripts/seed_ibge_history.R --with-bcb       # opt-in: valida headline vs SGS 7478
 
 suppressPackageStartupMessages({})
 
@@ -36,7 +36,8 @@ if (length(.farg)) {
 
 args <- commandArgs(trailingOnly = TRUE)
 SKIP_CURRENT <- "--skip-current" %in% args
-NO_BCB       <- "--no-bcb"       %in% args
+# Default: BCB DESLIGADO (rotina). --with-bcb opt-in. --no-bcb aceito como no-op.
+WITH_BCB     <- "--with-bcb" %in% args
 
 MASK_BASE     <- "scripts/ipca_masks/classificacao.csv"
 MASK_EXTENDED <- "scripts/ipca_masks/classificacao_extended.csv"
@@ -71,7 +72,8 @@ for (w in WINDOWS) {
   cat(sprintf("  %-22s  %d → %d  máscara=%s\n",
               w$label, w$ini, w$fim, basename(w$mask)))
 }
-if (NO_BCB) cat("\n  --no-bcb: validação vs SGS desligada em todos os subprocessos\n")
+cat(sprintf("\n  validação BCB: %s\n",
+            if (WITH_BCB) "LIGADA (--with-bcb)" else "desligada (default)"))
 cat("\n")
 
 run_one <- function(w) {
@@ -79,13 +81,13 @@ run_one <- function(w) {
   # Env vars novas pro subprocesso (não polui o atual)
   Sys.setenv(SIDRA_AGG_ID        = as.character(w$tbl))
   Sys.setenv(MASK_CLASS_PATH_OVR = w$mask)
-  if (NO_BCB) Sys.setenv(SKIP_BCB_VALIDATION = "1")
+  if (WITH_BCB) Sys.setenv(WITH_BCB_VALIDATION = "1")
   rc <- system2("Rscript",
                 args = c(RECON_SCRIPT, as.character(w$ini), as.character(w$fim)),
                 stdout = "", stderr = "")
   Sys.unsetenv("SIDRA_AGG_ID")
   Sys.unsetenv("MASK_CLASS_PATH_OVR")
-  if (NO_BCB) Sys.unsetenv("SKIP_BCB_VALIDATION")
+  if (WITH_BCB) Sys.unsetenv("WITH_BCB_VALIDATION")
   if (rc != 0) {
     stop(sprintf("[%s] reconstruct_ipca.R retornou exit=%d", w$label, rc))
   }
