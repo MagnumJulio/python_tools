@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # load_pareto_to_sql.py (pareto_ipca15)
-# Carrega as 43 categorias do pareto_ipca15 (variacao + indice + peso) na base SQL
+# Carrega as 44 categorias do pareto_ipca15 (variacao + indice + peso) na base SQL
 # corp (OPT_Macro_Series_2 / OPT_Macro_Series_Data_2), seguindo o mesmo padrao do
 # sidra_itau.ipynb. Pre-requisito: pipeline R ja rodou e gerou
 # data/ipca15_pareto_recon.csv e data/ipca15_pareto_indice.csv.
@@ -35,7 +35,7 @@ VAR_CSV  = ROOT / "data" / "ipca15_pareto_recon.csv"
 IDX_CSV  = ROOT / "data" / "ipca15_pareto_indice.csv"
 PESO_CSV = ROOT / "data" / "ipca15_pareto_pesos.csv"
 
-# 43 category_code -> nome legivel (mesma estetica do sidra_itau).
+# 44 category_code -> nome legivel (mesma estetica do sidra_itau).
 # NOTA: ex3_serv (estrito, sem alim_fora) é distinto de servicos_subj (subjacente
 # tradicional, COM alim_fora). SGS 29683 do BCB bate com servicos_subj, não ex3_serv.
 CATEGORY_LABELS = {
@@ -86,6 +86,7 @@ CATEGORY_LABELS = {
     "passagem_aerea":     "IPCA-15: Passagem Aerea (subitem 5101010)",
     "auto_novo":          "IPCA-15: Automovel Novo (subitem 5102001)",
     "auto_usado":         "IPCA-15: Automovel Usado (subitem 5102020)",
+    "gasolina":           "IPCA-15: Gasolina (subitem 5104001)",
 }
 
 # Sync 2026-07-27: mesmo padrao do pareto_ipca — bls_code unico por cat (sem

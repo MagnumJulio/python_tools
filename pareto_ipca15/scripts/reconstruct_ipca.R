@@ -802,6 +802,7 @@ agg_energia   <- extrair_agg_direto("2202",    "var_energia_el",     "peso_energ
 agg_pass_aer  <- extrair_agg_direto("5101010", "var_passagem_aerea", "peso_passagem_aerea")
 agg_auto_novo <- extrair_agg_direto("5102001", "var_auto_novo",      "peso_auto_novo")
 agg_auto_usad <- extrair_agg_direto("5102020", "var_auto_usado",     "peso_auto_usado")
+agg_gasolina  <- extrair_agg_direto("5104001", "var_gasolina",       "peso_gasolina")
 
 # Versão alternativa: livres via álgebra residual (controle de consistência)
 out <- Reduce(function(a, b) merge(a, b, by = "periodo", all = TRUE),
@@ -817,7 +818,7 @@ out <- Reduce(function(a, b) merge(a, b, by = "periodo", all = TRUE),
                    agg_nucleo_p55,
                    agg_g1, agg_g2, agg_g3, agg_g4, agg_g5, agg_g6, agg_g7, agg_g8, agg_g9,
                    agg_alim_fora, agg_higiene, agg_energia,
-                   agg_pass_aer, agg_auto_novo, agg_auto_usad,
+                   agg_pass_aer, agg_auto_novo, agg_auto_usad, agg_gasolina,
                    ipca_geral))
 out$var_livres_alg <- (out$ipca_oficial * (out$peso_admin + out$peso_livres) -
                        out$var_admin * out$peso_admin) / out$peso_livres
@@ -983,7 +984,8 @@ recon_long <- rbind(
   stack_class("energia_eletrica",    "var_energia_el"),
   stack_class("passagem_aerea",      "var_passagem_aerea"),
   stack_class("auto_novo",           "var_auto_novo"),
-  stack_class("auto_usado",          "var_auto_usado")
+  stack_class("auto_usado",          "var_auto_usado"),
+  stack_class("gasolina",            "var_gasolina")
 )
 recon_long <- recon_long[!is.na(recon_long$value), ]
 
@@ -1071,7 +1073,8 @@ pesos_long <- rbind(
   stack_peso("energia_eletrica",   "peso_energia_el"),
   stack_peso("passagem_aerea",     "peso_passagem_aerea"),
   stack_peso("auto_novo",          "peso_auto_novo"),
-  stack_peso("auto_usado",         "peso_auto_usado")
+  stack_peso("auto_usado",         "peso_auto_usado"),
+  stack_peso("gasolina",           "peso_gasolina")
 )
 pesos_long <- pesos_long[!is.na(pesos_long$value), ]
 
