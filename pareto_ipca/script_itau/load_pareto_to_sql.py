@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # load_pareto_to_sql.py
-# Carrega as 28 categorias do pareto_ipca (variacao + indice + peso) na base SQL
+# Carrega as 44 categorias do pareto_ipca (variacao + indice + peso) na base SQL
 # corp (OPT_Macro_Series_2 / OPT_Macro_Series_Data_2), seguindo o mesmo padrao do
 # sidra_itau.ipynb. Pre-requisito: pipeline R ja rodou e gerou
 # data/ipca_pareto_recon.csv e data/ipca_pareto_indice.csv.
@@ -62,6 +62,23 @@ CATEGORY_LABELS = {
     "difusao":         "IPCA: Indice de Difusao",
     "nucleo_p55":      "IPCA: Nucleo P55 (Percentil 55)",
     "nucleo_medio":    "IPCA: Nucleo Medio (media dos 5)",
+    # Onda 6 — grupos IPCA (G1-G9) + subgrupos/itens/subitens de interesse
+    "alim_e_bebidas":     "IPCA: Alimentacao e Bebidas (grupo 1)",
+    "habitacao":          "IPCA: Habitacao (grupo 2)",
+    "artigos_residencia": "IPCA: Artigos de Residencia (grupo 3)",
+    "vestuario":          "IPCA: Vestuario (grupo 4)",
+    "transportes":        "IPCA: Transportes (grupo 5)",
+    "saude":              "IPCA: Saude e Cuidados Pessoais (grupo 6)",
+    "despesas_pessoais":  "IPCA: Despesas Pessoais (grupo 7)",
+    "educacao":           "IPCA: Educacao (grupo 8)",
+    "comunicacao":        "IPCA: Comunicacao (grupo 9)",
+    "alim_fora":          "IPCA: Alimentacao Fora do Domicilio (subgrupo 12)",
+    "higiene_pessoal":    "IPCA: Higiene Pessoal (subgrupo 63)",
+    "energia_eletrica":   "IPCA: Energia Eletrica Residencial (item 2202)",
+    "passagem_aerea":     "IPCA: Passagem Aerea (subitem 5101010)",
+    "auto_novo":          "IPCA: Automovel Novo (subitem 5102001)",
+    "auto_usado":         "IPCA: Automovel Usado (subitem 5102020)",
+    "gasolina":           "IPCA: Gasolina (subitem 5104001)",
 }
 
 # Sync 2026-07-27: bls_code colapsado pra 1 unico formato IPCA:{cat} — sem
