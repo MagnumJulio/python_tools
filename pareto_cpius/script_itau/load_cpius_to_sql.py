@@ -93,7 +93,7 @@ CATEGORY_LABELS = {
 # permanece sem sufixo de definicao.
 CATEGORY_BLS_DEFS = {
     "core_goods":    "Commodities less food and energy commodities (BLS item SACL1E)",
-    "core_services": "Services less energy services (BLS item SASL5)",
+    "core_services": "Services less energy services (BLS item SASLE)",
 }
 
 # Labels antigos (pre sync 2026-07-21) mantidos aqui pra migracao renomear

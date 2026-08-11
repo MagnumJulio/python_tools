@@ -27,7 +27,7 @@ medical_care,Medical care,SAM,2,8.424,Medical care combined (goods + services)
 medical_goods,Medical care commodities,SAM1,3,1.409,Prescription + OTC meds + supplies
 alcoholic_bev,Alcoholic beverages,SEAF,3,0.82,Alcohol at home + away
 tobacco,Tobacco and smoking products,SEGA,3,0.447,Cigarettes + other tobacco products
-core_services,Services less energy services,SASL5,2,60.025,Core services aggregate (common def)
+core_services,Services less energy services,SASLE,2,60.025,Core services aggregate (common def)
 shelter,Shelter,SAH1,3,35.149,Rent + OER + lodging away + household insurance
 rent,Rent of primary residence,SEHA,4,7.68,Tenant rent
 oer,Owners' equivalent rent of residences,SEHC,4,25.7,Imputed rent for owner-occupiers

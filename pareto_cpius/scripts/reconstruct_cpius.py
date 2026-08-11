@@ -94,15 +94,13 @@ CORE_GOODS_BASE_CATS = [
 # Fonte: BLS special aggregates (SA0E, SA0L1E, SASLE, SACL1E, etc.) reconstruidos
 # a partir de leaves NSA.
 # item_code eh o codigo publicado BLS (pra permitir audit vs CUUR).
-# NOTA: cpiu_table_1.csv usa SASL5 pra core_services, mas o codigo BLS correto pra
-# "Services less energy services" eh SASLE. SASL5 eh "Services less medical care".
 SPECIAL_AGG_CODES = {
     "energy": "SA0E",
     "energy_commodities": "SACE",
     "energy_services": "SEHF",           # ja eh base cat, mas ok — resolvido via tree
     "core": "SA0L1E",
     "core_goods": "SACL1E",
-    "core_services": "SASLE",            # correcao vs cpiu_table_1.csv (SASL5)
+    "core_services": "SASLE",
     "all_services": "SAS",
     "all_commodities": "SAC",
 }

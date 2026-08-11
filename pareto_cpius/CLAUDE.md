@@ -74,7 +74,7 @@ Hierarquia completa da Table 1 (indent = nível). Todas saem tanto em SA quanto 
     - New vehicles (`new_vehicles` — SETA01), Used cars/trucks (`used_cars_trucks` — SETA02)
     - Medical care commodities (`medical_goods` — SAM1)
     - Alcoholic beverages (`alcoholic_bev` — SEAF), Tobacco (`tobacco` — SEGA)
-  - Services less energy services (`core_services` — SASL5)
+  - Services less energy services (`core_services` — SASLE)
     - Shelter (`shelter` — SAH1) → Rent (`rent` — SEHA), OER (`oer` — SEHC)
     - Medical care services (`medical_services` — SAM2) → Physicians' (`physicians_services` — SEMC01), Hospital (`hospital_services` — SEMD01)
     - Transportation services (`transportation_services` — SAS4) → Motor vehicle maint/repair (`motor_vehicle_maint` — SETD), Motor vehicle insurance (`motor_vehicle_insur` — SETE), Airline fares (`airline_fares` — SETG01)

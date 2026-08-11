@@ -286,36 +286,275 @@ Isso só remove o que este loader inseriu (filtra pelo prefixo `CPIUS:` no
 
 ---
 
-## Re-execução periódica (após BLS soltar novo release)
+## ⚠️ Fix pendente: `core_services` estava com item_code errado (SASL5 → SASLE)
+
+**Data**: 2026-08-11. Todo run antes disso gravou no SQL a série
+**"Services less medical care services"** (SASL5) com label "core_services",
+não a **"Services less energy services"** (SASLE) correta. Contaminou:
+
+- Base cat `core_services` (~0.07pp yoy off vs Haver)
+- 5 das 8 customs que usam `core_services` como base do Laspeyres:
+  `core_services_ex_shelter`, `supercore_powell_old`, `super_super_core`,
+  `core_services_ex_shelter_pubtrans_medical`, `core_services_ex_volatiles`
+  (~0.2-0.4pp yoy off).
+
+**Fix aplicado (2026-08-11)** em `update_cpius_lean.py`, `cpiu_table_1.csv`,
+`load_cpius_to_sql.py`, `simulate_cpius_to_sql.py`, `_probe_subitem_tree.py`
+e `CLAUDE.md`. `reconstruct_cpius.py` já estava certo (achou o bug antes mas
+o fix não propagou).
+
+**IMPORTANTE — SQL corp precisa full re-load** dessas 6 categorias. A rodagem
+rápida (`update_cpius_lean.py`) só reescreve últimos `INCREMENTAL_MONTHS=24`
+por série, então history > 2 anos ainda fica com dados de SASL5 antigo.
+Rodar quando voltar da viagem:
+
+```powershell
+# Full re-load do que estava contaminado. Vai reescrever full history 2000→hoje.
+python script_itau\load_cpius_to_sql.py --only core_services,core_services_ex_shelter,supercore_powell_old,super_super_core,core_services_ex_shelter_pubtrans_medical,core_services_ex_volatiles
+```
+
+Antes disso, rodar o pipeline R full pra regenerar os CSVs em `data/` com
+SASLE (ver Estágio 1 acima). Como o R fetcher lê de `cpiu_table_1.csv` (já
+corrigido), o próximo run vai vir certo.
+
+---
+
+## Manutenção mensal (após BLS soltar novo release)
 
 BLS solta CPI-U mensalmente ~10-15 do mês seguinte (release calendar em
-https://www.bls.gov/schedule/news_release/cpi.htm). Pipeline incremental:
+https://www.bls.gov/schedule/news_release/cpi.htm). Existem dois caminhos:
+
+- **Opção A — rodagem rápida** (`update_cpius_lean.py`): **padrão do
+  dia-a-dia**. Um script Python self-contained puxa idx do BLS, recalcula
+  Weight, escreve direto no SQL. Sem CSVs intermediários, sem R. ~15s.
+- **Opção B — pipeline completo pra cats selecionadas**: fallback pra
+  quando a rápida falhar em algumas cats, ou pra reconstruir uma cat do
+  zero (histórico full de jan/2000). Roda o pipeline R inteiro (fetcha 41
+  base cats, pesos time-varying, 8 customs Laspeyres), depois grava só as
+  cats pedidas via `load_cpius_to_sql.py --only`.
+
+Sempre começar pela A. Se cair alguma cat, ir pra B só nessas.
+
+---
+
+### Opção A — rodagem rápida (`update_cpius_lean.py`) — PADRÃO
+
+**Pré-requisitos:**
+- `opt_utils.database.SQLConnector` disponível (mesmo ambiente corp usado
+  pelo `sidra_itau.ipynb`).
+- `BLS_API_KEY` no env (32 chars). Sem chave: rate limit derruba na
+  segunda re-run.
+- Python 3.10+ com `pandas`, `requests` (já vêm no ambiente corp).
+
+**Passo 1 — smoke test em simulate (sem tocar SQL):**
 
 ```bash
 cd pareto_cpius
-Rscript scripts/fetch_bls_cpiu.R                       # re-baixa preços (rápido)
-Rscript scripts/fetch_bls_pesos.R                      # regera pesos ajustados (parse RI só se novo Dez rolou)
-Rscript scripts/build_custom_aggregations.R            # re-deriva 8 custom aggs
-python script_itau/load_cpius_to_sql.py --no-confirm   # sem prompt
+python quick_update/update_cpius_lean.py --cats all --simulate
 ```
 
-**Nota sobre pesos anuais**: `parse_historical_ri.py` só precisa re-rodar quando um novo RI de Dezembro é publicado (~Fev do ano seguinte). Baixar a Table 6 nova de https://www.bls.gov/cpi/tables/relative-importance/, salvar como `data/raw/relative_importance/YYYY.xlsx`, rodar o parser, e re-rodar `fetch_bls_pesos.R`. Dentro do ano-fiscal, apenas o preço muda (o script já pega os índices novos automaticamente).
+Confirma no log:
+- `API key ON` (senão exportar `BLS_API_KEY` antes).
+- `cats pedidas: 41 base + 8 custom = 49`.
+- `[fetch] 82 series_ids x N janela(s) (20a) x batches de 50` → com key
+  são 2 batches (2000-2019 + 2020-atual), sem key seriam 4 (janelas de 10a).
+- `[fetch] concluido: 82/82 series c/ dados (0 vazias)` — se aparecer
+  `[WARN] sem dados: CUUR0000<item>`, BLS pode ter reestruturado esse item
+  code (raro; ver "Cat solta" abaixo).
+- `RI_BASE_DATE = 2025-12  |  ultimo mes idx BLS = YYYY-MM` — o mês de idx
+  tem que ser o do release mais recente (ex.: rodando em 13/ago vai pegar
+  jul/2026). Se vier atrasado, BLS ainda não publicou — esperar ou seguir.
+- **NENHUM** `[WARN] RI_BASE_DATE esta N meses atras`. Se aparecer, PARAR e
+  atualizar `RI_BASE_DATE` + `RI_HISTORICAL[YYYY]` no
+  `update_cpius_lean.py` (ver "Bump anual da RI base" abaixo).
+- Ao fim: `[simulate] OPT_Macro_Series_2 = 147 rows` e
+  `OPT_Macro_Series_Data_2 = ~46 500 rows`.
 
-**Nota:** `fetch_bls_cpiu.R` não tem modo incremental — sempre re-baixa a
-janela inteira. Com `BLS_API_KEY` isso é ~30s e cabe folgado no limite de
-500 req/dia. Sem chave, cuidado com o limite de 25 req/dia (2 batches × 2
-janelas = 4 req por run, então ~6 runs por dia).
+**Passo 2 — run real (grava no SQL corp):**
 
-`--no-confirm` pula o prompt interativo:
 ```bash
-python script_itau/load_cpius_to_sql.py --no-confirm > load_$(date +%Y%m%d).log 2>&1
+python quick_update/update_cpius_lean.py --cats all
 ```
 
-**Vintage:** BLS revisa fatores sazonais em janeiro de cada ano (recalcula
-últimos 5 anos de SA). Isso significa que valores SA anteriores podem mudar
-quando você re-roda em jan/2027, por exemplo. `release_date`/`vintage_date`
-gravados na tabela ajudam a rastrear isso — em fase 2 vale versionar por
-release date.
+Comportamento:
+- Cada cat re-envia os **últimos 24 meses** (`INCREMENTAL_MONTHS`). Cobre
+  o novo release + revisão SA anual do BLS + recalculo de Weight.
+- Se uma série é nova no SQL (primeira vez que essa cat aparece), faz
+  **seed full** (jan/2000 → hoje).
+- Idempotente: pode rodar 2× seguido sem duplicar.
+
+Redirect pra log:
+```bash
+python quick_update/update_cpius_lean.py --cats all > \
+  quick_update/logs/lean_$(date +%Y%m%d).log 2>&1
+```
+
+**Passo 3 — verificação SQL:**
+
+```sql
+-- Confirma última data em Data_2 (deve ser o release novo):
+SELECT s.data_type, MAX(d.date) AS last_date, COUNT(DISTINCT d.series_id) AS n_series
+FROM OPT_Macro_Series_Data_2 d
+JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
+WHERE s.bls_code LIKE 'CPIUS:%'
+GROUP BY s.data_type;
+-- esperado: NSA=49, SA=49, Weight=49; last_date = último dia do mês do release novo
+
+-- Contagem de rows das últimas 24 datas (pra confirmar o incremental
+-- fechou tudo):
+SELECT COUNT(*) FROM OPT_Macro_Series_Data_2 d
+JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
+WHERE s.bls_code LIKE 'CPIUS:%'
+  AND d.date >= DATEADD(month, -24, EOMONTH(GETDATE()));
+-- esperado: ~3500 (49 séries × 3 datatypes × 24 meses)
+```
+
+**Se algo falhar na rodagem rápida:**
+- `RuntimeError: [BLS] REQUEST_NOT_PROCESSED` → rate limit; esperar 1h e
+  tentar de novo, OU rodar Opção B pra cats críticas.
+- `requests.exceptions.Timeout` → BLS lento; re-tentar. Se persistir,
+  Opção B com fetch R (menos ruído de rede pela API v2 aceitar POST
+  batchado).
+- `[WARN] sem dados: CUUR0000XXX` numa cat só → BLS reestruturou aquele
+  item code. Passar essa cat via Opção B **não resolve** — precisa achar o
+  novo code e atualizar `ITEM_CODES` no lean **e** o mapa
+  `scripts/bls_maps/cpiu_table_1.csv`. As demais cats seguiram
+  normalmente; só falta essa.
+- ImportError `opt_utils.database` → não está no ambiente corp; rodar
+  `--simulate` só valida a mecânica.
+
+---
+
+### Opção B — pipeline completo pra cats selecionadas (fallback)
+
+**Quando usar:**
+- A rodagem rápida caiu em algumas cats e você quer reconstruir só essas
+  do zero (jan/2000 → hoje).
+- Você quer forçar re-fetch full ignorando o INCREMENTAL_MONTHS=24 (ex.:
+  auditoria histórica, discrepância de vintage).
+- BLS mudou item code de uma cat e a rápida está deixando ela vazia.
+
+**Custo:** ~35s totais (fetch R + parse + build) + `--only` do loader é
+rápido. Pipeline R **sempre** roda full pras 41 base cats (não tem modo
+seletivo por cat no fetcher); o filtro por cat entra só na hora da carga
+SQL via `--only`.
+
+**Passo 0 — decidir a lista de cats.**
+
+Passar como CSV, sem espaços. Ex.: `motor_fuel,gasoline,fuel_oil` (base)
+ou `core_ex_oer,super_super_core` (custom). Aceita mistura. Se uma custom
+está na lista, todas as bases dela entram no fetch (as bases só vão pro
+SQL se estiverem explicitamente em `--only`).
+
+**Passo 1 — re-executar o pipeline R (regera CSVs em `data/`):**
+
+```bash
+cd pareto_cpius
+export BLS_API_KEY=<sua_chave>
+
+# 1a) idx NSA + SA das 41 base cats. Full 2000→atual (~30s com key).
+Rscript scripts/fetch_bls_cpiu.R
+
+# 1b) Só rode se BLS publicou Table 6 nova (~Fev do ano seguinte). Se em
+#     dúvida, pula — é raro dentro do ano-fiscal.
+python scripts/parse_historical_ri.py
+
+# 1c) Weight time-varying: RI base × ajuste implícito mensal (~1s).
+Rscript scripts/fetch_bls_pesos.R
+
+# 1d) 8 agregações custom Laspeyres (~2s).
+Rscript scripts/build_custom_aggregations.R
+```
+
+Ao fim, 4 CSVs em `data/` estão atualizados:
+`cpi_cpius_indice.csv`, `cpi_cpius_pesos.csv`, `cpi_cpius_custom.csv`,
+`cpi_cpius_pesos_custom.csv`.
+
+**Passo 2 — dry-run do loader filtrando pelas cats escolhidas:**
+
+```bash
+python script_itau/load_cpius_to_sql.py --dry-run --only motor_fuel,gasoline,fuel_oil
+```
+
+Confirma que lista só o que você quer (3 cats × [NSA, SA, Weight] = 9
+itens) e mostra o `bls_code` que cada uma vai gravar.
+
+**Passo 3 — carga real (só as cats do `--only`):**
+
+```bash
+python script_itau/load_cpius_to_sql.py --only motor_fuel,gasoline,fuel_oil
+```
+
+Confirma `Confirma gravacao de ate 9 series no SQL? [s/N]` → `s`. Pra
+pular o prompt em automação: `--no-confirm`.
+
+**Diferença importante vs Opção A:** o loader usa `replace=True` — ele
+**apaga TODAS as rows dessas séries e reinserde o histórico full**
+(jan/2000 → hoje, ~317 rows). Não é incremental 24m como o lean. Isso é
+o comportamento desejado quando você quer reconstruir do zero.
+
+**Verificação:**
+```sql
+SELECT s.series_name, s.data_type, MIN(d.date) AS min_d, MAX(d.date) AS max_d, COUNT(*) AS n
+FROM OPT_Macro_Series_Data_2 d
+JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
+WHERE s.bls_code IN ('CPIUS:motor_fuel','CPIUS:gasoline','CPIUS:fuel_oil')
+GROUP BY s.series_name, s.data_type
+ORDER BY s.series_name, s.data_type;
+-- esperado: 9 linhas, min_d = 2000-01-31, max_d = último dia do mês do release novo, n ≈ 317
+```
+
+---
+
+### Bump anual da RI base (só se `[WARN]` disparar)
+
+Quando BLS publicar Table 6 base 2026 (~Dez/2026 ou Fev/2027):
+
+1. Baixar `2026.xlsx` de https://www.bls.gov/cpi/tables/relative-importance/
+   e salvar em `data/raw/relative_importance/2026.xlsx`.
+2. `python scripts/parse_historical_ri.py` → regera `cpi_cpius_pesos_annual.csv`
+   com a linha 2026.
+3. Copiar o dict do CSV pro `RI_HISTORICAL[2026] = {...}` em
+   `quick_update/update_cpius_lean.py`.
+4. Atualizar `RI_BASE_DATE = "2026-12"` no mesmo arquivo.
+5. Smoke test: `python quick_update/update_cpius_lean.py --cats all --simulate`
+   — não deve mais aparecer `[WARN] RI_BASE_DATE`.
+
+Enquanto não bumpar, o script continua rodando com a base antiga; só o
+`[WARN]` alerta. Rodar com RI atrasada > 12 meses vira erro estatístico
+material (peso implícito diverge da revisão do BLS).
+
+---
+
+### Cat solta (BLS reestruturou item code)
+
+Cenário raro: BLS reorganiza a taxonomia e um `item_code` some ou muda
+significado. Sintoma: a rodagem rápida marca essa cat como
+`[WARN] sem dados: CUUR0000XXX` e a série no SQL fica congelada no último
+release bom.
+
+Diagnóstico:
+1. Baixar https://download.bls.gov/pub/time.series/cu/cu.item e procurar
+   pelo item_code antigo — se sumiu, buscar pelo label esperado (ex.:
+   "Rent of primary residence").
+2. Achar o novo `item_code` e atualizar em **dois lugares**:
+   - `scripts/bls_maps/cpiu_table_1.csv` (pra pipeline R)
+   - `ITEM_CODES` em `quick_update/update_cpius_lean.py` (pra rodagem
+     rápida)
+3. Re-rodar smoke `--simulate`. Se voltou (0 warns), rodar real.
+
+Se labels mudaram sem quebrar `item_code`, só o `CATEGORY_LABELS` /
+`CATEGORY_BLS_DEFS` precisam ajustar — a série no SQL segue viva.
+
+---
+
+**Vintage:** BLS revisa fatores sazonais em janeiro de cada ano
+(recalcula últimos 5 anos de SA). A janela de 24m do lean pega ~99% da
+revisão prática; se quiser fechar 100% do fator revisitado, rodar a
+Opção B na virada do ano — o `replace=True` reescreve todo o histórico
+das cats escolhidas. `release_date`/`vintage_date` gravados na tabela
+ajudam a rastrear (`release_date` = data em que a linha entrou no SQL, não
+o release BLS).
 
 ---
 

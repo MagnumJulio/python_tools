@@ -96,7 +96,7 @@ ITEM_CODES = {
     "medical_goods": "SAM1",
     "alcoholic_bev": "SEAF",
     "tobacco": "SEGA",
-    "core_services": "SASL5",
+    "core_services": "SASLE",
     "shelter": "SAH1",
     "rent": "SEHA",
     "oer": "SEHC",
@@ -161,7 +161,7 @@ CATEGORY_LABELS = {
 # Def BLS oficial apendada no `description` SQL pra cats com nome curto.
 CATEGORY_BLS_DEFS = {
     "core_goods":    "Commodities less food and energy commodities (BLS item SACL1E)",
-    "core_services": "Services less energy services (BLS item SASL5)",
+    "core_services": "Services less energy services (BLS item SASLE)",
 }
 
 

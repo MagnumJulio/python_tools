@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Por que: valida se a arvore Table 1 (2020+) do RI subitem CSV
 # gera descendants coerentes pros agregados chave (SAF1 food, SA0E energy,
-# SA0L1E core, SASL5 core_services). Prova de conceito Fase 2.
+# SA0L1E core, SASLE core_services). Prova de conceito Fase 2.
 import csv
 from pathlib import Path
 from collections import defaultdict
@@ -84,7 +84,7 @@ def main():
         ("food", "SAF1"),
         ("energy", "SA0E"),
         ("shelter", "SAH1"),
-        ("core_services", "SASL5"),
+        ("core_services", "SASLE"),
         ("medical_care", "SAM"),
     ]:
         desc = descendants(rows, code)
