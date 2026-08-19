@@ -338,85 +338,161 @@ hdr <- createStyle(textDecoration = "bold", fgFill = "#D9E1F2",
 sec <- createStyle(textDecoration = "bold", fgFill = "#305496",
                    fontColour = "white", halign = "left")
 
-# Manual: aba inaugural. Estrutura em seções (2 colunas: termo, explicação).
+# Manual: aba inaugural com texto longo/didático. 2 colunas (termo, explicacao).
+# Linhas de seção têm explicação vazia — são realçadas como cabeçalho.
+mkrow <- function(t, e = "") data.frame(termo = t, explicacao = e,
+                                        stringsAsFactors = FALSE)
 manual <- rbind(
-  data.frame(termo = "HIERARQUIA IBGE (classificação 315)", explicacao = "",
-             stringsAsFactors = FALSE),
-  data.frame(termo = "grupo (nchar=1)",
-             explicacao = "9 grupos top-level. Ex: 1=Alim. e bebidas, 2=Habitação, 5=Transportes, 9=Comunicação. cod_ibge de 1 dígito."),
-  data.frame(termo = "subgrupo (nchar=2)",
-             explicacao = "~24 subgrupos. Ex: 11=Alim. no domicílio, 12=Alim. fora, 22=Combustíveis e energia, 32=Aparelhos eletroeletrônicos, 63=Higiene pessoal."),
-  data.frame(termo = "item (nchar=4)",
-             explicacao = "51 itens. Ex: 1101=Cereais/leguminosas, 2201=Combust. domésticos, 2202=Energia elétrica, 5104=Combust. veículos. É o nível dos núcleos MA/MS/DP."),
-  data.frame(termo = "subitem (nchar=7)",
-             explicacao = "377 subitens. É o único nível com peso Laspeyres direto (V66). Ex: 1103028=Tomate, 5102001=Auto novo, 6203001=Plano de saúde."),
-  data.frame(termo = "", explicacao = ""),
 
-  data.frame(termo = "ABA `mapping` — COLUNAS", explicacao = ""),
-  data.frame(termo = "category_code",
-             explicacao = "Uma das 44 categorias servidas pelo pipeline (headline + 27 recon + 16 sidra_direto). Mesmos nomes que aparecem em ipca_pareto_pesos.csv."),
-  data.frame(termo = "cod_ibge",
-             explicacao = "Código IBGE do componente. Placeholder (TODOS_ITENS / TODOS_SUBITENS / META_NUCLEOS) pras categorias algorítmicas sem lista fixa."),
-  data.frame(termo = "nome",
-             explicacao = "Nome oficial IBGE (prefixado pelo cod_ibge). UTF-8."),
-  data.frame(termo = "nivel",
-             explicacao = "subitem | item | subgrupo | grupo | algoritmico. Segue nchar(cod_ibge)."),
-  data.frame(termo = "peso_mm",
-             explicacao = "Peso Laspeyres mensal (V66) do componente em pp do IPCA total. Muda mês a mês. Soma bate com Laspeyres agregado da categoria."),
-  data.frame(termo = "tipo_mapping",
-             explicacao = "Como a categoria é construída — ver seção `TIPOS DE MAPPING` abaixo."),
-  data.frame(termo = "fonte",
-             explicacao = "Descrição textual da regra ou origem do dado (arquivo de máscara, código SIDRA, seção da NT_57, etc.)."),
-  data.frame(termo = "", explicacao = ""),
+  # === 1. O que é essa planilha =============================================
+  mkrow("1. O QUE É ESSA PLANILHA"),
+  mkrow("Objetivo",
+        "Esta planilha responde a uma pergunta: QUAIS componentes do IPCA (subitens, itens, subgrupos ou grupos publicados pelo IBGE) entram em CADA UMA das 44 categorias analíticas de inflação que o pipeline pareto_ipca produz. É uma foto da composição, com pesos."),
+  mkrow("Para quem serve",
+        "Analistas que precisam auditar de onde vem o número de uma categoria (ex: 'quais 39 subitens compõem alim_in_natura?', 'qual o peso do tomate dentro do núcleo EX0?', 'quantos subitens sobrevivem à exclusão do EX1?'). Também serve pra explicar didática/metodologicamente o que cada agregado quer dizer."),
+  mkrow("Estrutura do arquivo",
+        "Três abas: (1) manual — este texto explicativo. (2) mapping — a planilha em si, 2 730 linhas long, uma linha por par (categoria, componente IBGE). (3) resumo — 38 categorias com contagem de componentes e peso agregado, útil pra ranking rápido."),
+  mkrow("Como foi gerada",
+        "Rodando o script scripts/build_mapping_categoria.R sobre os dados IBGE do mês de referência (T7060, V63+V66 via SIDRA). O script aplica as MESMAS regras usadas pelo pipeline de produção reconstruct_ipca.R — se lá muda, aqui muda também (drift zero por construção)."),
+  mkrow(""),
 
-  data.frame(termo = "ABA `resumo` — COLUNAS", explicacao = ""),
-  data.frame(termo = "category_code", explicacao = "Idem aba mapping."),
-  data.frame(termo = "n_componentes",
-             explicacao = "Quantos códigos IBGE compõem a categoria. `total` = 377 (universo subitens); grupos = 1 (agregado já publicado)."),
-  data.frame(termo = "soma_peso_mm",
-             explicacao = "Soma dos pesos dos componentes. Bate exato com ipca_pareto_pesos.csv pro mesmo mês (validado)."),
-  data.frame(termo = "", explicacao = ""),
+  # === 2. Contexto ==========================================================
+  mkrow("2. CONTEXTO — IPCA E AS AGREGAÇÕES DO BCB"),
+  mkrow("O que é o IPCA",
+        "Índice de Preços ao Consumidor Amplo. Calculado pelo IBGE mensalmente, é o índice OFICIAL de inflação do Brasil (usado pelo Copom nas metas de inflação). Mede a variação de preços de uma cesta ponderada de 377 subitens de bens e serviços consumidos por famílias com renda de 1 a 40 salários mínimos em 16 regiões metropolitanas. Os pesos vêm da POF (Pesquisa de Orçamentos Familiares) — atualmente POF 2017-18, vigente desde jan/2020."),
+  mkrow("O que é uma 'categoria analítica' de inflação",
+        "É um RECORTE do IPCA que ajuda a interpretar o movimento de preços por natureza econômica. Alguns exemplos didáticos: 'serviços' isola inflação de aluguel/plano de saúde/mensalidades escolares (é a parte persistente, ligada a salários e demanda doméstica); 'administrados' isola tarifas de eletricidade/água/combustível (preço regulado, choque exógeno de política pública ou câmbio); 'núcleos' tentam capturar inflação de TENDÊNCIA filtrando ruído/volatilidade (excluindo alimentos in-natura, combustíveis, etc.). O Copom acompanha esse conjunto no Relatório de Política Monetária."),
+  mkrow("Por que o pipeline reconstrói tudo do IBGE",
+        "Porque o BCB publica essas séries em D+1 do release IBGE (via SGS). Reconstruindo do detalhe IBGE (nível subitem), o pareto_ipca entrega os mesmos números no MESMO DIA do release IBGE — ganha 1 dia útil. A metodologia é fiel à NT_57/Dez-2025 do BCB (nota consolidada mais recente sobre núcleos)."),
+  mkrow(""),
 
-  data.frame(termo = "TIPOS DE MAPPING", explicacao = ""),
-  data.frame(termo = "filtro",
-             explicacao = "Seleção direta na máscara por coluna (classe / proc_grau / bens_industriais / is_admin). Ex: alim_in_natura = proc_grau=='in_natura'."),
-  data.frame(termo = "exclusao",
-             explicacao = "Universo total menos exclusões. Núcleos NT_57: EX0/EX3/EX-FE/EX1/ex3_ind. Lista de exclusão vem da NT_57 Sec 2.1.1."),
-  data.frame(termo = "regra_hibrida",
-             explicacao = "Combina filtros positivos + exclusões calibradas contra BCB SGS. Só comerc/ncomerc (frutas→C, laticínios/panificados→NC via RI Dez/2019 Tab.3)."),
-  data.frame(termo = "sidra_direto",
-             explicacao = "Agregado já publicado pelo IBGE (SIDRA classificacao=315), 1 cod_ibge por categoria. Nada é recomputado — só extraído. Ex: grupos G1-G9, alim_fora=12, energia_eletrica=2202, auto_novo=5102001."),
-  data.frame(termo = "algoritmico_item",
-             explicacao = "Sem lista fixa: aplica algoritmo estatístico sobre TODOS os 51 itens. MA (trim 20/80), MS (trim + suavização 12m em 9 itens), DP (repondera por 1/sigma rolling 48m)."),
-  data.frame(termo = "algoritmico_subitem",
-             explicacao = "Sem lista fixa: aplica algoritmo sobre TODOS os 377 subitens. P55 (percentil 55 ponderado), difusao (% subitens com var>0)."),
-  data.frame(termo = "meta",
-             explicacao = "Função de outras categorias. nucleo_medio = média(EX0, EX3, MS, DP, P55). Não tem peso próprio."),
-  data.frame(termo = "", explicacao = ""),
+  # === 3. Hierarquia IBGE ===================================================
+  mkrow("3. HIERARQUIA IBGE (CLASSIFICAÇÃO 315)"),
+  mkrow("Ideia geral",
+        "O IPCA é HIERÁRQUICO. Do topo pra base: 9 GRUPOS → 24 SUBGRUPOS → 51 ITENS → 377 SUBITENS. Todo subitem pertence a exatamente 1 item, 1 subgrupo e 1 grupo — não há sobreposição. O código IBGE (cod_ibge) reflete essa hierarquia: o COMPRIMENTO do código diz o nível, e cada nível prefixa os níveis abaixo."),
+  mkrow("grupo (nchar=1) — 9 códigos",
+        "Categorias top-level do IPCA. Códigos '1' a '9': 1=Alimentação e bebidas, 2=Habitação, 3=Artigos de residência, 4=Vestuário, 5=Transportes, 6=Saúde e cuidados pessoais, 7=Despesas pessoais, 8=Educação, 9=Comunicação. Cada grupo é a raiz de uma sub-árvore."),
+  mkrow("subgrupo (nchar=2) — ~24 códigos",
+        "Recorte intermediário. Os 2 dígitos começam com o dígito do grupo pai. Ex: '11'=Alimentação no domicílio (pai=grupo 1), '12'=Alimentação fora (pai=grupo 1), '22'=Combustíveis e energia (pai=grupo 2 Habitação), '32'=Aparelhos eletroeletrônicos (pai=grupo 3), '63'=Higiene pessoal (pai=grupo 6)."),
+  mkrow("item (nchar=4) — 51 códigos",
+        "Categorias médias, agrupam subitens 'do mesmo tipo'. Prefixo = subgrupo. Ex: '1101'=Cereais/leguminosas/oleaginosas (sub 11), '1103'=Tubérculos/raízes/legumes, '1106'=Frutas, '1107'=Carnes, '2201'=Combustíveis domésticos (gás GLP/encanado), '2202'=Energia elétrica residencial, '5104'=Combustíveis para veículos, '8101'=Cursos regulares. É o NÍVEL EM QUE OS NÚCLEOS MA/MS/DP OPERAM (trim é feito ordenando os 51 itens por variação)."),
+  mkrow("subitem (nchar=7) — 377 códigos",
+        "Nível MAIS granular do IPCA. É o único nível com PESO LASPEYRES DIRETO (V66 na SIDRA). TODAS as agregações Laspeyres (grupos/subgrupos/itens/categorias analíticas) são somas ponderadas de subitens. Prefixo = item. Ex: '1103028'=Tomate (item 1103), '1106017'=Maçã (item 1106), '5102001'=Automóvel novo (item 5102), '5104001'=Gasolina (item 5104), '5104002'=Etanol, '6203001'=Plano de saúde, '8101001'=Ensino fundamental."),
+  mkrow("Como saber o nível de um cod_ibge",
+        "Basta contar os dígitos. A coluna 'nivel' da aba mapping já faz isso pra você: nchar=1 → grupo, nchar=2 → subgrupo, nchar=4 → item, nchar=7 → subitem. Para as categorias algorítmicas (que não têm lista fixa) o nível vira 'algoritmico'."),
+  mkrow(""),
 
-  data.frame(termo = "NOTAS IMPORTANTES", explicacao = ""),
-  data.frame(termo = "Por que só subitens têm peso?",
-             explicacao = "IBGE publica pesos POF apenas no nível subitem (V66). Grupo/subgrupo/item são agregações de baixo pra cima. Por isso o Laspeyres opera em subitem."),
-  data.frame(termo = "Por que soma bate 100?",
-             explicacao = "Todo subitem pertence a exatamente 1 grupo/subgrupo/item, e a soma dos pesos POF é 100pp por construção. `total` = universo cheio = 100."),
-  data.frame(termo = "Categorias sem peso Laspeyres",
-             explicacao = "As 5 categorias algorítmicas (nucleo_ma/ms/dp/p55/difusao) e a meta (nucleo_medio) não têm peso agregado — não são recorte por peso, são resultado de operação estatística."),
-  data.frame(termo = "Máscara: base vs extended",
-             explicacao = "classificacao.csv = POF 2017-18 (377 subitens, usada pra 2020+). classificacao_extended.csv = 478 subitens cobrindo POFs anteriores (2002-03, 2008-09), usada só no seed histórico."),
-  data.frame(termo = "Categorias vs SGS BCB",
-             explicacao = "19 categorias têm série publicada pelo BCB (mean|d| 0.002-0.024pp). As demais (alim in_natura/se/ind, ndur_industr, serv_subj/exsubj, nucleo_medio) não têm SGS público — auditadas por consistência interna."),
-  data.frame(termo = "Refresh do mapping",
-             explicacao = "`Rscript scripts/build_mapping_categoria.R YYYYMM` regenera pra qualquer mês. Regras vêm de reconstruct_ipca.R (drift zero enquanto ninguém edita as regras).")
+  # === 4. Peso Laspeyres ====================================================
+  mkrow("4. O QUE É PESO LASPEYRES"),
+  mkrow("Definição",
+        "Peso Laspeyres = parcela do gasto de uma família típica que vai pra cada subitem, medida pela POF. Ex: peso do subitem 'Tomate' = 0.35 significa que 0.35% do orçamento familiar médio (nas 16 regiões metropolitanas) é gasto com tomate. A soma dos pesos de todos os 377 subitens é 100% por construção."),
+  mkrow("Por que 'mensal' (coluna peso_mm)",
+        "Os pesos POF são fixados pela pesquisa base (POF 2017-18 desde jan/2020), MAS o IBGE renormaliza mensalmente para cobrir substituições de produtos e ajustes técnicos (subitens inseridos/retirados da coleta). Por isso peso_mm (variável V66 da SIDRA) muda pouco de mês a mês, mas muda."),
+  mkrow("Como o peso agrega",
+        "Peso de uma categoria = SOMA dos pesos dos subitens que a compõem. Ex: peso_alim_domicilio (15.6943 em Jun/2026) = soma dos peso_mm dos 159 subitens da classe alimento_domic. Peso do grupo Transportes (20.27) = soma dos pesos de todos os subitens que começam com '5'."),
+  mkrow("Por que a soma da planilha bate com ipca_pareto_pesos.csv",
+        "Porque a lógica é IDÊNTICA à do pipeline. A planilha aplica as mesmas regras que reconstruct_ipca.R usa pra gerar o CSV de pesos servido no SQL corp. Validado nas 38 categorias com peso Laspeyres bem definido: bateu 100% exato em Jun/2026."),
+  mkrow(""),
+
+  # === 5. Aba mapping — colunas =============================================
+  mkrow("5. ABA `mapping` — EXPLICAÇÃO DE CADA COLUNA"),
+  mkrow("category_code",
+        "Nome curto da categoria analítica. Uma das 44 servidas pelo pipeline: total (IPCA cheio), administrados, livres, industriais, servicos, alim_domicilio, alim_in_natura, alim_semi_elab, alim_industr, nucleo_ex0, nucleo_ex3, nucleo_ex1, nucleo_exfe, nucleo_ma, nucleo_ms, nucleo_dp, nucleo_p55, nucleo_medio, difusao, comerc, ncomerc, servicos_subj, servicos_exsubj, ex3_serv, ex3_ind, alim_e_bebidas (=grupo 1), habitacao (=grupo 2), ..., alim_fora (=subgrupo 12), higiene_pessoal (=subgrupo 63), energia_eletrica (=item 2202), passagem_aerea, auto_novo, auto_usado, gasolina. São os mesmos nomes que aparecem em data/ipca_pareto_pesos.csv e data/ipca_pareto_recon.csv."),
+  mkrow("cod_ibge",
+        "Código IBGE do COMPONENTE (não da categoria). Uma linha da planilha representa 1 par (categoria, componente). Ex: linha (alim_in_natura, 1103028) diz 'o subitem 1103028 Tomate entra na categoria alim_in_natura'. Pras 6 categorias algorítmicas que operam sobre TODO o universo sem lista fixa, o cod_ibge vira placeholder: TODOS_ITENS (para MA/MS/DP), TODOS_SUBITENS (para P55/difusao) ou META_NUCLEOS (para nucleo_medio)."),
+  mkrow("nome",
+        "Nome oficial IBGE do componente, prefixado pelo cod_ibge. UTF-8 nativo (acentos corretos). Ex: '1103028.Tomate', '5102001.Automóvel novo', '6203001.Plano de saúde', '1114003.Bebidas alcoólicas'. Pras categorias sidra_direto (grupos/subgrupos), fica só o nome do agregado publicado pelo IBGE (ex: 'Alimentação e bebidas')."),
+  mkrow("nivel",
+        "Nível hierárquico do componente. Valores possíveis: subitem, item, subgrupo, grupo, algoritmico. Determinado por nchar(cod_ibge). 99% das linhas são 'subitem' — só as 16 categorias sidra_direto podem ter outros níveis (a maioria delas usa grupo ou subgrupo agregado)."),
+  mkrow("peso_mm",
+        "Peso Laspeyres MENSAL desse componente em pontos percentuais (pp) do IPCA total, para o mês de referência da planilha. Ex: peso_mm=4.1138 na linha (energia_eletrica, 2202003) significa 'o subitem 2202003 Energia elétrica residencial pesa 4.11% do IPCA em Jun/2026'. Pras categorias algorítmicas fica NA — não há peso Laspeyres bem definido pra elas."),
+  mkrow("tipo_mapping",
+        "Descreve COMO A REGRA DA CATEGORIA FOI CONSTRUÍDA. ATENÇÃO: não descreve o componente individual da linha, descreve a NATUREZA da regra da categoria toda. Ver seção 7 abaixo — é a parte mais sujeita a erro de interpretação."),
+  mkrow("fonte",
+        "Descrição textual da regra ou origem do dado. Serve pra rastreabilidade — dá pra ir direto olhar a máscara ou a seção da nota técnica citada. Exemplos: 'classificacao.csv: proc_grau=in_natura', 'NT_57 Sec 2.1.1: exclui admin + alim_dom', 'SIDRA T7060 classificacao=315, cod=5102001', 'trim 20/80 ponderado sobre TODOS os itens (nchar=4)'."),
+  mkrow(""),
+
+  # === 6. Aba resumo — colunas ==============================================
+  mkrow("6. ABA `resumo` — EXPLICAÇÃO DE CADA COLUNA"),
+  mkrow("category_code",
+        "Idêntico à coluna homônima da aba mapping."),
+  mkrow("n_componentes",
+        "Quantidade de linhas que aquela categoria tem na aba mapping — o TAMANHO da agregação. Ex: total = 377 (universo cheio de subitens); nucleo_ex1 = 264 (excluídos 12 itens voláteis dos 51 possíveis); alim_e_bebidas = 1 (agregado já publicado pelo IBGE, uma única linha SIDRA)."),
+  mkrow("soma_peso_mm",
+        "Soma dos peso_mm dos componentes daquela categoria — o PESO AGREGADO da categoria em pp do IPCA. Ex: soma_peso_mm(administrados) = 26.13pp significa que preços administrados representam 26.13% do IPCA em Jun/2026. Pra categorias algorítmicas fica em branco (NA)."),
+  mkrow(""),
+
+  # === 7. tipo_mapping — armadilha ==========================================
+  mkrow("7. tipo_mapping — ATENÇÃO À ARMADILHA INTERPRETATIVA"),
+  mkrow("Regra de ouro",
+        "TODA linha da planilha é um componente INCLUÍDO na categoria daquela linha. Sempre. Sem exceção. Se um subitem NÃO faz parte da categoria X, ele SIMPLESMENTE NÃO APARECE nas linhas de category_code=X. Não existe 'linha marcada como excluída' — o que ficou de fora não está na planilha."),
+  mkrow("Erro comum a evitar",
+        "Ler 'Ferragens' numa linha com category_code=ex3_ind e tipo_mapping=exclusao e concluir que ferragens foi EXCLUÍDA de ex3_ind. Errado. O que a linha diz é: (1) a categoria ex3_ind é DEFINIDA por exclusão (parte do universo de bens_industriais e remove uma lista de exceções — eletroeletrônicos, auto novo/usado, etanol, cigarro); (2) ferragens SOBREVIVEU à lista de exclusão, portanto ESTÁ INCLUÍDA em ex3_ind. Se ferragens estivesse fora, ela simplesmente não estaria em nenhuma linha de ex3_ind."),
+  mkrow("Como descobrir o que ficou DE FORA",
+        "Se você quer ver o que foi EXCLUÍDO de uma categoria por exclusão (ex: ex3_ind), compare com o universo pai. Filtre category_code=industriais (universo de bens industriais) e category_code=ex3_ind, e faça a diferença de cod_ibge — o que está em industriais mas não em ex3_ind é a lista de exclusão."),
+  mkrow("tipo_mapping = filtro",
+        "REGRA POSITIVA: 'inclua todo componente que satisfaz condição X'. Exemplos: alim_in_natura filtra proc_grau=='in_natura' na máscara → 39 subitens. servicos filtra classe in {servico, alimento_fora} → 68 subitens. duraveis filtra classe=='duravel' → 25 subitens. Se um subitem satisfaz a condição, entra; se não, fica de fora."),
+  mkrow("tipo_mapping = exclusao",
+        "REGRA COMPLEMENTAR: 'pega o universo total (ou um subconjunto amplo) e REMOVE uma lista específica'. Os 5 núcleos por exclusão são assim (NT_57 Sec 2.1.1): EX0 = todo IPCA menos {admin, alim_dom} → 181 subitens; EX3 = idem menos {eletroeletrônicos subgrupo 32, auto novo/usado, etanol, cigarro, serviços exsubjacentes} → 144; EX-FE (COICOP) = todo IPCA menos {alim_dom exceto bebida alcoólica, combustíveis+energia subgrupo 22, óleo lubrificante, combustíveis veículos item 5104} → 210; EX1 = todo IPCA menos 12 itens voláteis (alimentos sazonais + combustíveis) → 264; ex3_ind = bens_industriais menos {eletroeletrônicos, auto novo/usado, etanol, cigarro} → 99."),
+  mkrow("tipo_mapping = regra_hibrida",
+        "COMBINA INCLUSÕES POSITIVAS + EXCLUSÕES ESPECÍFICAS, geralmente calibrada empiricamente contra SGS BCB. Só comerc/ncomerc usam isso. Ex: comerc = !admin & (bens_industriais OU proc_grau in {industr, semi_elab} OU item=1106 frutas) MENOS a lista de laticínios/panificados reclassificados na POF 2017-18. As exceções vêm da RI Dez/2019 Tab.3 — o BCB reclassificou laticínios/panificados de Comercializáveis→Não-Comercializáveis e frutas de NC→C na migração POF 2008-09→2017-18."),
+  mkrow("tipo_mapping = sidra_direto",
+        "CATEGORIA JÁ VEM PRONTA DO IBGE — ZERO recomputação. IBGE publica esses agregados via SIDRA classificacao=315, basta EXTRAIR o cod_ibge correspondente. 16 categorias do pipeline são assim: os 9 grupos (alim_e_bebidas=1, habitacao=2, ..., comunicacao=9), 2 subgrupos (alim_fora=12, higiene_pessoal=63), 1 item (energia_eletrica=2202), 4 subitens (passagem_aerea=5101010, auto_novo=5102001, auto_usado=5102020, gasolina=5104001). Cada uma tem UMA ÚNICA LINHA na aba mapping — o campo 'nivel' reflete o nível do agregado publicado."),
+  mkrow("tipo_mapping = algoritmico_item",
+        "SEM LISTA FIXA de subitens. Aplica algoritmo estatístico sobre TODOS os 51 itens (nchar=4). Nenhum item é 'excluído a priori' — o algoritmo decide mês a mês qual entra no cálculo. Três variantes: MA (Médias Aparadas) = ordena os 51 itens por variação mensal, tira 20% de peso em cada cauda, calcula média ponderada dos 60% centrais. MS (MA Suavizadas) = idem, mas antes suaviza 9 itens listados na NT_57 Tab.5 (Combustíveis dom/veic, Energia elétrica, Transporte público, Serviços pessoais, Fumo, Cursos regulares/diversos, Comunicação) pela média geométrica dos últimos 12 meses. DP (Dupla Ponderação) = repondera cada item por 1/sigma_k, onde sigma_k é o desvio-padrão rolling 48m da diferença (var_item − var_ipca_cheio). Por isso a planilha usa placeholder TODOS_ITENS."),
+  mkrow("tipo_mapping = algoritmico_subitem",
+        "SEM LISTA FIXA. Aplica algoritmo sobre TODOS os 377 subitens. Duas variantes: P55 (Percentil 55 ponderado) = ordena os 377 subitens por variação, encontra o primeiro subitem cujo peso acumulado atinge 55%, retorna a variação DELE (mês a mês é UM subitem diferente). Difusão = conta a % de subitens (sem ponderação) com variação positiva no mês. Placeholder TODOS_SUBITENS."),
+  mkrow("tipo_mapping = meta",
+        "CATEGORIA QUE É FUNÇÃO DE OUTRAS CATEGORIAS. Só o nucleo_medio é assim: média aritmética simples das variações dos 5 núcleos do conjunto novo BCB (EX0, EX3, MS, DP, P55). É uma referência primária que o Copom acompanha no Relatório de Política Monetária. Placeholder META_NUCLEOS."),
+  mkrow(""),
+
+  # === 8. Notas importantes =================================================
+  mkrow("8. NOTAS IMPORTANTES / FAQ"),
+  mkrow("Por que só subitens têm peso individual",
+        "A POF publica pesos apenas no nível SUBITEM (variável V66 no IBGE). Item/subgrupo/grupo são agregações de baixo pra cima — o peso deles é derivado (soma dos subitens filhos). Por isso o Laspeyres opera em subitem: é o único nível com peso 'de origem'."),
+  mkrow("Por que a soma dos pesos bate 100",
+        "Todo subitem pertence a EXATAMENTE 1 grupo, 1 subgrupo e 1 item (hierarquia disjunta, sem sobreposição). A soma dos pesos POF de todos os 377 subitens é 100pp por construção da pesquisa. Consequência: peso_g1 + peso_g2 + ... + peso_g9 = 100. E peso_alim_domicilio + peso_alim_fora + peso_administrados + peso_(demais_servicos) + peso_industriais = 100."),
+  mkrow("Categorias sem peso Laspeyres agregado",
+        "As 6 categorias algorítmicas (nucleo_ma, nucleo_ms, nucleo_dp, nucleo_p55, difusao, nucleo_medio) não têm peso agregado porque não são recorte por peso — são resultado de operação estatística sobre o universo. Ex: pra P55 não faz sentido perguntar 'qual o peso do P55?' — em cada mês, P55 é a variação de UM subitem específico (aquele em que o peso acumulado bate 55%), e esse subitem MUDA de mês pra mês."),
+  mkrow("Um subitem pode aparecer em várias categorias",
+        "Sim, e é o caso mais comum. A planilha tem 2 730 linhas mas o universo tem só 377 subitens únicos — cada subitem aparece em ~7 categorias em média. Exemplo típico: '6203001.Plano de saúde' entra em: total, livres, servicos, servicos_subj, ex3_serv, nucleo_ex0, nucleo_ex3, nucleo_exfe, nucleo_ex1, ncomerc. Grupo 6 (saúde) aparece só como sidra_direto agregado — o subitem em si só aparece nas categorias definidas por regra."),
+  mkrow("Máscara base vs extended",
+        "Esta planilha usa classificacao.csv (máscara BASE, POF 2017-18, 377 subitens) — a que serve pra período 2020+. Existe também classificacao_extended.csv (478 subitens, cobre POFs anteriores 2002-03 e 2008-09), usada só no seed histórico (tabelas SIDRA T2938 + T1419). Se rodar o script apontando MASK_CLASS_PATH_OVR pra máscara extended, algumas categorias mudam ligeiramente de composição (aparecem subitens extintos: feijão branco, chuchu, cinema, etc.)."),
+  mkrow("Categorias com SGS BCB vs sem",
+        "Das 27 categorias reconstruídas, 19 têm série publicada pelo BCB (SGS) e são auditadas com mean|d| < 0.025pp — bate quase exato. Não têm SGS público: alim_in_natura, alim_semi_elab, alim_industr, ndur_industr, ex3_serv (versão estrita sem alim_fora), nucleo_medio. Estas são auditadas por CONSISTÊNCIA INTERNA — ex: alim_in + alim_se + alim_ind ponderado tem que dar alim_dom."),
+  mkrow("Refresh do mapping pra outro mês",
+        "Rscript scripts/build_mapping_categoria.R YYYYMM regenera a planilha pra qualquer mês publicado. Ex: 'Rscript scripts/build_mapping_categoria.R 202507' gera pra Jul/2025. Sem argumento, usa o último mês publicado (mês passado). A COMPOSIÇÃO (quem entra em cada categoria) é essencialmente estável dentro de uma POF — só os pesos mudam mês a mês."),
+  mkrow("Fonte da metodologia",
+        "Fonte primária: BCB Nota Técnica NT_57 (Dez/2025) — 'Núcleos de inflação, séries por exclusão e outras agregações analíticas do IPCA'. É a nota consolidada mais recente do BC. Regras específicas de classificação (classe=alimento_domic/servico/duravel/etc.) vêm da RI Dez/2019 Tab.5. Reclassificações C↔NC na migração POF vêm da RI Dez/2019 Tab.3. Núcleo P55 (do conjunto novo BCB) vem do estudo EE102/2021 do próprio BC."),
+  mkrow("Onde ver os arquivos-fonte",
+        "Máscaras: pareto_ipca/scripts/ipca_masks/{classificacao.csv, classificacao_extended.csv, administrados.csv}. Regras algorítmicas: pareto_ipca/scripts/reconstruct_ipca.R (linhas 100-175 têm as listas hardcoded EX-FE/EX1/MS/reclassificações C↔NC; linhas 466-780 têm as filtragens por categoria). Notas técnicas: pareto_ipca/NT_57_202512.pdf, EE102_*.pdf, ri201912b7p.pdf.")
 )
 
 addWorksheet(wb, "manual")
 writeData(wb, "manual", manual, headerStyle = hdr)
 freezePane(wb, "manual", firstRow = TRUE)
-setColWidths(wb, "manual", cols = 1:2, widths = c(38, 110))
+setColWidths(wb, "manual", cols = 1:2, widths = c(38, 130))
+
+# wrapText na coluna de explicação (pra Excel quebrar linha automaticamente).
+wrap_style <- createStyle(wrapText = TRUE, valign = "top")
+addStyle(wb, "manual", style = wrap_style,
+         rows = seq_len(nrow(manual)) + 1L, cols = 2,
+         gridExpand = TRUE, stack = TRUE)
+
 # Realça linhas de seção (explicação vazia) com azul escuro.
 sec_rows <- which(manual$explicacao == "") + 1L  # +1 pelo header
 addStyle(wb, "manual", style = sec, rows = sec_rows, cols = 1:2,
          gridExpand = TRUE, stack = TRUE)
+
+# Altura de linha adaptada ao tamanho do texto (≈ 15pt por linha lógica,
+# considerando ~155 chars por linha na coluna B com width=130).
+row_heights <- sapply(manual$explicacao, function(x) {
+  if (!nzchar(x)) return(24)  # seção
+  n_lines <- max(1L, ceiling(nchar(x) / 145))
+  min(300, 15 * n_lines + 8)
+})
+setRowHeights(wb, "manual", rows = seq_len(nrow(manual)) + 1L,
+              heights = row_heights)
 
 addWorksheet(wb, "mapping")
 writeData(wb, "mapping", out, headerStyle = hdr, withFilter = TRUE)
