@@ -319,6 +319,22 @@ corrigido), o próximo run vai vir certo.
 
 ---
 
+## Priority subset load (22 cats dashboard)
+
+Comando pra full re-load histórico só das 22 cats principais (16 base + 6 custom = 66 séries), em vez das 49 completas. Útil quando só o dashboard interessa e o custo de reescrever as outras 27 cats é desperdício.
+
+**Pré-req**: pipeline R full antes (`fetch_bls_cpiu` + `fetch_bls_pesos` + `build_custom_aggregations`).
+
+```powershell
+python script_itau/load_cpius_to_sql.py --only all_items,food,energy,core,core_goods,new_vehicles,used_cars_trucks,core_services,shelter,oer,rent,lodging_away,medical_care,transportation_services,airline_fares,car_truck_rental,core_ex_oer,cpi_ex_oer,core_services_ex_shelter,supercore_powell_old,super_super_core,core_services_ex_volatiles
+```
+
+Confirma `Confirma gravacao de ate 66 series no SQL? [s/N]` → `s`.
+
+Cats na ordem: CPI geral, Food, Energy, Core CPI, Core goods, New vehicles, Used cars/trucks, Core services (SASLE), Shelter, OER, RPR (`rent`), Lodging away, Health care (`medical_care`/SAM), Transportation services, Airline fares, Car & truck rental, Core ex OER, CPI ex OER, Core services ex rent of shelter, Core services ex RPR & OER (`supercore_powell_old`), Super super core, Core services ex volatiles.
+
+---
+
 ## Manutenção mensal (após BLS soltar novo release)
 
 BLS solta CPI-U mensalmente ~10-15 do mês seguinte (release calendar em

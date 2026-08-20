@@ -81,6 +81,50 @@ Bias residual pós-fix vs Haver (super_super_core mm SA ~0.01pp médio / max 0.0
 
 ---
 
+## Passo 1e — Priority subset load (22 cats dashboard) — ALTERNATIVA
+
+Se quiser reescrever histórico só das cats que aparecem no dashboard/análise (em vez das 49 completas), usar essa lista curada de 22 cats (16 base + 6 custom = 66 séries). Sub-total ~⅓ das linhas EAV do full load.
+
+```powershell
+# Regenera CSVs primeiro (pré-req de qualquer load, mesmo dos Passos 1a/1c/1e)
+Rscript scripts/fetch_bls_cpiu.R
+Rscript scripts/fetch_bls_pesos.R
+Rscript scripts/build_custom_aggregations.R
+
+# Full re-load priority subset (jan/2000 → hoje)
+python script_itau/load_cpius_to_sql.py --only all_items,food,energy,core,core_goods,new_vehicles,used_cars_trucks,core_services,shelter,oer,rent,lodging_away,medical_care,transportation_services,airline_fares,car_truck_rental,core_ex_oer,cpi_ex_oer,core_services_ex_shelter,supercore_powell_old,super_super_core,core_services_ex_volatiles
+```
+
+Confirma `Confirma gravacao de ate 66 series no SQL? [s/N]` → `s`.
+
+**Mapa cat → conceito** (na ordem do comando):
+| category_code | conceito | tipo |
+|---|---|---|
+| `all_items` | CPI geral | base |
+| `food` | Food | base |
+| `energy` | Energy | base |
+| `core` | Core CPI (ex food+energy) | base |
+| `core_goods` | Core goods | base |
+| `new_vehicles` | New vehicles | base |
+| `used_cars_trucks` | Used cars/trucks | base |
+| `core_services` | Core services (SASLE) | base |
+| `shelter` | Shelter | base |
+| `oer` | OER | base |
+| `rent` | RPR (rent of primary residence) | base |
+| `lodging_away` | Lodging away from home | base |
+| `medical_care` | Health care (SAM) | base |
+| `transportation_services` | Transportation services | base |
+| `airline_fares` | Airline fares | base |
+| `car_truck_rental` | Car and truck rental | base |
+| `core_ex_oer` | Core ex OER | custom |
+| `cpi_ex_oer` | CPI ex OER | custom |
+| `core_services_ex_shelter` | Core services ex rent of shelter | custom |
+| `supercore_powell_old` | Core services ex RPR & OER (Powell antigo) | custom |
+| `super_super_core` | Super super core | custom |
+| `core_services_ex_volatiles` | Core services ex volatiles | custom |
+
+---
+
 ## Passo 2 — Update do release novo (padrão mensal)
 
 ```powershell
