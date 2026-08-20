@@ -91,7 +91,7 @@ ITEM_CODES = {
     "apparel": "SAA",
     "new_vehicles": "SETA01",
     "used_cars_trucks": "SETA02",
-    "car_truck_rental": "SETA03",
+    "car_truck_rental": "SETA04",
     "medical_care": "SAM",
     "medical_goods": "SAM1",
     "alcoholic_bev": "SEAF",

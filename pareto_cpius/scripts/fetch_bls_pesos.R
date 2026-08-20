@@ -99,12 +99,19 @@ ri_mat <- as.matrix(base_ri[, cats])
 storage.mode(ri_mat) <- "numeric"
 
 # Por que: pra cada mes, escolhe base_year = year(date)-1 (peso publicado em
-# Dez do ano anterior). Excecao: pra meses do ano y=min(annual$year) (2000)
-# e do primeiro ano com dados mas sem base disponivel, usa o proprio ano
-# como fallback (peso vigente na epoca).
+# Dez do ano anterior). Excecao 1: Dez de ano y com RI publicado -> usa y
+# como base (identidade: ratio=1, w = RI direto). Ancora Dez/y do custom
+# aggregation depende dessa igualdade — se cair no projetado y-1 + ratio,
+# renorm nossa (soma top-3 = 100) diverge do publicado BLS e enviesa toda
+# a trajetoria custom (visto em super_super_core 2025-2026, ~0.03pp mm SA).
+# Excecao 2: pra meses do ano y=min(annual$year) sem base y-1 disponivel,
+# fallback pro proprio ano.
 anos_base <- as.integer(rownames(ri_mat))
 choose_base <- function(m_date) {
-  y <- as.integer(format(m_date, "%Y"))
+  y  <- as.integer(format(m_date, "%Y"))
+  mo <- as.integer(format(m_date, "%m"))
+  # Dez de y com RI publicado: identidade
+  if (mo == 12L && y %in% anos_base) return(y)
   cand <- y - 1L
   if (cand %in% anos_base) return(cand)
   # fallback: primeiro ano disponivel >= y (ou ultimo <= y-1)

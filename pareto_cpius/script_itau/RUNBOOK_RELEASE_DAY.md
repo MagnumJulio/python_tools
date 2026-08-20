@@ -37,6 +37,50 @@ Depois de HOJE, próximos releases usam só Passo 2.
 
 ---
 
+## Passo 1b — Full re-load pós-fix SETA03→SETA04 car_truck_rental (⚠️ SÓ HOJE)
+
+Bug análogo ao SASL5 achado 2026-08-20: `car_truck_rental` estava fetching **SETA03 = Leased cars and trucks** em vez de **SETA04 = Car and truck rental**. Fix aplicado em `quick_update/update_cpius_lean.py` + `scripts/bls_maps/cpiu_table_1.csv` (reconstruct_cpius.py já estava certo — mesmo padrão SASL5, fix não propagou). Validado contra Haver: 11 de 12 mm SA batem exato pós-fix.
+
+**Bônus:** SETA04 tem 318 obs desde 2000-01, contra 258 do SETA03 (começava só 2001-12) — 60 meses a mais de história.
+
+```powershell
+# 1c. Regenera CSVs (mesmo passo do 1a — pipeline R lê cpiu_table_1.csv atualizado)
+Rscript scripts/fetch_bls_cpiu.R
+Rscript scripts/fetch_bls_pesos.R
+Rscript scripts/build_custom_aggregations.R
+
+# 1d. Full re-load só da cat car_truck_rental (jan/2000 → hoje)
+python script_itau/load_cpius_to_sql.py --only car_truck_rental
+```
+
+Confirma `Confirma gravacao de ate 3 series no SQL? [s/N]` → `s`.
+
+Não afeta customs (nenhuma das 8 recipes usa car_truck_rental).
+
+---
+
+## Passo 1d — Full re-load pós-fix pesos Dez (⚠️ SÓ HOJE)
+
+Bug em `scripts/fetch_bls_pesos.R:106-121` achado 2026-08-20: `choose_base` sempre retornava `y-1` como base, então pra Dez/2025 usava `RI(Dez/2024) × I(Dez/2025)/I(Dez/2024) + renorm`, divergindo do RI publicado pra 2025 (Table 1). Fix: se `m` é Dez de ano `y` e `y ∈ anos_base`, retorna `y` (identidade, ratio=1, w=RI publicado direto). Validado: 41 cats bateram exato com BLS Table 1 (super_super_core weight passou de 18.0259 → 17.5950, off era +0.43pp).
+
+**Impacto na corp SQL**: `update_cpius_lean.py` usa Dez-anchor Laspeyres (`wrow_p = peso_wide.loc[pivot]`), então o peso Dez/2025 é pivô pra todo 2026. Custom aggregations (8 recipes) recebem o fix cascateado. Weight rows das 41 base cats no SQL também mudam em Dez de cada ano — precisam full re-load histórico das 49 cats.
+
+```powershell
+# 1e. Regenera CSVs (pipeline R full, mesmo passo 1a/1c)
+Rscript scripts/fetch_bls_cpiu.R
+Rscript scripts/fetch_bls_pesos.R
+Rscript scripts/build_custom_aggregations.R
+
+# 1f. Full re-load histórico das 49 cats (jan/2000 → hoje)
+python script_itau/load_cpius_to_sql.py --only all
+```
+
+Confirma `Confirma gravacao de ate 147 series no SQL? [s/N]` → `s`.
+
+Bias residual pós-fix vs Haver (super_super_core mm SA ~0.01pp médio / max 0.03pp; core_services_ex_shelter ~0.003pp médio / max 0.06pp) é padrão BLS (renorm top-3=100 vs BLS internal, precisão de índice unrounded) — não vira pra zero. Checagem 2026-08-20: série nativa `SASL2RS` (Services less rent of shelter) bate MUITO pior que nosso derivado (max 0.30pp vs Haver, ex.: Jan/26 -0.30pp, Mai/26 +0.30pp) — Haver não serve SASL2RS, nosso derivado é o mais fiel.
+
+---
+
 ## Passo 2 — Update do release novo (padrão mensal)
 
 ```powershell
@@ -46,7 +90,7 @@ python quick_update/update_cpius_lean.py --cats all --simulate
 
 Confirmar no log:
 - `API key ON`
-- `[fetch] concluido: 98/98 series c/ dados (0 vazias)` (49 cats × 2 sa_flag)
+- `[fetch] concluido: 82/82 series c/ dados (0 vazias)` (41 base cats × 2 sa_flag; customs derivam via Laspeyres, não vão pro fetch)
 - `ultimo mes idx BLS = 2026-07` ← **o novo release**
 - Nenhum `[WARN] RI_BASE_DATE`
 - `[simulate] OPT_Macro_Series_2 = 147 rows`

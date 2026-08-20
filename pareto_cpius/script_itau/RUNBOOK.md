@@ -36,8 +36,8 @@ constante (sobrescreve o renorm ~99.9997 do CSV). Weight é gravado 1× pareado 
 o idx via `series_name=f"{label} (Index)"` — frontend casa Weight ao idx via
 `series_name+country+indicator`.
 
-**Totais servidos**: 47 categorias (39 base + 8 custom) × 3 séries = **141 séries**
-(~44 700 linhas EAV). As 8 custom aggregations são derivadas via álgebra Laspeyres
+**Totais servidos**: 49 categorias (41 base + 8 custom) × 3 séries = **147 séries**
+(~46 500 linhas EAV). As 8 custom aggregations são derivadas via álgebra Laspeyres
 em `scripts/build_custom_aggregations.R` a partir do `recon.csv` + `pesos.csv`.
 Proveniência gravada em **`bls_code`** com formato simplificado (`CPIUS:{cat}`, um
 único code por categoria — a distinção idx vs Weight sai de `series_name`+`data_type`,
@@ -79,18 +79,18 @@ Requer: **Python 3** com `openpyxl` (`pip install openpyxl`) pra parsear os xlsx
 
 ## Estágio 1 — `--dry-run` (zero conexão SQL)
 
-**Objetivo:** confirmar que os 4 CSVs são lidos OK e a lista de 47 categorias
-(39 base + 8 custom) × 2 sa_flags + Weight está correta. Não toca SQL, não
+**Objetivo:** confirmar que os 4 CSVs são lidos OK e a lista de 49 categorias
+(41 base + 8 custom) × 2 sa_flags + Weight está correta. Não toca SQL, não
 importa `opt_utils`.
 
 ```bash
 python script_itau/load_cpius_to_sql.py --dry-run
 ```
 
-**Sucesso:** imprime "78 (categoria, sa_flag) combinacoes" (idx base, 39 × 2)
-+ "39 categorias com Weight (RI BLS)" + "8 agregacoes custom + NSA/SA" +
-"8 Weights custom derivados". Lista 47 cats × [NSA idx, SA idx, Weight] =
-~141 itens, cada um com N obs (~317 desde jan/2000). As 8 custom aparecem com
+**Sucesso:** imprime "82 (categoria, sa_flag) combinacoes" (idx base, 41 × 2)
++ "41 categorias com Weight (RI BLS)" + "8 agregacoes custom + NSA/SA" +
+"8 Weights custom derivados". Lista 49 cats × [NSA idx, SA idx, Weight] =
+~147 itens, cada um com N obs (~317 desde jan/2000). As 8 custom aparecem com
 tag `[CUSTOM]`. Imprime também 1 `bls_code` por cat: `CPIUS:{cat}` (sem
 sufixo `/Index`).
 
@@ -131,7 +131,7 @@ primeira carga).
 ## Estágio 3 — smoke test (`--only all_items,core`)
 
 **Objetivo:** gravar 6 séries (2 categorias × [NSA idx + SA idx + Weight]) e
-verificar no SSMS antes de soltar as 141 séries.
+verificar no SSMS antes de soltar as 147 séries.
 
 ```bash
 python script_itau/load_cpius_to_sql.py --only all_items,core
@@ -191,9 +191,9 @@ WHERE bls_code IN ('CPIUS:all_items', 'CPIUS:core');
 
 ---
 
-## Estágio 4 — carga completa (47 categorias × 3 séries = 141)
+## Estágio 4 — carga completa (49 categorias × 3 séries = 147)
 
-**Objetivo:** gravar até 141 séries (39 base + 8 custom, cada uma × [NSA idx,
+**Objetivo:** gravar até 147 séries (41 base + 8 custom, cada uma × [NSA idx,
 SA idx, Weight]). Re-roda as 6 do Estágio 3 — `replace=True` apaga dados
 antigos antes do reinsert, sem duplicar. Antes do main loop,
 `_migrate_cpius_to_current` normaliza qualquer linha CPIUS antiga (haver_code
@@ -204,14 +204,14 @@ formato atual.
 python script_itau/load_cpius_to_sql.py
 ```
 
-Confirma `Confirma gravacao de ate 141 series no SQL? [s/N]` → `s`.
+Confirma `Confirma gravacao de ate 147 series no SQL? [s/N]` → `s`.
 
 **Verificação:**
 ```sql
 SELECT data_type, COUNT(*) AS n_series
 FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'CPIUS:%'
 GROUP BY data_type;
--- esperado: NSA=47, SA=47, Weight=47 (total 141)
+-- esperado: NSA=49, SA=49, Weight=49 (total 147)
 
 -- Confirma que não sobrou row com formato antigo:
 SELECT COUNT(*) AS n_stale FROM OPT_Macro_Series_2
@@ -241,9 +241,9 @@ FROM OPT_Macro_Series_Data_2 d
 JOIN OPT_Macro_Series_2 s ON s.series_id = d.series_id
 WHERE s.bls_code LIKE 'CPIUS:%'
 GROUP BY s.data_type;
--- NSA:    47 séries × ~316-318 obs
--- SA:     47 séries × ~316-318 obs
--- Weight: 47 séries × ~316-317 obs
+-- NSA:    49 séries × ~316-318 obs
+-- SA:     49 séries × ~316-318 obs
+-- Weight: 49 séries × ~316-317 obs
 ```
 
 **Cleanup de rows orphan de var** (se rodaram versão anterior do loader com
