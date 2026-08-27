@@ -10,8 +10,8 @@
 #   OPT_Macro_Series_Data_2.csv    - long EAV (1 linha por (serie, mes))
 #
 # Uso:
-#   cd pareto_ipca
-#   python script_itau/simulate_pareto_to_sql.py             # NSA so
+#   cd pareto_ipca15
+#   python script_itau/simulate_pareto_to_sql.py             # idx NSA + Weight
 #   python script_itau/simulate_pareto_to_sql.py --only livres,nucleo_ex0
 #   python script_itau/simulate_pareto_to_sql.py --preview 20  # imprime primeiras N linhas
 
@@ -23,7 +23,6 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-VAR_CSV  = ROOT / "data" / "ipca15_pareto_recon.csv"
 IDX_CSV  = ROOT / "data" / "ipca15_pareto_indice.csv"
 PESO_CSV = ROOT / "data" / "ipca15_pareto_pesos.csv"
 OUT_DIR  = Path(__file__).resolve().parent / "sim_output"
@@ -63,6 +62,8 @@ CATEGORY_LABELS = {
 # Namespace IPCA15 estritamente disjunto do IPCA cheio (bls_code, indicator,
 # series_name). Mesmo padrao do pareto_ipca — bls_code unico por cat, sem
 # sufixo /Index. haver_code fica NULL nos INSERTs novos.
+# Sync 2026-08-27: var (NSA+SA) removida. Cada cat vira 1-2 rows: idx NSA
+# + opc. Weight (1x, pareado com idx).
 CODE = "IPCA15:{cat}"
 
 SERIES_COLS = ["series_id", "country", "subject", "indicator", "series_name",
@@ -180,15 +181,11 @@ def main():
 
     only = set(args.only.split(",")) if args.only else None
 
-    print(f"[1] Lendo {VAR_CSV.relative_to(ROOT)}...")
-    var_series = _load_csv_long(VAR_CSV, "value")
-    print(f"    {len(var_series)} categorias")
-
-    print(f"[2] Lendo {IDX_CSV.relative_to(ROOT)}...")
+    print(f"[1] Lendo {IDX_CSV.relative_to(ROOT)}...")
     idx_series = _load_csv_long(IDX_CSV, "index")
     print(f"    {len(idx_series)} categorias")
 
-    print(f"[3] Lendo {PESO_CSV.relative_to(ROOT)} (opcional)...")
+    print(f"[2] Lendo {PESO_CSV.relative_to(ROOT)} (opcional)...")
     peso_series: dict[str, pd.Series] = {}
     if PESO_CSV.exists():
         peso_series = _load_csv_long(PESO_CSV, "value")
@@ -196,7 +193,7 @@ def main():
     else:
         print("    [WARN] nao encontrado — pesos nao serao carregados. Rode o pipeline R primeiro.")
 
-    cats = sorted(set(var_series) & set(idx_series))
+    cats = sorted(idx_series)
     if only:
         cats = [c for c in cats if c in only]
     missing_label = [c for c in cats if c not in CATEGORY_LABELS]
@@ -208,19 +205,12 @@ def main():
     for c in cats:
         label = CATEGORY_LABELS[c]
         label_idx = f"{label} (Indice)"
-        sv, si = var_series[c], idx_series[c]
+        si = idx_series[c]
         sp = peso_series.get(c)
         bls = CODE.format(cat=c)
-        peso_info = f"Weight x2={len(sp):4d}" if sp is not None else "Weight=N/A "
-        print(f"  - {label:45s}  var={len(sv):4d}   idx={len(si):4d}   {peso_info}")
+        peso_info = f"Weight={len(sp):4d}" if sp is not None else "Weight=N/A "
+        print(f"  - {label:45s}  idx={len(si):4d}   {peso_info}")
 
-        sim_sidra_to_sql(
-            series=sv, country="BR", subject="Prices", indicator="IPCA-15",
-            series_name=label, data_type="NSA", frequency="M",
-            description=f"{label} - Variacao mensal (%) - IPCA-15 recon IBGE-only via NT_57/Dez-2025",
-            bls_code=bls,
-            session=session,
-        )
         sim_sidra_to_sql(
             series=si, country="BR", subject="Prices", indicator="IPCA-15",
             series_name=label_idx, data_type="NSA", frequency="M",
@@ -229,22 +219,12 @@ def main():
             session=session,
         )
         if sp is not None:
-            # Weight duplicado (sync 2026-07-17): mesmo array de peso gravado
-            # 2x — series_name=label (par com var) e series_name=label (Indice)
-            # (par com idx). Frontend capta o Weight via casamento de
-            # series_name+country+indicator, trocando so o data_type. Ambos
-            # compartilham o mesmo bls_code (sync 2026-07-27: 1 code por cat).
-            sim_sidra_to_sql(
-                series=sp, country="BR", subject="Prices", indicator="IPCA-15",
-                series_name=label, data_type="Weight", frequency="M",
-                description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com var",
-                bls_code=bls,
-                session=session,
-            )
+            # Sync 2026-08-27: Weight gravado 1x, pareado so com o idx via
+            # series_name=label_idx.
             sim_sidra_to_sql(
                 series=sp, country="BR", subject="Prices", indicator="IPCA-15",
                 series_name=label_idx, data_type="Weight", frequency="M",
-                description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com idx",
+                description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres)",
                 bls_code=bls,
                 session=session,
             )

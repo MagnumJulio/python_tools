@@ -1,14 +1,21 @@
 #!/usr/bin/env python
 # load_pareto_to_sql.py
-# Carrega as 44 categorias do pareto_ipca (variacao + indice + peso) na base SQL
-# corp (OPT_Macro_Series_2 / OPT_Macro_Series_Data_2), seguindo o mesmo padrao do
+# Carrega as 44 categorias do pareto_ipca (indice + peso) na base SQL corp
+# (OPT_Macro_Series_2 / OPT_Macro_Series_Data_2), seguindo o mesmo padrao do
 # sidra_itau.ipynb. Pre-requisito: pipeline R ja rodou e gerou
-# data/ipca_pareto_recon.csv e data/ipca_pareto_indice.csv.
+# data/ipca_pareto_indice.csv (e opcionalmente data/ipca_pareto_pesos.csv).
+#
+# Sync 2026-08-27: variacao mensal (NSA+SA) foi removida do SQL — mesma decisao
+# do CPI-US 2026-07-20. Motivo: var nao tem uso downstream (consumo deriva do
+# idx quando precisa) e cada cat sobia 2-4 rows desnecessarias, atrasando o
+# load. Cada categoria agora vira ate 3 series: idx NSA, idx SA (com --sa) e
+# Weight (1x, pareado com idx). Rows de var pre-existentes no SQL corp ficam
+# orphan — cleanup separado por escopo.
 #
 # Uso (na maquina corp, com opt_utils disponivel):
 #   cd pareto_ipca
-#   python script_itau/load_pareto_to_sql.py            # NSA so
-#   python script_itau/load_pareto_to_sql.py --sa       # NSA + SA (X-13)
+#   python script_itau/load_pareto_to_sql.py            # idx NSA so
+#   python script_itau/load_pareto_to_sql.py --sa       # idx NSA + SA (X-13)
 #   python script_itau/load_pareto_to_sql.py --dry-run  # so lista o que faria
 
 from __future__ import annotations
@@ -25,7 +32,6 @@ if TYPE_CHECKING:
     from opt_utils.database import SQLConnector  # corp-only; import preguicoso em main()
 
 ROOT     = Path(__file__).resolve().parent.parent
-VAR_CSV  = ROOT / "data" / "ipca_pareto_recon.csv"
 IDX_CSV  = ROOT / "data" / "ipca_pareto_indice.csv"
 PESO_CSV = ROOT / "data" / "ipca_pareto_pesos.csv"
 
@@ -82,10 +88,9 @@ CATEGORY_LABELS = {
 }
 
 # Sync 2026-07-27: bls_code colapsado pra 1 unico formato IPCA:{cat} — sem
-# sufixo /Index. Analogo ao CPI-US 2026-07-20. A distincao var-side vs
-# idx-side (e Weight companheiro) sai de series_name + data_type; nao ha mais
-# 2 codes por cat. Todas as 4-6 rows por cat (var NSA, idx NSA, Weight x2,
-# opc. var SA + idx SA) compartilham o mesmo bls_code.
+# sufixo /Index. Analogo ao CPI-US 2026-07-20. A distincao idx vs Weight sai
+# de data_type; series_name diferencia rows entre cats. Todas as 1-3 rows por
+# cat (idx NSA, opc. idx SA, opc. Weight) compartilham o mesmo bls_code.
 #
 # haver_code (legado) fica NULL nos INSERTs novos e eh setado explicitamente
 # pra NULL na migracao. _migrate_pareto_to_current cobre 3 estados possiveis:
@@ -93,6 +98,9 @@ CATEGORY_LABELS = {
 #   (1) intermediario: bls_code LIKE 'IPCA:%/Index' (migrado em 2026-07-17
 #                                                     mas ainda com sufixo)
 #   (2) alvo:    bls_code = 'IPCA:{cat}' (formato atual — no-op idempotente)
+# Rows de var (data_type NSA/SA com series_name=label sem "(Indice)") pre-
+# existentes ficam orphan apos o sync 2026-08-27 — nao serao apagadas aqui;
+# cleanup separado por escopo.
 CODE = "IPCA:{cat}"
 
 
@@ -362,15 +370,11 @@ def main():
 
     only = set(args.only.split(",")) if args.only else None
 
-    print(f"[1] Lendo {VAR_CSV.relative_to(ROOT)}...")
-    var_series = _load_csv_long(VAR_CSV, "value")
-    print(f"    {len(var_series)} categorias")
-
-    print(f"[2] Lendo {IDX_CSV.relative_to(ROOT)}...")
+    print(f"[1] Lendo {IDX_CSV.relative_to(ROOT)}...")
     idx_series = _load_csv_long(IDX_CSV, "index")
     print(f"    {len(idx_series)} categorias")
 
-    print(f"[3] Lendo {PESO_CSV.relative_to(ROOT)} (opcional)...")
+    print(f"[2] Lendo {PESO_CSV.relative_to(ROOT)} (opcional)...")
     peso_series: dict[str, pd.Series] = {}
     if PESO_CSV.exists():
         peso_series = _load_csv_long(PESO_CSV, "value")
@@ -378,7 +382,7 @@ def main():
     else:
         print("    [WARN] nao encontrado — pesos nao serao carregados. Rode o pipeline R primeiro.")
 
-    cats = sorted(set(var_series) & set(idx_series))
+    cats = sorted(idx_series)
     if only:
         cats = [c for c in cats if c in only]
     missing_label = [c for c in cats if c not in CATEGORY_LABELS]
@@ -390,12 +394,11 @@ def main():
         for c in cats:
             label = CATEGORY_LABELS[c]
             sp = peso_series.get(c)
-            peso_info = f"Weight x2: {len(sp)} obs" if sp is not None else "sem Weight"
-            print(f"  - {label:45s}  var: {len(var_series[c])} obs   "
-                  f"idx: {len(idx_series[c])} obs   {peso_info}")
+            peso_info = f"Weight: {len(sp)} obs" if sp is not None else "sem Weight"
+            print(f"  - {label:45s}  idx: {len(idx_series[c])} obs   {peso_info}")
             print(f"    bls_code: {CODE.format(cat=c)}")
             if args.sa:
-                print(f"  - {label + ' (SA)':45s}  var/idx dessazonalizados (X-13)")
+                print(f"  - {label + ' (SA)':45s}  idx dessazonalizado (X-13)")
         return
 
     from opt_utils.database import SQLConnector  # import preguicoso (corp-only)
@@ -403,7 +406,7 @@ def main():
     try:
         # Comprimento maximo das descricoes que vamos inserir (audita VARCHAR).
         max_desc = max(
-            len(f"{CATEGORY_LABELS[c]} - Variacao mensal (%) - recon IBGE-only via NT_57/Dez-2025")
+            len(f"{CATEGORY_LABELS[c]} - Indice (dez/2006=100) - recon IBGE-only via NT_57/Dez-2025")
             for c in cats
         )
         ok = _preflight(session, max_desc)
@@ -420,10 +423,9 @@ def main():
         _migrate_pareto_to_current(session, set(cats))
 
         if not args.no_confirm:
+            # idx NSA por cat + idx SA opcional (--sa) + Weight 1x (so cats com peso).
             n_peso = sum(1 for c in cats if c in peso_series)
-            # Convencao 2026-07-17: peso duplicado (label + label Indice), por
-            # isso n_peso × 2. Var+idx multiplicam por 2 se --sa (NSA + SA).
-            n_writes = len(cats) * 2 * (2 if args.sa else 1) + n_peso * 2
+            n_writes = len(cats) * (2 if args.sa else 1) + n_peso
             resp = input(f"\nConfirma gravacao de ate {n_writes} series no SQL? [s/N] ").strip().lower()
             if resp != "s":
                 sys.exit("[ABORT] confirmacao negada.")
@@ -431,25 +433,15 @@ def main():
         for c in cats:
             label = CATEGORY_LABELS[c]
             label_idx = f"{label} (Indice)"
-            sv = var_series[c]
             si = idx_series[c]
             sp = peso_series.get(c)
             bls = CODE.format(cat=c)
             print(f"\n--- {label} ({c}) ---")
-            print(f"    var: {len(sv)} obs {sv.index.min().date()} -> {sv.index.max().date()}")
             print(f"    idx: {len(si)} obs (base 100 em dez/2006)")
             if sp is not None:
-                print(f"    Weight x2: {len(sp)} obs {sp.index.min().date()} -> {sp.index.max().date()}")
+                print(f"    Weight: {len(sp)} obs {sp.index.min().date()} -> {sp.index.max().date()}")
 
-            # 1) Variacao mensal NSA (lado label)
-            sidra_to_sql(
-                series=sv, country="BR", subject="Prices", indicator="IPCA",
-                series_name=label, data_type="NSA", frequency="M",
-                description=f"{label} - Variacao mensal (%) - recon IBGE-only via NT_57/Dez-2025",
-                bls_code=bls,
-                session=session, replace=True,
-            )
-            # 2) Indice NSA (lado Indice)
+            # 1) Indice NSA
             sidra_to_sql(
                 series=si, country="BR", subject="Prices", indicator="IPCA",
                 series_name=label_idx, data_type="NSA", frequency="M",
@@ -457,47 +449,24 @@ def main():
                 bls_code=bls,
                 session=session, replace=True,
             )
-            # 3) Weight duplicado (sync 2026-07-17): grava 2 vezes com o mesmo
-            # array de valores, pareado por series_name — o frontend capta o
-            # peso via casamento de series_name + country + indicator, trocando
-            # apenas data_type. Um Weight pareia com o lado label (var), outro
-            # com o lado Indice (idx). Ambos compartilham o mesmo bls_code
-            # (sync 2026-07-27: 1 code por cat).
+            # 2) Weight (sync 2026-08-27: gravado 1x, pareado so com idx via
+            # series_name=label_idx). Antes eram 2 rows — a segunda pareava
+            # com o series_name=label (lado var), que sumiu junto com o var.
             if sp is not None:
                 sidra_to_sql(
                     series=sp, country="BR", subject="Prices", indicator="IPCA",
-                    series_name=label, data_type="Weight", frequency="M",
-                    description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com var",
-                    bls_code=bls,
-                    session=session, replace=True,
-                )
-                sidra_to_sql(
-                    series=sp, country="BR", subject="Prices", indicator="IPCA",
                     series_name=label_idx, data_type="Weight", frequency="M",
-                    description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres) - par com idx",
+                    description=f"{label} - Weight mensal (V66 IBGE/SIDRA, Laspeyres)",
                     bls_code=bls,
                     session=session, replace=True,
                 )
 
+            # 3) Indice SA opcional. Dessazonaliza o nivel (sempre positivo →
+            # log estavel, ARIMA converge). Alinha com metodologia BCB/
+            # sellsides que dessazonalizam o nivel.
             if args.sa:
                 try:
-                    # Idx-first: dessazonaliza o nivel (sempre positivo → log
-                    # estavel, ARIMA converge), depois deriva var_SA via
-                    # identidade `var[t]=(idx[t]/idx[t-1]-1)·100`. Garante
-                    # consistencia interna (var cumulativa = idx) e contorna
-                    # falhas de convergencia que afetam series-var com
-                    # negativos/outliers (alim_dom, etc.). Alinha com
-                    # metodologia BCB/sellsides que dessazonalizam o nivel.
                     si_sa = _try_sa(si)
-                    sv_sa = ((si_sa / si_sa.shift(1)) - 1) * 100
-                    sv_sa = sv_sa.dropna()
-                    sidra_to_sql(
-                        series=sv_sa, country="BR", subject="Prices", indicator="IPCA",
-                        series_name=label, data_type="SA", frequency="M",
-                        description=f"{label} - Variacao mensal (%) - SA derivada do idx_SA (X-13 no nivel)",
-                        bls_code=bls,
-                        session=session, replace=True,
-                    )
                     sidra_to_sql(
                         series=si_sa, country="BR", subject="Prices", indicator="IPCA",
                         series_name=label_idx, data_type="SA", frequency="M",
@@ -512,8 +481,9 @@ def main():
         session.close()
 
     n_peso_ok = sum(1 for c in cats if c in peso_series)
+    n_idx = len(cats) * (2 if args.sa else 1)
     print(f"\n[OK] {len(cats)} categorias carregadas "
-          f"(var+idx+{n_peso_ok * 2} Weight (x2)) em "
+          f"({n_idx} idx + {n_peso_ok} Weight) em "
           f"OPT_Macro_Series_2 / OPT_Macro_Series_Data_2.")
 
 

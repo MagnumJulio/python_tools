@@ -49,11 +49,11 @@ Rscript scripts/build_pareto_indice.R
 
 Carga no SQL corp (Itaú, só roda na rede interna com `opt_utils` disponível):
 ```bash
-python script_itau/load_pareto_to_sql.py             # NSA: var + idx das 20 séries
-python script_itau/load_pareto_to_sql.py --sa        # adiciona versão SA (X-13)
+python script_itau/load_pareto_to_sql.py             # NSA: idx + Weight
+python script_itau/load_pareto_to_sql.py --sa        # adiciona idx SA (X-13)
 python script_itau/load_pareto_to_sql.py --dry-run   # só lista o que faria
 ```
-Grava em `OPT_Macro_Series_2` (metadados) + `OPT_Macro_Series_Data_2` (long EAV: `date, series_id, value, release_date, vintage_date`), mesmo padrão do `sidra_itau.ipynb`. Cada categoria vira 4 séries NSA (var, idx, Weight×2); com `--sa`, vira 6 (adiciona var+idx SA). Sync 2026-07-17: **Weight duplicado** — mesmo array gravado 2x com `series_name=label` (par com var) e `series_name="{label} (Indice)"` (par com idx), ambos `data_type="Weight"`. Frontend capta o peso via casamento `series_name+country+indicator`, trocando só `data_type`. Proveniência migrou do campo `haver_code` (formato antigo `PARETO_IPCA:<cat>/V63/RECON-<git-sha>`) pro campo **`bls_code`**; INSERTs novos não setam `haver_code` (o SQL preenche como `NULL` por default). **Sync 2026-07-27** (análogo ao CPI-US 2026-07-20): `bls_code` colapsado pra formato único `IPCA:<cat>` — o sufixo `/Index` foi eliminado. Distinção var-side vs idx-side agora sai só de `series_name` + `data_type`; 1 code por cat compartilhado por todas as 4-6 rows. Migração idempotente rodada antes do main loop (`_migrate_pareto_to_current`) cobre 3 estados coexistentes em prod: (0) ancestral `haver_code LIKE 'PARETO_IPCA:%'`, (1) intermediário `bls_code LIKE 'IPCA:%/Index'`, (2) atual `bls_code = 'IPCA:{cat}'` — o (0) e (1) sofrem `UPDATE` explícito `SET haver_code = NULL, bls_code = <novo colapsado>, data_type = 'Weight' se antes Peso`; (2) é pulado.
+Grava em `OPT_Macro_Series_2` (metadados) + `OPT_Macro_Series_Data_2` (long EAV: `date, series_id, value, release_date, vintage_date`), mesmo padrão do `sidra_itau.ipynb`. **Sync 2026-08-27** (análogo ao CPI-US 2026-07-20): var mensal (NSA+SA) foi removida do SQL — não tem uso downstream (consumo deriva do idx quando precisa) e atrasava o load. Cada categoria vira até 3 séries: idx NSA (`series_name="{label} (Indice)"`, `data_type="NSA"`), idx SA opcional com `--sa` (mesmo `series_name`, `data_type="SA"`), e Weight 1× quando disponível (mesmo `series_name`, `data_type="Weight"`). Rows de var pré-existentes no SQL corp ficam **orphan** — cleanup separado por escopo. Proveniência gravada em `bls_code`; INSERTs novos não setam `haver_code` (o SQL preenche como `NULL` por default). **Sync 2026-07-27**: `bls_code` colapsado pra formato único `IPCA:<cat>` — o sufixo `/Index` foi eliminado; distinção idx vs Weight sai só de `data_type` (`series_name` diferencia entre cats). Migração idempotente rodada antes do main loop (`_migrate_pareto_to_current`) cobre 3 estados coexistentes em prod: (0) ancestral `haver_code LIKE 'PARETO_IPCA:%'`, (1) intermediário `bls_code LIKE 'IPCA:%/Index'`, (2) atual `bls_code = 'IPCA:{cat}'` — o (0) e (1) sofrem `UPDATE` explícito `SET haver_code = NULL, bls_code = <novo colapsado>, data_type = 'Weight' se antes Peso`; (2) é pulado. A migração não deleta rows de var — só atualiza codes; as rows ficam sem vínculo com dados novos.
 
 Simulação local (sem `opt_utils`/SQL — útil pra testar mapping em casa):
 ```bash
@@ -61,7 +61,7 @@ python script_itau/simulate_pareto_to_sql.py                       # roda todas 
 python script_itau/simulate_pareto_to_sql.py --only livres,nucleo_ex0
 python script_itau/simulate_pareto_to_sql.py --save                 # CSVs em sim_output/
 ```
-`MockSQLConnector` mantém as 2 tabelas em DataFrames pandas, auto-incrementa `series_id` como SQL Server faria, e imprime preview + contagens. Trocar `MockSQLConnector` por `SQLConnector(connector="pyodbc")` no corp é a única diferença lógica entre os dois scripts. Smoke test full (27 categorias, 21 com Weight): **96 séries, 22 944 linhas** (2026-07-17).
+`MockSQLConnector` mantém as 2 tabelas em DataFrames pandas, auto-incrementa `series_id` como SQL Server faria, e imprime preview + contagens. Trocar `MockSQLConnector` por `SQLConnector(connector="pyodbc")` no corp é a única diferença lógica entre os dois scripts.
 
 **Política de merge**: `reconstruct_ipca.R` sobrescreve qualquer período coberto pelo run atual e preserva o restante. `seed_ibge_history.R` orquestra 3 chamadas ao recon (uma por tabela SIDRA), cada uma com sua janela e máscara apropriada.
 

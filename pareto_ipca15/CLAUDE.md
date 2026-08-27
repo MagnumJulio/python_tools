@@ -50,11 +50,11 @@ Rscript scripts/build_pareto_indice.R
 
 Carga no SQL corp (Itaú, só roda na rede interna com `opt_utils` disponível):
 ```bash
-python script_itau/load_pareto_to_sql.py             # NSA: var + idx das séries
-python script_itau/load_pareto_to_sql.py --sa        # adiciona versão SA (X-13)
+python script_itau/load_pareto_to_sql.py             # NSA: idx + Weight
+python script_itau/load_pareto_to_sql.py --sa        # adiciona idx SA (X-13)
 python script_itau/load_pareto_to_sql.py --dry-run   # só lista o que faria
 ```
-Grava em `OPT_Macro_Series_2` (metadados) + `OPT_Macro_Series_Data_2` (long EAV: `date, series_id, value, release_date, vintage_date`). Cada categoria vira 4 séries NSA (var, idx, Weight×2); com `--sa`, vira 6 (adiciona var+idx SA). Weight duplicado: mesmo array gravado 2× com `series_name=label` (par com var) e `series_name="{label} (Indice)"` (par com idx), ambos `data_type="Weight"`. Frontend capta o peso via casamento `series_name+country+indicator`.
+Grava em `OPT_Macro_Series_2` (metadados) + `OPT_Macro_Series_Data_2` (long EAV: `date, series_id, value, release_date, vintage_date`). **Sync 2026-08-27** (análogo ao CPI-US 2026-07-20 e ao pareto_ipca da mesma data): var mensal (NSA+SA) foi removida do SQL — sem uso downstream, atrasava o load. Cada categoria vira até 3 séries: idx NSA (`series_name="{label} (Indice)"`, `data_type="NSA"`), idx SA opcional com `--sa` (mesmo `series_name`, `data_type="SA"`), e Weight 1× quando disponível (mesmo `series_name`, `data_type="Weight"`). Rows de var pré-existentes ficam **orphan** — cleanup separado por escopo.
 
 **Namespace disjunto do IPCA cheio**: `bls_code='IPCA15:{cat}'`, `indicator='IPCA-15'`, `series_name='IPCA-15: {label}'`. Não há risco de colisão com rows do `pareto_ipca` no mesmo SQL. Migração `_migrate_ipca15_to_current` filtra estritamente por `IPCA15:%`/`PARETO_IPCA15:%` — nunca toca IPCA cheio.
 
