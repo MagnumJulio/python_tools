@@ -45,6 +45,12 @@ cat(sprintf("    %d linhas, %d categorias, %s → %s\n",
 
 build_idx <- function(df) {
   df <- df[order(df$date), ]
+  # Difusão é percentual mensal (~50-60%), não variação de preço.
+  # Acumular Laspeyres explode (10^50 em 240 meses). Serve valor natural.
+  if (df$category_code[1] == "difusao") {
+    df$index <- df$value
+    return(df)
+  }
   df$index <- NA_real_
   df$index[1] <- 100
   for (i in 2:nrow(df)) {
