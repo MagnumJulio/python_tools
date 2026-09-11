@@ -25,20 +25,21 @@ import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# --- Proxy corp (HARDCODED via env vars) ---
-# ATENCAO: credenciais no historico do git. Se repo publico, ROTACIONAR 191435.
-# Setamos APENAS env vars — `requests` herda automaticamente (mesmo padrao
-# do update_cpius_lean.py que funciona no corp). NAO passar `proxies=` no
-# request.post pra nao sobrescrever a config do env.
-# Scheme http:// em AMBAS mesmo pra HTTPS_PROXY — o scheme diz "como
-# conectar ao proxy" (plain HTTP), nao "protocolo do target". Corp Itau
-# aceita HTTP na porta 8443 e tuneliza HTTPS via CONNECT. Se botar
-# https:// scheme, requests tenta TLS handshake com o proxy e da
-# SSL WRONG_VERSION_NUMBER.
-os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
-os.environ["HTTPS_PROXY"] = "http://MJCCHGX:191435@proxynew.itau:8443"
-os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
-os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
+# --- Proxy corp (HARDCODED) ---
+# Diagnostico 2026-09-11: curl com esse URL passa Basic auth ok. requests
+# com env HTTPS_PROXY nao passava auth (parsing bug?). Fix: passar `proxies=`
+# EXPLICITO em cada request.post (bypassa env). Scheme http:// mesmo pra
+# HTTPS_PROXY — proxy Itau fala plain HTTP na 8443, tuneliza HTTPS via CONNECT.
+# ATENCAO: credenciais no historico do git. ROTACIONAR 191435 apos release.
+PROXIES = {
+    "http":  "http://MJCCHGX:191435@proxynew.itau:8080",
+    "https": "http://MJCCHGX:191435@proxynew.itau:8443",
+}
+# Env vars tambem — algumas libs (pandas.read_csv url, etc) picam via env.
+os.environ["HTTP_PROXY"]  = PROXIES["http"]
+os.environ["HTTPS_PROXY"] = PROXIES["https"]
+os.environ["http_proxy"]  = PROXIES["http"]
+os.environ["https_proxy"] = PROXIES["https"]
 
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
 RAW_OUT = ROOT / "data" / "cpiu_item_level_raw.csv"
@@ -148,8 +149,7 @@ def bls_fetch_batch(series_ids: list[str], start_year: int, end_year: int) -> li
     }
     if BLS_KEY:
         payload["registrationkey"] = BLS_KEY
-    # NAO passar proxies= — deixa requests herdar do env (mesmo padrao update_cpius_lean.py).
-    r = requests.post(BLS_URL, json=payload, timeout=120)
+    r = requests.post(BLS_URL, json=payload, proxies=PROXIES, timeout=120)
     r.raise_for_status()
     j = r.json()
     if j.get("status") != "REQUEST_SUCCEEDED":

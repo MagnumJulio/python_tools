@@ -18,11 +18,15 @@ import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# --- Proxy corp (HARDCODED via env vars) ---
-os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
-os.environ["HTTPS_PROXY"] = "http://MJCCHGX:191435@proxynew.itau:8443"
-os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
-os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
+# --- Proxy corp (HARDCODED) ---
+PROXIES = {
+    "http":  "http://MJCCHGX:191435@proxynew.itau:8080",
+    "https": "http://MJCCHGX:191435@proxynew.itau:8443",
+}
+os.environ["HTTP_PROXY"]  = PROXIES["http"]
+os.environ["HTTPS_PROXY"] = PROXIES["https"]
+os.environ["http_proxy"]  = PROXIES["http"]
+os.environ["https_proxy"] = PROXIES["https"]
 
 OUT = ROOT / "data" / "pce_indices_raw.csv"
 OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -52,7 +56,7 @@ def fetch(years: str) -> list[dict]:
         "Year": years,
         "ResultFormat": "json",
     }
-    r = requests.get(BASE, params=params, timeout=120)
+    r = requests.get(BASE, params=params, proxies=PROXIES, timeout=120)
     r.raise_for_status()
     j = r.json()
     try:
