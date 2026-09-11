@@ -29,16 +29,14 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# --- Proxy corp ---
-# 1. Se `scripts/proxy_config.py` existe, sourceia (le proxy_config.R).
-# 2. Le env vars HTTPS_PROXY / HTTP_PROXY (setadas pelo user OU pelo step 1).
-# 3. Instala ProxyHandler + ProxyBasicAuthHandler EXPLICITAMENTE — mais
-#    robusto que deixar urllib inferir (evita 407 quando parsing de user:pass@
-#    no URL nao passa auth pro proxy).
-_PROXY_CFG = ROOT / "scripts" / "proxy_config.py"
-if _PROXY_CFG.exists():
-    exec(_PROXY_CFG.read_text(encoding="utf-8"),
-         {"os": os, "__file__": str(_PROXY_CFG)})
+# --- Proxy corp (HARDCODED) ---
+# Credenciais Itau — hardcoded a pedido do usuario pra parar de dar 407.
+# ATENCAO: essas credenciais estao no historico do git. Se o repo for
+# publico ou compartilhado, ROTACIONAR a senha 191435 depois do release.
+os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
+os.environ["HTTPS_PROXY"] = "https://MJCCHGX:191435@proxynew.itau:8443"
+os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
+os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
 
 
 def _install_proxy_handler():

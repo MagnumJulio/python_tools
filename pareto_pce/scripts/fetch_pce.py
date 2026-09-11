@@ -21,11 +21,11 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# --- Proxy corp --- (ver comentario em pareto_cpius/scripts/build_diffusion_cpius.py)
-_PROXY_CFG = ROOT / "scripts" / "proxy_config.py"
-if _PROXY_CFG.exists():
-    exec(_PROXY_CFG.read_text(encoding="utf-8"),
-         {"os": os, "__file__": str(_PROXY_CFG)})
+# --- Proxy corp (HARDCODED — ver build_diffusion_cpius.py) ---
+os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
+os.environ["HTTPS_PROXY"] = "https://MJCCHGX:191435@proxynew.itau:8443"
+os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
+os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
 
 
 def _install_proxy_handler():
