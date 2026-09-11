@@ -153,9 +153,30 @@ SERVICES_PRODUCT_LINE_LEAVES = {
     154, # Rental of tenant-occupied nonfarm housing (20)
     160, # Imputed rental of owner-occupied nonfarm housing (21)
     213, # Admissions to specified spectator amusements (product-line collapse)
-    260, # Securities commissions (product-line collapse)
 }
 SUBAGG_LINES -= SERVICES_PRODUCT_LINE_LEAVES
+
+# EXCLUSOES ADICIONAIS pra alinhar com metodologia analitica (referencia
+# Itau BBA). Todos os items tem YoY anomalos que nao refletem preco de servico:
+# imputados baseados em valor de mercado, servicos novos com metodologia BEA
+# em revisao, ou items regulados/volateis. Calibrado 2026-09-10 pra bater
+# 57.8% Services diffusion (vs 61.5% sem essas exclusoes).
+MARKET_DRIVEN_EXCLUDE = {
+    # Imputed financial services (fee = f(valor do ativo), nao preco de servico)
+    255, # Commercial banks (financial services furnished without payment)
+    260, # Securities commissions (market-driven)
+    268, # Portfolio management and investment advice
+    269, # Trust, fiduciary, and custody activities
+    # Streaming (BEA metodologia recente, YoY 8-13%, revisoes voláteis)
+    224, # Video streaming and rental
+    225, # Audio streaming and radio services
+    # Postal / delivery (pricing regulado ou volatile)
+    287, # First-class postal service
+    288, # Other delivery services (non-US postal)
+    # Air transport (historicamente muito volatil)
+    207, # Air transportation
+}
+SUBAGG_LINES |= MARKET_DRIVEN_EXCLUDE
 
 # Linhas que NAO sao parte do escopo de difusao PCE core:
 # - Expenditures abroad (146-149): ajustes cross-border
