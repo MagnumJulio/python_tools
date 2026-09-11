@@ -108,7 +108,13 @@ def is_car(item_code: str) -> bool:
 
 def load_leaves() -> pd.DataFrame:
     if not HIER_CSV.exists():
-        sys.exit(f"[FAIL] {HIER_CSV} nao existe. Rode build_subitem_hierarchy.py primeiro.")
+        sys.exit(
+            f"[FAIL] {HIER_CSV} nao existe.\n"
+            f"Rode a cadeia de bootstrap primeiro (uma vez / anualmente):\n"
+            f"  python scripts/parse_historical_ri_subitem.py    # RI subitem parse\n"
+            f"  python scripts/build_subitem_hierarchy.py        # hierarquia\n"
+            f"Depois pode rodar build_diffusion_cpius.py."
+        )
     h = pd.read_csv(HIER_CSV)
     y = h.year.max()
     h = h[(h.year == y) & (h.is_leaf == 1)].copy()

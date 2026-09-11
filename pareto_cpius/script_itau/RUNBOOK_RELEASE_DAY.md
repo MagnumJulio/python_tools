@@ -68,6 +68,15 @@ ORDER BY d.date DESC;
 Depois do update lean, roda o pipeline de difusão. Puxa item-level BLS
 (~177 leaves) direto — não depende do CSV de índice.
 
+**Bootstrap (só 1x/ano)** — se `cpi_cpius_subitem_hierarchy.csv` não existe:
+
+```powershell
+python scripts/parse_historical_ri_subitem.py
+python scripts/build_subitem_hierarchy.py
+```
+
+**Release day**:
+
 ```powershell
 python scripts/build_diffusion_cpius.py         # ~30-60s com API key
 ```
