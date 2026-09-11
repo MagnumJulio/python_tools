@@ -259,10 +259,10 @@ def compute_diffusion(df: pd.DataFrame, leaves: pd.DataFrame) -> pd.DataFrame:
     lm["m6_ann"] = ((1 + m6) ** 2 - 1) * 100
 
     def diffusion(rows: pd.DataFrame, col: str) -> pd.Series:
+        # Nao usa include_groups= (pandas <2.2 no corp nao aceita).
         return rows.groupby("date").apply(
             lambda g: (g[col] > 3).sum() / g[col].notna().sum() * 100
             if g[col].notna().any() else float("nan"),
-            include_groups=False,
         )
 
     out_rows = []
