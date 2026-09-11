@@ -69,22 +69,22 @@ CATEGORY_LABELS = {
     "nucleo_p55":      "IPCA: Nucleo P55 (Percentil 55)",
     "nucleo_medio":    "IPCA: Nucleo Medio (media dos 5)",
     # Onda 6 — grupos IPCA (G1-G9) + subgrupos/itens/subitens de interesse
-    "alim_e_bebidas":     "IPCA: Alimentacao e Bebidas (grupo 1)",
-    "habitacao":          "IPCA: Habitacao (grupo 2)",
-    "artigos_residencia": "IPCA: Artigos de Residencia (grupo 3)",
-    "vestuario":          "IPCA: Vestuario (grupo 4)",
-    "transportes":        "IPCA: Transportes (grupo 5)",
-    "saude":              "IPCA: Saude e Cuidados Pessoais (grupo 6)",
-    "despesas_pessoais":  "IPCA: Despesas Pessoais (grupo 7)",
-    "educacao":           "IPCA: Educacao (grupo 8)",
-    "comunicacao":        "IPCA: Comunicacao (grupo 9)",
-    "alim_fora":          "IPCA: Alimentacao Fora do Domicilio (subgrupo 12)",
-    "higiene_pessoal":    "IPCA: Higiene Pessoal (subgrupo 63)",
-    "energia_eletrica":   "IPCA: Energia Eletrica Residencial (item 2202)",
-    "passagem_aerea":     "IPCA: Passagem Aerea (subitem 5101010)",
-    "auto_novo":          "IPCA: Automovel Novo (subitem 5102001)",
-    "auto_usado":         "IPCA: Automovel Usado (subitem 5102020)",
-    "gasolina":           "IPCA: Gasolina (subitem 5104001)",
+    "alim_e_bebidas":     "IPCA: Alimentacao e Bebidas",
+    "habitacao":          "IPCA: Habitacao",
+    "artigos_residencia": "IPCA: Artigos de Residencia",
+    "vestuario":          "IPCA: Vestuario",
+    "transportes":        "IPCA: Transportes",
+    "saude":              "IPCA: Saude e Cuidados Pessoais",
+    "despesas_pessoais":  "IPCA: Despesas Pessoais",
+    "educacao":           "IPCA: Educacao",
+    "comunicacao":        "IPCA: Comunicacao",
+    "alim_fora":          "IPCA: Alimentacao Fora do Domicilio",
+    "higiene_pessoal":    "IPCA: Higiene Pessoal",
+    "energia_eletrica":   "IPCA: Energia Eletrica Residencial",
+    "passagem_aerea":     "IPCA: Passagem Aerea",
+    "auto_novo":          "IPCA: Automovel Novo",
+    "auto_usado":         "IPCA: Automovel Usado",
+    "gasolina":           "IPCA: Gasolina",
 }
 
 # Sync 2026-07-27: bls_code colapsado pra 1 unico formato IPCA:{cat} — sem
@@ -335,21 +335,41 @@ def _migrate_pareto_to_current(session, cats: set[str]) -> int:
             continue
         new_code  = CODE.format(cat=cat)
         new_dtype = "Weight" if row["data_type"] == "Peso" else row["data_type"]
+        # Rename series_name: se cat tem label atualizado e a row usa versao
+        # antiga (com "(grupo N)", "(subitem X)", etc), atualiza pro label
+        # limpo. Evita rows orfas apos cleanup 2026-09-11.
+        new_label = CATEGORY_LABELS.get(cat, "")
+        if new_dtype in ("NSA", "SA"):
+            expected_series_name = f"{new_label} (Indice)"
+        elif new_dtype == "Weight":
+            expected_series_name = f"{new_label} (Indice)"
+        else:
+            expected_series_name = row["series_name"]
+        rename_needed = new_label and row["series_name"] != expected_series_name
         already_ok = (
             row["haver_code"] is None
             and row["bls_code"]  == new_code
             and row["data_type"] == new_dtype
+            and not rename_needed
         )
         if already_ok:
             continue
-        session.execute(
-            "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
-            "data_type = ? WHERE series_id = ?",
-            params=[new_code, new_dtype, int(row["series_id"])],
-        )
+        if rename_needed:
+            session.execute(
+                "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
+                "data_type = ?, series_name = ? WHERE series_id = ?",
+                params=[new_code, new_dtype, expected_series_name, int(row["series_id"])],
+            )
+        else:
+            session.execute(
+                "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
+                "data_type = ? WHERE series_id = ?",
+                params=[new_code, new_dtype, int(row["series_id"])],
+            )
         n_updated += 1
+        rn = f" | RENAME -> {expected_series_name}" if rename_needed else ""
         print(f"  [UPDATE] id={row['series_id']:5d} {row['series_name']:55s} "
-              f"{row['data_type']:6s} -> {new_dtype:6s}  bls_code={new_code}")
+              f"{row['data_type']:6s} -> {new_dtype:6s}  bls_code={new_code}{rn}")
     print(f"  {n_updated} series migradas ({len(df) - n_updated} ja no formato final ou fora do escopo).")
     return n_updated
 

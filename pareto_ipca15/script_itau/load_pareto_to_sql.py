@@ -76,22 +76,22 @@ CATEGORY_LABELS = {
     # Onda 6 — grupos IPCA (top-level) + subgrupos/itens/subitens direto do IBGE.
     # SIDRA publica esses agregados prontos via classificacao=315[all]; nao sao
     # reconstruidos por Laspeyres — sao os valores oficiais do IBGE.
-    "alim_e_bebidas":     "IPCA-15: Alimentacao e Bebidas (grupo 1)",
-    "habitacao":          "IPCA-15: Habitacao (grupo 2)",
-    "artigos_residencia": "IPCA-15: Artigos de Residencia (grupo 3)",
-    "vestuario":          "IPCA-15: Vestuario (grupo 4)",
-    "transportes":        "IPCA-15: Transportes (grupo 5)",
-    "saude":              "IPCA-15: Saude e Cuidados Pessoais (grupo 6)",
-    "despesas_pessoais":  "IPCA-15: Despesas Pessoais (grupo 7)",
-    "educacao":           "IPCA-15: Educacao (grupo 8)",
-    "comunicacao":        "IPCA-15: Comunicacao (grupo 9)",
-    "alim_fora":          "IPCA-15: Alimentacao Fora do Domicilio (subgrupo 12)",
-    "higiene_pessoal":    "IPCA-15: Higiene Pessoal (subgrupo 63)",
-    "energia_eletrica":   "IPCA-15: Energia Eletrica Residencial (item 2202)",
-    "passagem_aerea":     "IPCA-15: Passagem Aerea (subitem 5101010)",
-    "auto_novo":          "IPCA-15: Automovel Novo (subitem 5102001)",
-    "auto_usado":         "IPCA-15: Automovel Usado (subitem 5102020)",
-    "gasolina":           "IPCA-15: Gasolina (subitem 5104001)",
+    "alim_e_bebidas":     "IPCA-15: Alimentacao e Bebidas",
+    "habitacao":          "IPCA-15: Habitacao",
+    "artigos_residencia": "IPCA-15: Artigos de Residencia",
+    "vestuario":          "IPCA-15: Vestuario",
+    "transportes":        "IPCA-15: Transportes",
+    "saude":              "IPCA-15: Saude e Cuidados Pessoais",
+    "despesas_pessoais":  "IPCA-15: Despesas Pessoais",
+    "educacao":           "IPCA-15: Educacao",
+    "comunicacao":        "IPCA-15: Comunicacao",
+    "alim_fora":          "IPCA-15: Alimentacao Fora do Domicilio",
+    "higiene_pessoal":    "IPCA-15: Higiene Pessoal",
+    "energia_eletrica":   "IPCA-15: Energia Eletrica Residencial",
+    "passagem_aerea":     "IPCA-15: Passagem Aerea",
+    "auto_novo":          "IPCA-15: Automovel Novo",
+    "auto_usado":         "IPCA-15: Automovel Usado",
+    "gasolina":           "IPCA-15: Gasolina",
 }
 
 # Sync 2026-07-27: mesmo padrao do pareto_ipca — bls_code unico por cat (sem
@@ -329,28 +329,40 @@ def _migrate_ipca15_to_current(session, cats: set[str]) -> int:
 
     n_updated = 0
     for _, row in df.iterrows():
-        # Extrai cat do primeiro code disponivel (haver antigo ou bls atual).
         code_src = row["haver_code"] if row["haver_code"] else row["bls_code"]
         cat = code_src.split(":", 1)[1].split("/", 1)[0]
         if cat not in cats:
             continue
         new_code  = CODE.format(cat=cat)
         new_dtype = "Weight" if row["data_type"] == "Peso" else row["data_type"]
+        # Rename series_name pro label atual (evita orfas apos cleanup 2026-09-11).
+        new_label = CATEGORY_LABELS.get(cat, "")
+        expected_series_name = f"{new_label} (Indice)" if new_label else row["series_name"]
+        rename_needed = new_label and row["series_name"] != expected_series_name
         already_ok = (
             row["haver_code"] is None
             and row["bls_code"]  == new_code
             and row["data_type"] == new_dtype
+            and not rename_needed
         )
         if already_ok:
             continue
-        session.execute(
-            "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
-            "data_type = ? WHERE series_id = ?",
-            params=[new_code, new_dtype, int(row["series_id"])],
-        )
+        if rename_needed:
+            session.execute(
+                "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
+                "data_type = ?, series_name = ? WHERE series_id = ?",
+                params=[new_code, new_dtype, expected_series_name, int(row["series_id"])],
+            )
+        else:
+            session.execute(
+                "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
+                "data_type = ? WHERE series_id = ?",
+                params=[new_code, new_dtype, int(row["series_id"])],
+            )
         n_updated += 1
+        rn = f" | RENAME -> {expected_series_name}" if rename_needed else ""
         print(f"  [UPDATE] id={row['series_id']:5d} {row['series_name']:55s} "
-              f"{row['data_type']:6s} -> {new_dtype:6s}  bls_code={new_code}")
+              f"{row['data_type']:6s} -> {new_dtype:6s}  bls_code={new_code}{rn}")
     print(f"  {n_updated} series migradas ({len(df) - n_updated} ja no formato final ou fora do escopo).")
     return n_updated
 
