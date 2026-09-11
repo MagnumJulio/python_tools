@@ -17,6 +17,7 @@
 
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -25,30 +26,50 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# --- Proxy corp (HARDCODED) ---
-# curl funciona com user:pass@ no URL. requests/urllib3 no CONNECT method
-# nao passa auth confiavelmente. Fix canonico: usar urllib3.ProxyManager
-# direto com `proxy_headers=make_headers(proxy_basic_auth=...)` — garante
-# Proxy-Authorization header injetado no CONNECT.
+# --- Proxy corp (HARDCODED, via subprocess curl) ---
+# Depois de horas brigando com requests + urllib3 sem conseguir passar
+# Proxy-Authorization no CONNECT, ficou provado que so curl funciona.
+# Fix pragmatico: shell out pra curl. Feio mas garantido — mesmo comando
+# que o usuario validou manualmente.
 # ATENCAO: credenciais no historico do git. ROTACIONAR 191435 apos release.
-import urllib3
+_PROXY_URL = "http://MJCCHGX:191435@proxynew.itau:8443"
 
-_PROXY_USER = "MJCCHGX"
-_PROXY_PASS = "191435"
-_PROXY_HOST = "proxynew.itau"
-_PROXY_URL  = f"http://{_PROXY_HOST}:8443"  # porta 8443 pra HTTPS (mesmo que curl)
-
-_PROXY_MANAGER = urllib3.ProxyManager(
-    proxy_url=_PROXY_URL,
-    proxy_headers=urllib3.make_headers(proxy_basic_auth=f"{_PROXY_USER}:{_PROXY_PASS}"),
-    timeout=urllib3.Timeout(connect=30, read=120),
-)
-
-# Env vars tambem — pra libs que nao usam _PROXY_MANAGER.
-os.environ["HTTP_PROXY"]  = f"http://{_PROXY_USER}:{_PROXY_PASS}@{_PROXY_HOST}:8080"
-os.environ["HTTPS_PROXY"] = f"http://{_PROXY_USER}:{_PROXY_PASS}@{_PROXY_HOST}:8443"
+# Env vars tambem — pra libs que nao usam curl subprocess.
+os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
+os.environ["HTTPS_PROXY"] = _PROXY_URL
 os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
 os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
+
+
+def _curl_post_json(url: str, payload: dict, timeout: int = 120) -> dict:
+    """Wraps `curl -x <proxy> -H content-type -d <json> URL`. Retorna JSON parseado.
+    Bypassa requests/urllib3 que estava com bug no CONNECT-auth."""
+    body = json.dumps(payload)
+    cmd = [
+        "curl", "-x", _PROXY_URL,
+        "-H", "Content-Type: application/json",
+        "-d", body,
+        "-s",           # silencioso (nao printa progresso)
+        "-f",           # falha em HTTP >= 400
+        "--max-time", str(timeout),
+        url,
+    ]
+    r = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"curl fail (rc={r.returncode}): stderr={r.stderr.decode(errors='replace')[:300]}"
+        )
+    return json.loads(r.stdout)
+
+
+def _curl_get(url: str, timeout: int = 120) -> bytes:
+    cmd = ["curl", "-x", _PROXY_URL, "-s", "-f", "--max-time", str(timeout), url]
+    r = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"curl fail (rc={r.returncode}): stderr={r.stderr.decode(errors='replace')[:300]}"
+        )
+    return r.stdout
 
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
 RAW_OUT = ROOT / "data" / "cpiu_item_level_raw.csv"
@@ -158,12 +179,7 @@ def bls_fetch_batch(series_ids: list[str], start_year: int, end_year: int) -> li
     }
     if BLS_KEY:
         payload["registrationkey"] = BLS_KEY
-    body = json.dumps(payload).encode("utf-8")
-    r = _PROXY_MANAGER.request("POST", BLS_URL, body=body,
-                                headers={"Content-Type": "application/json"})
-    if r.status != 200:
-        raise RuntimeError(f"HTTP {r.status}: {r.data[:200]!r}")
-    j = json.loads(r.data)
+    j = _curl_post_json(BLS_URL, payload)
     if j.get("status") != "REQUEST_SUCCEEDED":
         raise RuntimeError(f"BLS API erro: {j.get('message', j)}")
     return j["Results"]["series"]
