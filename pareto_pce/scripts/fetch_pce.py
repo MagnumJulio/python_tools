@@ -12,20 +12,58 @@
 import json
 import os
 import sys
+import urllib.request
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import urlopen
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Proxy corp opcional — mesmo padrao do R (`scripts/proxy_config.R`).
-# Se `scripts/proxy_config.py` existe, e' sourceado.
+# --- Proxy corp --- (ver comentario em pareto_cpius/scripts/build_diffusion_cpius.py)
 _PROXY_CFG = ROOT / "scripts" / "proxy_config.py"
 if _PROXY_CFG.exists():
     exec(_PROXY_CFG.read_text(encoding="utf-8"),
          {"os": os, "__file__": str(_PROXY_CFG)})
+
+
+def _install_proxy_handler():
+    https_url = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    http_url  = os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")
+    if not (https_url or http_url):
+        return
+
+    def _parse(u):
+        if not u:
+            return None
+        p = urlparse(u)
+        return f"{p.scheme}://{p.hostname}:{p.port}", p.username, p.password
+
+    proxies = {}
+    creds = []
+    for scheme, u in [("https", https_url), ("http", http_url)]:
+        parsed = _parse(u)
+        if parsed:
+            bare, user, pw = parsed
+            proxies[scheme] = bare
+            if user and pw:
+                creds.append((bare, user, pw))
+
+    handlers = [urllib.request.ProxyHandler(proxies)]
+    if creds:
+        pwmgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+        for bare, user, pw in creds:
+            pwmgr.add_password(None, bare, user, pw)
+        handlers.append(urllib.request.ProxyBasicAuthHandler(pwmgr))
+
+    opener = urllib.request.build_opener(*handlers)
+    urllib.request.install_opener(opener)
+    print(f"[PROXY] handler explicito instalado: {list(proxies.keys())} "
+          f"({len(creds)} com auth)")
+
+
+_install_proxy_handler()
 
 OUT = ROOT / "data" / "pce_indices_raw.csv"
 OUT.parent.mkdir(parents=True, exist_ok=True)

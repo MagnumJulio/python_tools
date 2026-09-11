@@ -19,21 +19,68 @@ import json
 import os
 import sys
 import time
+import urllib.request
 from pathlib import Path
 from urllib.error import URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Proxy corp opcional — mesmo padrao do R (`scripts/proxy_config.R`).
-# Se `scripts/proxy_config.py` existe, e' sourceado — deve setar
-# os.environ['HTTPS_PROXY'] e ['HTTP_PROXY']. Ver template abaixo.
+# --- Proxy corp ---
+# 1. Se `scripts/proxy_config.py` existe, sourceia (le proxy_config.R).
+# 2. Le env vars HTTPS_PROXY / HTTP_PROXY (setadas pelo user OU pelo step 1).
+# 3. Instala ProxyHandler + ProxyBasicAuthHandler EXPLICITAMENTE — mais
+#    robusto que deixar urllib inferir (evita 407 quando parsing de user:pass@
+#    no URL nao passa auth pro proxy).
 _PROXY_CFG = ROOT / "scripts" / "proxy_config.py"
 if _PROXY_CFG.exists():
     exec(_PROXY_CFG.read_text(encoding="utf-8"),
          {"os": os, "__file__": str(_PROXY_CFG)})
+
+
+def _install_proxy_handler():
+    """Le HTTPS_PROXY / HTTP_PROXY do env e instala handlers urllib explicitos.
+    Se URL tem user:pass@ embutido, extrai e configura ProxyBasicAuthHandler
+    (Basic auth) alem do ProxyHandler."""
+    https_url = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    http_url  = os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")
+    if not (https_url or http_url):
+        return  # sem proxy
+
+    def _parse(u):
+        if not u:
+            return None
+        p = urlparse(u)
+        bare = f"{p.scheme}://{p.hostname}:{p.port}"
+        return bare, p.username, p.password
+
+    proxies = {}
+    creds = []
+    for scheme, u in [("https", https_url), ("http", http_url)]:
+        parsed = _parse(u)
+        if parsed:
+            bare, user, pw = parsed
+            proxies[scheme] = bare
+            if user and pw:
+                creds.append((bare, user, pw))
+
+    handlers = [urllib.request.ProxyHandler(proxies)]
+    if creds:
+        pwmgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+        for bare, user, pw in creds:
+            pwmgr.add_password(None, bare, user, pw)
+        handlers.append(urllib.request.ProxyBasicAuthHandler(pwmgr))
+
+    opener = urllib.request.build_opener(*handlers)
+    urllib.request.install_opener(opener)
+    print(f"[PROXY] handler explicito instalado: {list(proxies.keys())} "
+          f"({len(creds)} com auth)")
+
+
+_install_proxy_handler()
 
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
 RAW_OUT = ROOT / "data" / "cpiu_item_level_raw.csv"
