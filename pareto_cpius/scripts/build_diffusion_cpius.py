@@ -20,11 +20,20 @@ import os
 import sys
 import time
 from pathlib import Path
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Proxy corp opcional — mesmo padrao do R (`scripts/proxy_config.R`).
+# Se `scripts/proxy_config.py` existe, e' sourceado — deve setar
+# os.environ['HTTPS_PROXY'] e ['HTTP_PROXY']. Ver template abaixo.
+_PROXY_CFG = ROOT / "scripts" / "proxy_config.py"
+if _PROXY_CFG.exists():
+    exec(_PROXY_CFG.read_text(encoding="utf-8"), {"os": os})
+
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
 RAW_OUT = ROOT / "data" / "cpiu_item_level_raw.csv"
 DIFF_OUT = ROOT / "data" / "cpiu_diffusion.csv"
@@ -135,8 +144,24 @@ def bls_fetch_batch(series_ids: list[str], start_year: int, end_year: int) -> li
         payload["registrationkey"] = BLS_KEY
     body = json.dumps(payload).encode("utf-8")
     req = Request(BLS_URL, data=body, headers={"Content-Type": "application/json"})
-    with urlopen(req, timeout=120) as r:
-        j = json.loads(r.read())
+    try:
+        with urlopen(req, timeout=120) as r:
+            j = json.loads(r.read())
+    except URLError as e:
+        msg = str(e)
+        if "407" in msg or "authentication" in msg.lower():
+            sys.exit(
+                f"[FAIL] BLS API bloqueada por proxy corp (HTTP 407).\n"
+                f"  Soluções (uma das duas):\n"
+                f"  1) Set env vars com auth do proxy corp:\n"
+                f"     $env:HTTPS_PROXY = 'http://<user>:<pass>@<proxy>:<port>'\n"
+                f"     $env:HTTP_PROXY  = 'http://<user>:<pass>@<proxy>:<port>'\n"
+                f"  2) Criar {ROOT}/scripts/proxy_config.py com:\n"
+                f"     os.environ['HTTPS_PROXY'] = 'http://user:pass@proxy:port'\n"
+                f"     os.environ['HTTP_PROXY']  = 'http://user:pass@proxy:port'\n"
+                f"  (mesmo padrão do fetch_bls_cpiu.R via scripts/proxy_config.R)"
+            )
+        raise
     if j.get("status") != "REQUEST_SUCCEEDED":
         raise RuntimeError(f"BLS API erro: {j.get('message', j)}")
     return j["Results"]["series"]
