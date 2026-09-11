@@ -30,8 +30,13 @@ ROOT = Path(__file__).resolve().parent.parent
 # Setamos APENAS env vars — `requests` herda automaticamente (mesmo padrao
 # do update_cpius_lean.py que funciona no corp). NAO passar `proxies=` no
 # request.post pra nao sobrescrever a config do env.
+# Scheme http:// em AMBAS mesmo pra HTTPS_PROXY — o scheme diz "como
+# conectar ao proxy" (plain HTTP), nao "protocolo do target". Corp Itau
+# aceita HTTP na porta 8443 e tuneliza HTTPS via CONNECT. Se botar
+# https:// scheme, requests tenta TLS handshake com o proxy e da
+# SSL WRONG_VERSION_NUMBER.
 os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
-os.environ["HTTPS_PROXY"] = "https://MJCCHGX:191435@proxynew.itau:8443"
+os.environ["HTTPS_PROXY"] = "http://MJCCHGX:191435@proxynew.itau:8443"
 os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
 os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
 

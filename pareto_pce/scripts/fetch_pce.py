@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # --- Proxy corp (HARDCODED via env vars) ---
 os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
-os.environ["HTTPS_PROXY"] = "https://MJCCHGX:191435@proxynew.itau:8443"
+os.environ["HTTPS_PROXY"] = "http://MJCCHGX:191435@proxynew.itau:8443"
 os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
 os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
 
