@@ -29,10 +29,19 @@ def _norm(s):
 
 
 def load_cu_item():
-    """Retorna dict {normalized_name: item_code}. Prioriza SA/SE sobre SS/AA."""
+    """Retorna dict {normalized_name: item_code}. Prioriza SA/SE sobre SS/AA.
+    encoding='utf-8-sig' pra descartar BOM (Windows text editors as vezes
+    adicionam \\ufeff no inicio, o que faz o primeiro nome de coluna virar
+    '\\ufeffitem_code' e quebrar o lookup)."""
     rows = []
-    with open(CU_ITEM, encoding="utf-8") as f:
+    with open(CU_ITEM, encoding="utf-8-sig") as f:
         rdr = csv.DictReader(f, delimiter="\t")
+        if rdr.fieldnames is None or "item_code" not in rdr.fieldnames:
+            raise SystemExit(
+                f"[FAIL] {CU_ITEM} tem colunas {rdr.fieldnames!r}, esperava "
+                f"['item_code', 'item_name', 'display_level', ...]. "
+                f"Re-baixa de https://download.bls.gov/pub/time.series/cu/cu.item"
+            )
         for r in rdr:
             code = r["item_code"].strip()
             name = r["item_name"].strip()
