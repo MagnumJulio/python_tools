@@ -32,7 +32,8 @@ ROOT = Path(__file__).resolve().parent.parent
 # os.environ['HTTPS_PROXY'] e ['HTTP_PROXY']. Ver template abaixo.
 _PROXY_CFG = ROOT / "scripts" / "proxy_config.py"
 if _PROXY_CFG.exists():
-    exec(_PROXY_CFG.read_text(encoding="utf-8"), {"os": os})
+    exec(_PROXY_CFG.read_text(encoding="utf-8"),
+         {"os": os, "__file__": str(_PROXY_CFG)})
 
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
 RAW_OUT = ROOT / "data" / "cpiu_item_level_raw.csv"
