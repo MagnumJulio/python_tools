@@ -335,17 +335,19 @@ def _migrate_pareto_to_current(session, cats: set[str]) -> int:
             continue
         new_code  = CODE.format(cat=cat)
         new_dtype = "Weight" if row["data_type"] == "Peso" else row["data_type"]
-        # Rename series_name: se cat tem label atualizado e a row usa versao
-        # antiga (com "(grupo N)", "(subitem X)", etc), atualiza pro label
-        # limpo. Evita rows orfas apos cleanup 2026-09-11.
+        # Rename series_name SO se a row tem sufixo IBGE antigo especifico
+        # (grupo N / subgrupo NN / subitem NNN / item NNNN). Evita tocar rows
+        # de var pre-sync (series_name sem "(Indice)") — que ficariam colidindo
+        # com rows idx existentes ao serem renomeadas.
+        import re
+        _OLD_SUFFIX_RE = re.compile(r"\s*\((grupo|subgrupo|subitem|item)\s+\d+\)")
         new_label = CATEGORY_LABELS.get(cat, "")
-        if new_dtype in ("NSA", "SA"):
+        has_old_ibge_suffix = bool(_OLD_SUFFIX_RE.search(row["series_name"] or ""))
+        rename_needed = False
+        expected_series_name = row["series_name"]
+        if new_label and has_old_ibge_suffix and row["data_type"] in ("NSA", "SA", "Weight"):
             expected_series_name = f"{new_label} (Indice)"
-        elif new_dtype == "Weight":
-            expected_series_name = f"{new_label} (Indice)"
-        else:
-            expected_series_name = row["series_name"]
-        rename_needed = new_label and row["series_name"] != expected_series_name
+            rename_needed = row["series_name"] != expected_series_name
         already_ok = (
             row["haver_code"] is None
             and row["bls_code"]  == new_code

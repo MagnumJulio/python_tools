@@ -335,10 +335,17 @@ def _migrate_ipca15_to_current(session, cats: set[str]) -> int:
             continue
         new_code  = CODE.format(cat=cat)
         new_dtype = "Weight" if row["data_type"] == "Peso" else row["data_type"]
-        # Rename series_name pro label atual (evita orfas apos cleanup 2026-09-11).
+        # Rename series_name SO se tiver sufixo IBGE antigo especifico
+        # (evita colisao com rows sem sufixo que ja existiam).
+        import re
+        _OLD_SUFFIX_RE = re.compile(r"\s*\((grupo|subgrupo|subitem|item)\s+\d+\)")
         new_label = CATEGORY_LABELS.get(cat, "")
-        expected_series_name = f"{new_label} (Indice)" if new_label else row["series_name"]
-        rename_needed = new_label and row["series_name"] != expected_series_name
+        has_old_ibge_suffix = bool(_OLD_SUFFIX_RE.search(row["series_name"] or ""))
+        rename_needed = False
+        expected_series_name = row["series_name"]
+        if new_label and has_old_ibge_suffix and row["data_type"] in ("NSA", "SA", "Weight"):
+            expected_series_name = f"{new_label} (Indice)"
+            rename_needed = row["series_name"] != expected_series_name
         already_ok = (
             row["haver_code"] is None
             and row["bls_code"]  == new_code
