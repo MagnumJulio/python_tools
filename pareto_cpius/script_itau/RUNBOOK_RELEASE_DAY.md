@@ -63,6 +63,50 @@ ORDER BY d.date DESC;
 
 ---
 
+## Passo 3 — Difusão CPI-U (novo 2026-09-11)
+
+Depois do update lean, roda o pipeline de difusão. Puxa item-level BLS
+(~177 leaves) direto — não depende do CSV de índice.
+
+```powershell
+python scripts/build_diffusion_cpius.py         # ~30-60s com API key
+```
+
+Confirmar no log:
+- `Goods=120, Services=57, Total=177, Cars=4`
+- `API key: sim (batch 50)` (não pode ser 25)
+- `[OK] ~53k rows em data/cpiu_item_level_raw.csv`
+- `[OK] ~1.5k rows em data/cpiu_diffusion.csv`
+- Preview último mês tem os 4 agregados populados (Headline, Goods, Services, Goods_ex_cars) — 6ma_ann só pro Headline.
+
+Carga SQL:
+
+```powershell
+python script_itau/load_diffusion_to_sql.py --dry-run
+python script_itau/load_diffusion_to_sql.py     # confirma [s/N]
+```
+
+Grava 5 séries com `bls_code = 'CPIUS:diffusion_{name}'`, `indicator='CPI'`,
+`data_type='NSA'`. Coexiste com as 147 séries de índice (`CPIUS:{cat}`) —
+namespaces disjuntos.
+
+**Spot-check SQL pós-carga**:
+
+```sql
+SELECT bls_code, MAX(d.date) AS last_date, COUNT(*) AS n_obs
+FROM OPT_Macro_Series_2 s
+JOIN OPT_Macro_Series_Data_2 d ON d.series_id = s.series_id
+WHERE s.bls_code LIKE 'CPIUS:diffusion_%'
+GROUP BY bls_code;
+-- esperado: 5 séries; last_date = mês do release; n_obs ~295-301
+```
+
+**Referência jul-2026** (release Ago): Goods 42.5%, Services 66.0%,
+Goods ex cars 43.1%, Headline 49.7%. Sem benchmark BBA — sanity check é
+tendência (Services alto por shelter, Goods baixo por disinflação).
+
+---
+
 ## Alternativa — Full re-load histórico (raro)
 
 Só usar em revisão SA anual (janeiro) ou pra reconstruir cats do zero. Reescreve jan/2000 → hoje via `replace=True`.
