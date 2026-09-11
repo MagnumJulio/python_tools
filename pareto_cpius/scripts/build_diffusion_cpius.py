@@ -15,70 +15,29 @@
 #   cd pareto_cpius
 #   python scripts/build_diffusion_cpius.py
 
-import json
 import os
 import sys
 import time
-import urllib.request
 from pathlib import Path
-from urllib.error import URLError
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 import pandas as pd
+import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 
 # --- Proxy corp (HARDCODED) ---
-# Credenciais Itau — hardcoded a pedido do usuario pra parar de dar 407.
-# ATENCAO: essas credenciais estao no historico do git. Se o repo for
-# publico ou compartilhado, ROTACIONAR a senha 191435 depois do release.
-os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
-os.environ["HTTPS_PROXY"] = "https://MJCCHGX:191435@proxynew.itau:8443"
-os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
-os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
-
-
-def _install_proxy_handler():
-    """Le HTTPS_PROXY / HTTP_PROXY do env e instala handlers urllib explicitos.
-    Se URL tem user:pass@ embutido, extrai e configura ProxyBasicAuthHandler
-    (Basic auth) alem do ProxyHandler."""
-    https_url = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-    http_url  = os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")
-    if not (https_url or http_url):
-        return  # sem proxy
-
-    def _parse(u):
-        if not u:
-            return None
-        p = urlparse(u)
-        bare = f"{p.scheme}://{p.hostname}:{p.port}"
-        return bare, p.username, p.password
-
-    proxies = {}
-    creds = []
-    for scheme, u in [("https", https_url), ("http", http_url)]:
-        parsed = _parse(u)
-        if parsed:
-            bare, user, pw = parsed
-            proxies[scheme] = bare
-            if user and pw:
-                creds.append((bare, user, pw))
-
-    handlers = [urllib.request.ProxyHandler(proxies)]
-    if creds:
-        pwmgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        for bare, user, pw in creds:
-            pwmgr.add_password(None, bare, user, pw)
-        handlers.append(urllib.request.ProxyBasicAuthHandler(pwmgr))
-
-    opener = urllib.request.build_opener(*handlers)
-    urllib.request.install_opener(opener)
-    print(f"[PROXY] handler explicito instalado: {list(proxies.keys())} "
-          f"({len(creds)} com auth)")
-
-
-_install_proxy_handler()
+# ATENCAO: credenciais no historico do git. Se repo publico, ROTACIONAR 191435.
+# Usamos `requests` (nao urllib) por handling mais robusto de proxy corp —
+# mesmo modulo que update_cpius_lean.py usa e ja passou pelo corp.
+PROXIES = {
+    "http":  "http://MJCCHGX:191435@proxynew.itau:8080",
+    "https": "http://MJCCHGX:191435@proxynew.itau:8443",
+}
+# Tambem seta env vars — algumas libs (e.g. pandas.read_csv url) picam via env.
+os.environ["HTTP_PROXY"]  = PROXIES["http"]
+os.environ["HTTPS_PROXY"] = PROXIES["https"]
+os.environ["http_proxy"]  = PROXIES["http"]
+os.environ["https_proxy"] = PROXIES["https"]
 
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
 RAW_OUT = ROOT / "data" / "cpiu_item_level_raw.csv"
@@ -188,26 +147,9 @@ def bls_fetch_batch(series_ids: list[str], start_year: int, end_year: int) -> li
     }
     if BLS_KEY:
         payload["registrationkey"] = BLS_KEY
-    body = json.dumps(payload).encode("utf-8")
-    req = Request(BLS_URL, data=body, headers={"Content-Type": "application/json"})
-    try:
-        with urlopen(req, timeout=120) as r:
-            j = json.loads(r.read())
-    except URLError as e:
-        msg = str(e)
-        if "407" in msg or "authentication" in msg.lower():
-            sys.exit(
-                f"[FAIL] BLS API bloqueada por proxy corp (HTTP 407).\n"
-                f"  Soluções (uma das duas):\n"
-                f"  1) Set env vars com auth do proxy corp:\n"
-                f"     $env:HTTPS_PROXY = 'http://<user>:<pass>@<proxy>:<port>'\n"
-                f"     $env:HTTP_PROXY  = 'http://<user>:<pass>@<proxy>:<port>'\n"
-                f"  2) Criar {ROOT}/scripts/proxy_config.py com:\n"
-                f"     os.environ['HTTPS_PROXY'] = 'http://user:pass@proxy:port'\n"
-                f"     os.environ['HTTP_PROXY']  = 'http://user:pass@proxy:port'\n"
-                f"  (mesmo padrão do fetch_bls_cpiu.R via scripts/proxy_config.R)"
-            )
-        raise
+    r = requests.post(BLS_URL, json=payload, proxies=PROXIES, timeout=120)
+    r.raise_for_status()
+    j = r.json()
     if j.get("status") != "REQUEST_SUCCEEDED":
         raise RuntimeError(f"BLS API erro: {j.get('message', j)}")
     return j["Results"]["series"]

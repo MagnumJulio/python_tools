@@ -9,61 +9,24 @@
 #   cd pareto_pce
 #   python scripts/fetch_pce.py
 
-import json
 import os
 import sys
-import urllib.request
 from pathlib import Path
-from urllib.parse import urlencode, urlparse
-from urllib.request import urlopen
 
 import pandas as pd
+import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# --- Proxy corp (HARDCODED — ver build_diffusion_cpius.py) ---
-os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
-os.environ["HTTPS_PROXY"] = "https://MJCCHGX:191435@proxynew.itau:8443"
-os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
-os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
-
-
-def _install_proxy_handler():
-    https_url = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-    http_url  = os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")
-    if not (https_url or http_url):
-        return
-
-    def _parse(u):
-        if not u:
-            return None
-        p = urlparse(u)
-        return f"{p.scheme}://{p.hostname}:{p.port}", p.username, p.password
-
-    proxies = {}
-    creds = []
-    for scheme, u in [("https", https_url), ("http", http_url)]:
-        parsed = _parse(u)
-        if parsed:
-            bare, user, pw = parsed
-            proxies[scheme] = bare
-            if user and pw:
-                creds.append((bare, user, pw))
-
-    handlers = [urllib.request.ProxyHandler(proxies)]
-    if creds:
-        pwmgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        for bare, user, pw in creds:
-            pwmgr.add_password(None, bare, user, pw)
-        handlers.append(urllib.request.ProxyBasicAuthHandler(pwmgr))
-
-    opener = urllib.request.build_opener(*handlers)
-    urllib.request.install_opener(opener)
-    print(f"[PROXY] handler explicito instalado: {list(proxies.keys())} "
-          f"({len(creds)} com auth)")
-
-
-_install_proxy_handler()
+# --- Proxy corp (HARDCODED) ---
+PROXIES = {
+    "http":  "http://MJCCHGX:191435@proxynew.itau:8080",
+    "https": "http://MJCCHGX:191435@proxynew.itau:8443",
+}
+os.environ["HTTP_PROXY"]  = PROXIES["http"]
+os.environ["HTTPS_PROXY"] = PROXIES["https"]
+os.environ["http_proxy"]  = PROXIES["http"]
+os.environ["https_proxy"] = PROXIES["https"]
 
 OUT = ROOT / "data" / "pce_indices_raw.csv"
 OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -93,9 +56,9 @@ def fetch(years: str) -> list[dict]:
         "Year": years,
         "ResultFormat": "json",
     }
-    url = f"{BASE}?{urlencode(params)}"
-    with urlopen(url, timeout=120) as r:
-        j = json.loads(r.read())
+    r = requests.get(BASE, params=params, proxies=PROXIES, timeout=120)
+    r.raise_for_status()
+    j = r.json()
     try:
         return j["BEAAPI"]["Results"]["Data"]
     except (KeyError, TypeError):
