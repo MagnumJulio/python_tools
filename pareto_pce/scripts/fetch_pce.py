@@ -9,24 +9,32 @@
 #   cd pareto_pce
 #   python scripts/fetch_pce.py
 
+import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pandas as pd
-import requests
+import urllib3
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# --- Proxy corp (HARDCODED) ---
-PROXIES = {
-    "http":  "http://MJCCHGX:191435@proxynew.itau:8080",
-    "https": "http://MJCCHGX:191435@proxynew.itau:8443",
-}
-os.environ["HTTP_PROXY"]  = PROXIES["http"]
-os.environ["HTTPS_PROXY"] = PROXIES["https"]
-os.environ["http_proxy"]  = PROXIES["http"]
-os.environ["https_proxy"] = PROXIES["https"]
+# --- Proxy corp (HARDCODED via urllib3 ProxyManager) — ver build_diffusion_cpius.py.
+_PROXY_USER = "MJCCHGX"
+_PROXY_PASS = "191435"
+_PROXY_HOST = "proxynew.itau"
+
+_PROXY_MANAGER = urllib3.ProxyManager(
+    proxy_url=f"http://{_PROXY_HOST}:8443",
+    proxy_headers=urllib3.make_headers(proxy_basic_auth=f"{_PROXY_USER}:{_PROXY_PASS}"),
+    timeout=urllib3.Timeout(connect=30, read=120),
+)
+
+os.environ["HTTP_PROXY"]  = f"http://{_PROXY_USER}:{_PROXY_PASS}@{_PROXY_HOST}:8080"
+os.environ["HTTPS_PROXY"] = f"http://{_PROXY_USER}:{_PROXY_PASS}@{_PROXY_HOST}:8443"
+os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
+os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
 
 OUT = ROOT / "data" / "pce_indices_raw.csv"
 OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -56,9 +64,11 @@ def fetch(years: str) -> list[dict]:
         "Year": years,
         "ResultFormat": "json",
     }
-    r = requests.get(BASE, params=params, proxies=PROXIES, timeout=120)
-    r.raise_for_status()
-    j = r.json()
+    url = f"{BASE}?{urlencode(params)}"
+    r = _PROXY_MANAGER.request("GET", url)
+    if r.status != 200:
+        raise RuntimeError(f"HTTP {r.status}: {r.data[:200]!r}")
+    j = json.loads(r.data)
     try:
         return j["BEAAPI"]["Results"]["Data"]
     except (KeyError, TypeError):

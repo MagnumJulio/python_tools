@@ -15,31 +15,40 @@
 #   cd pareto_cpius
 #   python scripts/build_diffusion_cpius.py
 
+import json
 import os
 import sys
 import time
 from pathlib import Path
 
 import pandas as pd
-import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 
 # --- Proxy corp (HARDCODED) ---
-# Diagnostico 2026-09-11: curl com esse URL passa Basic auth ok. requests
-# com env HTTPS_PROXY nao passava auth (parsing bug?). Fix: passar `proxies=`
-# EXPLICITO em cada request.post (bypassa env). Scheme http:// mesmo pra
-# HTTPS_PROXY — proxy Itau fala plain HTTP na 8443, tuneliza HTTPS via CONNECT.
+# curl funciona com user:pass@ no URL. requests/urllib3 no CONNECT method
+# nao passa auth confiavelmente. Fix canonico: usar urllib3.ProxyManager
+# direto com `proxy_headers=make_headers(proxy_basic_auth=...)` — garante
+# Proxy-Authorization header injetado no CONNECT.
 # ATENCAO: credenciais no historico do git. ROTACIONAR 191435 apos release.
-PROXIES = {
-    "http":  "http://MJCCHGX:191435@proxynew.itau:8080",
-    "https": "http://MJCCHGX:191435@proxynew.itau:8443",
-}
-# Env vars tambem — algumas libs (pandas.read_csv url, etc) picam via env.
-os.environ["HTTP_PROXY"]  = PROXIES["http"]
-os.environ["HTTPS_PROXY"] = PROXIES["https"]
-os.environ["http_proxy"]  = PROXIES["http"]
-os.environ["https_proxy"] = PROXIES["https"]
+import urllib3
+
+_PROXY_USER = "MJCCHGX"
+_PROXY_PASS = "191435"
+_PROXY_HOST = "proxynew.itau"
+_PROXY_URL  = f"http://{_PROXY_HOST}:8443"  # porta 8443 pra HTTPS (mesmo que curl)
+
+_PROXY_MANAGER = urllib3.ProxyManager(
+    proxy_url=_PROXY_URL,
+    proxy_headers=urllib3.make_headers(proxy_basic_auth=f"{_PROXY_USER}:{_PROXY_PASS}"),
+    timeout=urllib3.Timeout(connect=30, read=120),
+)
+
+# Env vars tambem — pra libs que nao usam _PROXY_MANAGER.
+os.environ["HTTP_PROXY"]  = f"http://{_PROXY_USER}:{_PROXY_PASS}@{_PROXY_HOST}:8080"
+os.environ["HTTPS_PROXY"] = f"http://{_PROXY_USER}:{_PROXY_PASS}@{_PROXY_HOST}:8443"
+os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
+os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
 
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
 RAW_OUT = ROOT / "data" / "cpiu_item_level_raw.csv"
@@ -149,9 +158,12 @@ def bls_fetch_batch(series_ids: list[str], start_year: int, end_year: int) -> li
     }
     if BLS_KEY:
         payload["registrationkey"] = BLS_KEY
-    r = requests.post(BLS_URL, json=payload, proxies=PROXIES, timeout=120)
-    r.raise_for_status()
-    j = r.json()
+    body = json.dumps(payload).encode("utf-8")
+    r = _PROXY_MANAGER.request("POST", BLS_URL, body=body,
+                                headers={"Content-Type": "application/json"})
+    if r.status != 200:
+        raise RuntimeError(f"HTTP {r.status}: {r.data[:200]!r}")
+    j = json.loads(r.data)
     if j.get("status") != "REQUEST_SUCCEEDED":
         raise RuntimeError(f"BLS API erro: {j.get('message', j)}")
     return j["Results"]["series"]
