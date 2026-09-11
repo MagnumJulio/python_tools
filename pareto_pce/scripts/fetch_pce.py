@@ -19,6 +19,13 @@ from urllib.request import urlopen
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Proxy corp opcional — mesmo padrao do R (`scripts/proxy_config.R`).
+# Se `scripts/proxy_config.py` existe, e' sourceado.
+_PROXY_CFG = ROOT / "scripts" / "proxy_config.py"
+if _PROXY_CFG.exists():
+    exec(_PROXY_CFG.read_text(encoding="utf-8"), {"os": os})
+
 OUT = ROOT / "data" / "pce_indices_raw.csv"
 OUT.parent.mkdir(parents=True, exist_ok=True)
 
