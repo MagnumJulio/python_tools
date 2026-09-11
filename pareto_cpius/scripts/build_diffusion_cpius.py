@@ -234,14 +234,19 @@ def compute_diffusion(df: pd.DataFrame, leaves: pd.DataFrame) -> pd.DataFrame:
     m6 = lm.groupby("item_code")["value"].pct_change(6)
     lm["m6_ann"] = ((1 + m6) ** 2 - 1) * 100
 
+    # Cobertura minima pra evitar valores enganosos em meses com release BLS
+    # parcial (ex.: Out-2025 tinha so 6/177 items por shutdown do governo US).
+    # Se um mes tem < 70% dos items com YoY valido, retorna NaN nesse mes.
     def diffusion(rows: pd.DataFrame, col: str) -> pd.Series:
-        # NAO usar include_groups= aqui — kwarg so existe pandas>=2.2; corp
-        # tem versao mais velha. Sem ele funciona, so gera DeprecationWarning
-        # em pandas moderno (aceito).
-        return rows.groupby("date").apply(
-            lambda g: (g[col] > 3).sum() / g[col].notna().sum() * 100
-            if g[col].notna().any() else float("nan"),
-        )
+        # Contagem esperada = # unico de items no scope (fixed no periodo).
+        expected = rows.item_code.nunique()
+        min_valid = int(expected * 0.7)
+        def _calc(g):
+            n_valid = g[col].notna().sum()
+            if n_valid < min_valid:
+                return float("nan")
+            return (g[col] > 3).sum() / n_valid * 100
+        return rows.groupby("date").apply(_calc)
 
     out_rows = []
 
