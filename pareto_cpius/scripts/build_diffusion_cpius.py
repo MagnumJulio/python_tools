@@ -25,19 +25,15 @@ import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# --- Proxy corp (HARDCODED) ---
+# --- Proxy corp (HARDCODED via env vars) ---
 # ATENCAO: credenciais no historico do git. Se repo publico, ROTACIONAR 191435.
-# Usamos `requests` (nao urllib) por handling mais robusto de proxy corp —
-# mesmo modulo que update_cpius_lean.py usa e ja passou pelo corp.
-PROXIES = {
-    "http":  "http://MJCCHGX:191435@proxynew.itau:8080",
-    "https": "http://MJCCHGX:191435@proxynew.itau:8443",
-}
-# Tambem seta env vars — algumas libs (e.g. pandas.read_csv url) picam via env.
-os.environ["HTTP_PROXY"]  = PROXIES["http"]
-os.environ["HTTPS_PROXY"] = PROXIES["https"]
-os.environ["http_proxy"]  = PROXIES["http"]
-os.environ["https_proxy"] = PROXIES["https"]
+# Setamos APENAS env vars — `requests` herda automaticamente (mesmo padrao
+# do update_cpius_lean.py que funciona no corp). NAO passar `proxies=` no
+# request.post pra nao sobrescrever a config do env.
+os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
+os.environ["HTTPS_PROXY"] = "https://MJCCHGX:191435@proxynew.itau:8443"
+os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
+os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
 
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
 RAW_OUT = ROOT / "data" / "cpiu_item_level_raw.csv"
@@ -147,7 +143,8 @@ def bls_fetch_batch(series_ids: list[str], start_year: int, end_year: int) -> li
     }
     if BLS_KEY:
         payload["registrationkey"] = BLS_KEY
-    r = requests.post(BLS_URL, json=payload, proxies=PROXIES, timeout=120)
+    # NAO passar proxies= — deixa requests herdar do env (mesmo padrao update_cpius_lean.py).
+    r = requests.post(BLS_URL, json=payload, timeout=120)
     r.raise_for_status()
     j = r.json()
     if j.get("status") != "REQUEST_SUCCEEDED":
