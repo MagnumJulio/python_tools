@@ -20,17 +20,21 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# --- Proxy corp (subprocess curl) — ver build_diffusion_cpius.py pra explicacao.
-_PROXY_URL = "http://MJCCHGX:191435@proxynew.itau:8443"
+# --- Proxy corp opcional (env-driven) — ver build_diffusion_cpius.py.
+_PROXY_URL      = os.environ.get("CORP_PROXY_URL") or None
+_PROXY_URL_HTTP = os.environ.get("CORP_PROXY_URL_HTTP") or _PROXY_URL
 
-os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
-os.environ["HTTPS_PROXY"] = _PROXY_URL
-os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
-os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
+if _PROXY_URL:
+    os.environ.setdefault("HTTP_PROXY",  _PROXY_URL_HTTP)
+    os.environ.setdefault("HTTPS_PROXY", _PROXY_URL)
+    os.environ.setdefault("http_proxy",  _PROXY_URL_HTTP)
+    os.environ.setdefault("https_proxy", _PROXY_URL)
 
 
 def _curl_get(url: str, timeout: int = 120) -> bytes:
-    cmd = ["curl", "-x", _PROXY_URL, "-s", "-f", "--max-time", str(timeout), url]
+    cmd = ["curl"]
+    if _PROXY_URL: cmd += ["-x", _PROXY_URL]
+    cmd += ["-s", "-f", "--max-time", str(timeout), url]
     r = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
     if r.returncode != 0:
         raise RuntimeError(

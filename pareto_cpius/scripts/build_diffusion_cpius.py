@@ -26,34 +26,27 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# --- Proxy corp (HARDCODED, via subprocess curl) ---
-# Depois de horas brigando com requests + urllib3 sem conseguir passar
-# Proxy-Authorization no CONNECT, ficou provado que so curl funciona.
-# Fix pragmatico: shell out pra curl. Feio mas garantido — mesmo comando
-# que o usuario validou manualmente.
-# ATENCAO: credenciais no historico do git. ROTACIONAR 191435 apos release.
-_PROXY_URL = "http://MJCCHGX:191435@proxynew.itau:8443"
+# --- Proxy corp opcional (env-driven) ---
+# Corp: exporta CORP_PROXY_URL (e opc. CORP_PROXY_URL_HTTP) antes de rodar.
+# Casa: deixa vazio → curl direto. Requests/urllib3 tem bug de CONNECT-auth
+# com proxy Basic-auth, por isso shell out pra curl.
+_PROXY_URL      = os.environ.get("CORP_PROXY_URL") or None
+_PROXY_URL_HTTP = os.environ.get("CORP_PROXY_URL_HTTP") or _PROXY_URL
 
-# Env vars tambem — pra libs que nao usam curl subprocess.
-os.environ["HTTP_PROXY"]  = "http://MJCCHGX:191435@proxynew.itau:8080"
-os.environ["HTTPS_PROXY"] = _PROXY_URL
-os.environ["http_proxy"]  = os.environ["HTTP_PROXY"]
-os.environ["https_proxy"] = os.environ["HTTPS_PROXY"]
+if _PROXY_URL:
+    os.environ.setdefault("HTTP_PROXY",  _PROXY_URL_HTTP)
+    os.environ.setdefault("HTTPS_PROXY", _PROXY_URL)
+    os.environ.setdefault("http_proxy",  _PROXY_URL_HTTP)
+    os.environ.setdefault("https_proxy", _PROXY_URL)
 
 
 def _curl_post_json(url: str, payload: dict, timeout: int = 120) -> dict:
-    """Wraps `curl -x <proxy> -H content-type -d <json> URL`. Retorna JSON parseado.
-    Bypassa requests/urllib3 que estava com bug no CONNECT-auth."""
+    """Wraps `curl [-x <proxy>] -H content-type -d <json> URL`. Retorna JSON."""
     body = json.dumps(payload)
-    cmd = [
-        "curl", "-x", _PROXY_URL,
-        "-H", "Content-Type: application/json",
-        "-d", body,
-        "-s",           # silencioso (nao printa progresso)
-        "-f",           # falha em HTTP >= 400
-        "--max-time", str(timeout),
-        url,
-    ]
+    cmd = ["curl"]
+    if _PROXY_URL: cmd += ["-x", _PROXY_URL]
+    cmd += ["-H", "Content-Type: application/json", "-d", body,
+            "-s", "-f", "--max-time", str(timeout), url]
     r = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
     if r.returncode != 0:
         raise RuntimeError(
@@ -63,7 +56,9 @@ def _curl_post_json(url: str, payload: dict, timeout: int = 120) -> dict:
 
 
 def _curl_get(url: str, timeout: int = 120) -> bytes:
-    cmd = ["curl", "-x", _PROXY_URL, "-s", "-f", "--max-time", str(timeout), url]
+    cmd = ["curl"]
+    if _PROXY_URL: cmd += ["-x", _PROXY_URL]
+    cmd += ["-s", "-f", "--max-time", str(timeout), url]
     r = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
     if r.returncode != 0:
         raise RuntimeError(
