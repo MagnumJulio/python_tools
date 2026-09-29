@@ -749,12 +749,16 @@ names(agg_ex3_ind)[2:3] <- c("var_ex3_ind", "peso_ex3_ind")
 # Difusão — % de subitens com var > 0 no mês (sem pesos). NT_57 Sec 2.6:
 # "apenas os subitens efetivamente pesquisados em cada mês são considerados".
 # Subitens não-pesquisados aparecem como NA em var_mm (do "..." do IBGE).
+# Cutoff <70% items válidos → NA (evita vale falso em blackout/greve).
+# Espelha commit 8de6b4e aplicado em pareto_cpius/pareto_pce.
+n_subitens_total <- length(unique(subi$cod_ibge))
+min_valid <- as.integer(n_subitens_total * 0.7)
 agg_difusao <- data.frame(
   periodo = sort(unique(subi$periodo)),
   var_difusao = sapply(sort(unique(subi$periodo)), function(p) {
     v <- subi$var_mm[subi$periodo == p]
     v <- v[!is.na(v)]
-    if (!length(v)) return(NA_real_)
+    if (length(v) < min_valid) return(NA_real_)
     100 * sum(v > 0) / length(v)
   }),
   stringsAsFactors = FALSE
