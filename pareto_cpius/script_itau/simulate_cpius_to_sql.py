@@ -189,8 +189,10 @@ def sim_sidra_to_sql(
 
     s = series.dropna()
     today = date.today()
+    # EOM pra espelhar load_cpius_to_sql.py (grava SQL em end-of-month).
+    dates_eom = (pd.to_datetime(s.index) + pd.offsets.MonthEnd(0)).date
     df_data = pd.DataFrame({
-        "date": s.index.date,
+        "date": dates_eom,
         "series_id": series_id,
         "value": s.values,
         "release_date": today,

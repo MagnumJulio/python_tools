@@ -162,8 +162,10 @@ def sim_sidra_to_sql(
 
     s = series.dropna()
     today = date.today()
+    # EOM pra espelhar load_pareto_to_sql.py (grava SQL em end-of-month).
+    dates_eom = (pd.to_datetime(s.index) + pd.offsets.MonthEnd(0)).date
     df_data = pd.DataFrame({
-        "date": s.index.date,
+        "date": dates_eom,
         "series_id": series_id,
         "value": s.values,
         "release_date": today,
@@ -194,7 +196,13 @@ def main():
                         help="Linhas a imprimir de cada tabela ao fim (default 10).")
     parser.add_argument("--save", action="store_true",
                         help="Salva as 2 tabelas em script_itau/sim_output/*.csv.")
+    parser.add_argument("--sa", action="store_true",
+                        help="Projecao: duplica cada idx NSA como SA (X-13 real eh corp-only; "
+                             "aqui so pra ver contagem total com SA no corp).")
     args = parser.parse_args()
+    if args.sa:
+        print("[WARN] --sa em modo passthrough: SA = copia NSA (X-13 soh roda no corp). "
+              "Serve pra projetar contagens, nao pra inspecionar valores SA.")
 
     only = set(args.only.split(",")) if args.only else None
 
@@ -235,6 +243,15 @@ def main():
             bls_code=bls,
             session=session,
         )
+        if args.sa:
+            # Passthrough: copia valores NSA. X-13 real eh corp-only.
+            sim_sidra_to_sql(
+                series=si, country="BR", subject="Prices", indicator="IPCA-15",
+                series_name=label_idx, data_type="SA", frequency="M",
+                description=f"{label} - Indice SA (dez/2012=100) - [SIM passthrough = copia NSA]",
+                bls_code=bls,
+                session=session,
+            )
         if sp is not None:
             # Sync 2026-08-27: Weight gravado 1x, pareado so com o idx via
             # series_name=label_idx.
