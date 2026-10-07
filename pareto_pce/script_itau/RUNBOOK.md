@@ -4,6 +4,10 @@
 
 - Máquina corp com `opt_utils` no PYTHONPATH.
 - Env `BEA_API_KEY` setada (registro grátis em https://apps.bea.gov/API/signup/).
+- Env `CORP_PROXY_URL` setada (`fetch_pce.py` shell-out curl precisa — sem ela, `curl rc=5`):
+  ```bash
+  export CORP_PROXY_URL=http://<user>:<pass>@proxynew.itau:8443
+  ```
 - Coluna `bls_code` já criada no `OPT_Macro_Series_2` (compartilhada com IPCA/CPI-US).
 
 ## Escopo servido

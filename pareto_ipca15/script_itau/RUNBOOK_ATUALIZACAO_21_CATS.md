@@ -33,9 +33,9 @@ Esperado: `<1s`. Output em `data/ipca15_pareto_indice.csv`.
 ```bash
 python script_itau/load_pareto_to_sql.py --only total,alim_e_bebidas,alim_domicilio,alim_fora,habitacao,energia_eletrica,artigos_residencia,vestuario,transportes,passagem_aerea,auto_novo,auto_usado,gasolina,saude,higiene_pessoal,despesas_pessoais,educacao,comunicacao,administrados,industriais,servicos --dry-run
 ```
-Deve listar as **21 categorias** com `var: 174 obs   idx: 174 obs   Weight x2: 174 obs`. Se faltar alguma, checar CSV gerado no step 1.
+Deve listar as **21 categorias** com `idx: N obs   Weight: N obs` (N = quantos meses na janela atual). Se faltar alguma, checar CSV gerado no step 1.
 
-## 4. Load NSA (var + idx + Weight x2)
+## 4. Load NSA (idx + Weight)
 
 ```bash
 python script_itau/load_pareto_to_sql.py --only total,alim_e_bebidas,alim_domicilio,alim_fora,habitacao,energia_eletrica,artigos_residencia,vestuario,transportes,passagem_aerea,auto_novo,auto_usado,gasolina,saude,higiene_pessoal,despesas_pessoais,educacao,comunicacao,administrados,industriais,servicos

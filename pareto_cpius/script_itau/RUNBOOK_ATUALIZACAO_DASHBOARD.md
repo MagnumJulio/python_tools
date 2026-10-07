@@ -82,6 +82,11 @@ ORDER BY d.date DESC;
 
 ## 7. Difusão CPI-U (opcional, novo 2026-09-11)
 
+**Pré-req**: `CORP_PROXY_URL` setada (`build_diffusion_cpius.py` shell-out curl precisa, ver `reference_corp_proxy_url_env`):
+```powershell
+$env:CORP_PROXY_URL = "http://<user>:<pass>@proxynew.itau:8443"
+```
+
 ```powershell
 python scripts/build_diffusion_cpius.py         # ~30-60s
 python script_itau/load_diffusion_to_sql.py     # 5 séries
