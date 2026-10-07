@@ -57,6 +57,23 @@ CATEGORY_LABELS = {
     "difusao":         "IPCA: Indice de Difusao",
     "nucleo_p55":      "IPCA: Nucleo P55 (Percentil 55)",
     "nucleo_medio":    "IPCA: Nucleo Medio (media dos 5)",
+    # Onda 6 — grupos IPCA (G1-G9) + subgrupos/itens/subitens de interesse
+    "alim_e_bebidas":     "IPCA: Alimentacao e Bebidas",
+    "habitacao":          "IPCA: Habitacao",
+    "artigos_residencia": "IPCA: Artigos de Residencia",
+    "vestuario":          "IPCA: Vestuario",
+    "transportes":        "IPCA: Transportes",
+    "saude":              "IPCA: Saude e Cuidados Pessoais",
+    "despesas_pessoais":  "IPCA: Despesas Pessoais",
+    "educacao":           "IPCA: Educacao",
+    "comunicacao":        "IPCA: Comunicacao",
+    "alim_fora":          "IPCA: Alimentacao Fora do Domicilio",
+    "higiene_pessoal":    "IPCA: Higiene Pessoal",
+    "energia_eletrica":   "IPCA: Energia Eletrica Residencial",
+    "passagem_aerea":     "IPCA: Passagem Aerea",
+    "auto_novo":          "IPCA: Automovel Novo",
+    "auto_usado":         "IPCA: Automovel Usado",
+    "gasolina":           "IPCA: Gasolina",
 }
 
 # Sync 2026-07-27: bls_code colapsado pra 1 unico formato IPCA:{cat} — sem

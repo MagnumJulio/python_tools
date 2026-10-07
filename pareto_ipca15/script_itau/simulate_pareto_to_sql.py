@@ -57,6 +57,23 @@ CATEGORY_LABELS = {
     "difusao":         "IPCA-15: Indice de Difusao",
     "nucleo_p55":      "IPCA-15: Nucleo P55 (Percentil 55)",
     "nucleo_medio":    "IPCA-15: Nucleo Medio (media dos 5)",
+    # Onda 6 — grupos IPCA (G1-G9) + subgrupos/itens/subitens de interesse
+    "alim_e_bebidas":     "IPCA-15: Alimentacao e Bebidas",
+    "habitacao":          "IPCA-15: Habitacao",
+    "artigos_residencia": "IPCA-15: Artigos de Residencia",
+    "vestuario":          "IPCA-15: Vestuario",
+    "transportes":        "IPCA-15: Transportes",
+    "saude":              "IPCA-15: Saude e Cuidados Pessoais",
+    "despesas_pessoais":  "IPCA-15: Despesas Pessoais",
+    "educacao":           "IPCA-15: Educacao",
+    "comunicacao":        "IPCA-15: Comunicacao",
+    "alim_fora":          "IPCA-15: Alimentacao Fora do Domicilio",
+    "higiene_pessoal":    "IPCA-15: Higiene Pessoal",
+    "energia_eletrica":   "IPCA-15: Energia Eletrica Residencial",
+    "passagem_aerea":     "IPCA-15: Passagem Aerea",
+    "auto_novo":          "IPCA-15: Automovel Novo",
+    "auto_usado":         "IPCA-15: Automovel Usado",
+    "gasolina":           "IPCA-15: Gasolina",
 }
 
 # Namespace IPCA15 estritamente disjunto do IPCA cheio (bls_code, indicator,
