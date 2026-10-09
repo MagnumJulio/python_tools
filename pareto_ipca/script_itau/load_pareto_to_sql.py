@@ -311,9 +311,12 @@ def _migrate_pareto_to_current(session, cats: set[str]) -> int:
       - haver_code -> NULL (idempotente pra rows ja migradas)
       - bls_code   -> IPCA:{cat} puro (colapsa /Index; distincao via series_name)
       - data_type  -> 'Weight' (se antes era 'Peso' em rows muito antigas)
-    Idempotente: rows ja no formato final sao puladas (nao gera UPDATE). Somente
-    cats no escopo do run — evita mexer em ranges fora do escopo. Retorna
-    quantas linhas atualizou de fato."""
+    Idempotente: rows ja no formato final sao puladas (nao gera UPDATE).
+    Antes de qualquer rename, checa se o series_name alvo ja existe em outra
+    linha (fix 2026-10-09 pra UQ_OPT_Macro_Series_2_Code em recargas
+    multiplas); se existir, [SKIP] a row atual. Somente cats no escopo do run
+    — evita mexer em ranges fora do escopo. Retorna quantas linhas atualizou
+    de fato."""
     print("\n[migracao] Normalizando series IPCA pareto pro formato atual (sync 2026-07-27)...")
     df = pd.read_sql(
         """SELECT series_id, series_name, data_type, haver_code, bls_code
@@ -357,6 +360,22 @@ def _migrate_pareto_to_current(session, cats: set[str]) -> int:
         if already_ok:
             continue
         if rename_needed:
+            # Idempotencia: se ja existe outra linha com o series_name alvo
+            # (= migracao foi executada antes), SKIP pra evitar violacao da
+            # UQ_OPT_Macro_Series_2_Code (country,subject,indicator,data_type,
+            # series_name).
+            dup = pd.read_sql(
+                "SELECT series_id FROM OPT_Macro_Series_2 "
+                "WHERE indicator = 'IPCA' AND data_type = ? AND series_name = ? "
+                "AND series_id <> ?",
+                session.conn,
+                params=[new_dtype, expected_series_name, int(row["series_id"])],
+            )
+            if not dup.empty:
+                print(f"  [SKIP]   id={row['series_id']:5d} {row['series_name']:55s} "
+                      f"destino ja existe (id={int(dup['series_id'].iloc[0])}): "
+                      f"'{expected_series_name}' / {new_dtype}")
+                continue
             session.execute(
                 "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
                 "data_type = ?, series_name = ? WHERE series_id = ?",

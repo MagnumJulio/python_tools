@@ -317,10 +317,12 @@ def _migrate_cpius_to_current(session, cats: set[str]) -> int:
       - bls_code   -> CPIUS:{cat} (colapsa /Index; distincao via series_name)
       - indicator  -> 'CPI' (era 'CPI-U')
       - data_type  -> 'Weight' (era 'Peso' em rows muito antigas)
-    Idempotente: rows ja no formato final sao puladas. Somente cats no escopo
-    do run. Nao apaga rows de var (data_type NSA/SA sem '(Index)' no
-    series_name); elas ficam orphan apos a mudanca — cleanup separado por
-    pedido explicito do usuario."""
+    Idempotente: rows ja no formato final sao puladas. Antes de qualquer
+    rename, checa se o series_name alvo ja existe em outra linha (fix
+    2026-10-09 pra UQ_OPT_Macro_Series_2_Code em recargas multiplas); se
+    existir, [SKIP] a row atual. Somente cats no escopo do run. Nao apaga
+    rows de var (data_type NSA/SA sem '(Index)' no series_name); elas ficam
+    orphan apos a mudanca — cleanup separado por pedido explicito do usuario."""
     print("\n[migracao] Normalizando series CPIUS pro formato atual (sync 2026-07-20)...")
     df = pd.read_sql(
         """SELECT series_id, series_name, indicator, data_type, haver_code, bls_code
@@ -357,6 +359,23 @@ def _migrate_cpius_to_current(session, cats: set[str]) -> int:
         )
         if already_ok:
             continue
+        if new_name != current_name:
+            # Idempotencia: se ja existe outra linha com o series_name alvo
+            # (= migracao foi executada antes), SKIP pra evitar violacao da
+            # UQ_OPT_Macro_Series_2_Code (country,subject,indicator,data_type,
+            # series_name).
+            dup = pd.read_sql(
+                "SELECT series_id FROM OPT_Macro_Series_2 "
+                "WHERE indicator = ? AND data_type = ? AND series_name = ? "
+                "AND series_id <> ?",
+                session.conn,
+                params=[new_ind, new_dtype, new_name, int(row["series_id"])],
+            )
+            if not dup.empty:
+                print(f"  [SKIP]   id={row['series_id']:5d} {current_name:55s} "
+                      f"destino ja existe (id={int(dup['series_id'].iloc[0])}): "
+                      f"'{new_name}' / {new_dtype} / {new_ind}")
+                continue
         session.execute(
             "UPDATE OPT_Macro_Series_2 SET haver_code = NULL, bls_code = ?, "
             "indicator = ?, data_type = ?, series_name = ? WHERE series_id = ?",
