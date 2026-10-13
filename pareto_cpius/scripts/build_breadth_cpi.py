@@ -61,6 +61,11 @@ _PROXY_URL = (
     or os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")
     or None
 )
+def _mask_proxy(u):
+    if not u: return "(none — direct)"
+    import re
+    return re.sub(r":([^@/]+)@", ":***@", u)
+print(f"[proxy] _PROXY_URL = {_mask_proxy(_PROXY_URL)}", flush=True)
 
 
 # ----- Fetch helpers (fallback se cache ausente) ----------------------------
@@ -232,11 +237,24 @@ def main() -> None:
     codes = sorted(leaves.item_code.unique().tolist())
     print(f"[1] Leaves em {year_latest}: {len(codes)}  (soma pesos: {leaves.cpi_u.sum():.3f})")
 
-    # Cache SA/NSA raw (compartilhado com build_alt_measures_cpi.py)
-    if RAW_CACHE.exists() and os.environ.get("FORCE_FETCH") != "1":
-        print(f"[2] Lendo cache {RAW_CACHE.name} (FORCE_FETCH=1 pra re-baixar)")
-        raw = pd.read_csv(RAW_CACHE, parse_dates=["date"])
-    else:
+    # Cache SA/NSA raw (compartilhado com build_alt_measures_cpi.py).
+    # Guard: so le se arquivo tem conteudo real.
+    use_cache = (
+        RAW_CACHE.exists()
+        and RAW_CACHE.stat().st_size > 1000
+        and os.environ.get("FORCE_FETCH") != "1"
+    )
+    raw = None
+    if use_cache:
+        try:
+            raw = pd.read_csv(RAW_CACHE, parse_dates=["date"])
+            if raw.empty or "item_code" not in raw.columns:
+                raise ValueError("cache vazio/sem schema esperado")
+            print(f"[2] Cache {RAW_CACHE.name} ({len(raw)} rows). FORCE_FETCH=1 pra re-baixar")
+        except Exception as e:
+            print(f"[2] Cache corrompido ({e}) — re-fetch")
+            raw = None
+    if raw is None:
         raw = _fetch_leaves(codes)
         RAW_CACHE.parent.mkdir(parents=True, exist_ok=True)
         raw.to_csv(RAW_CACHE, index=False)

@@ -33,6 +33,11 @@ _PROXY_URL_HTTP = (
     or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
     or _PROXY_URL
 )
+def _mask_proxy(u):
+    if not u: return "(none — direct)"
+    import re
+    return re.sub(r":([^@/]+)@", ":***@", u)
+print(f"[proxy] _PROXY_URL = {_mask_proxy(_PROXY_URL)}", flush=True)
 
 
 def _curl_get(url: str, timeout: int = 120) -> bytes:

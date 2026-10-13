@@ -61,6 +61,12 @@ _PROXY_URL = (
     or os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")
     or None
 )
+# Mascara credencial pra log: user:pass@host -> user:***@host
+def _mask_proxy(u):
+    if not u: return "(none — direct)"
+    import re
+    return re.sub(r":([^@/]+)@", ":***@", u)
+print(f"[proxy] _PROXY_URL = {_mask_proxy(_PROXY_URL)}", flush=True)
 
 
 def _curl_get(url: str, timeout: int = 60, retries: int = 3) -> bytes:
@@ -246,10 +252,23 @@ def compute_custom_trimmed_sym25(hier_year: int = 2025) -> pd.DataFrame:
     codes = sorted(uni.item_code.unique().tolist())
     print(f"[custom] universe indent-3 em {hier_year}: {len(codes)}")
 
-    if RAW_OUT.exists() and os.environ.get("FORCE_FETCH") != "1":
-        print(f"[custom] cache {RAW_OUT.name} (FORCE_FETCH=1 pra re-baixar)")
-        raw = pd.read_csv(RAW_OUT, parse_dates=["date"])
-    else:
+    # Cache guard: so le se arquivo tem conteudo real (nao vazio/corrompido de
+    # run anterior falha). Senao re-fetch.
+    use_cache = (
+        RAW_OUT.exists()
+        and RAW_OUT.stat().st_size > 1000      # minimo sanity (header + algumas linhas)
+        and os.environ.get("FORCE_FETCH") != "1"
+    )
+    if use_cache:
+        try:
+            raw = pd.read_csv(RAW_OUT, parse_dates=["date"])
+            if raw.empty or "item_code" not in raw.columns:
+                raise ValueError("cache vazio/sem schema esperado")
+            print(f"[custom] cache {RAW_OUT.name} ({len(raw)} rows). FORCE_FETCH=1 pra re-baixar")
+        except Exception as e:
+            print(f"[custom] cache corrompido ({e}) — re-fetch")
+            use_cache = False
+    if not use_cache:
         raw = _fetch_leaves(codes)
         RAW_OUT.parent.mkdir(parents=True, exist_ok=True)
         raw.to_csv(RAW_OUT, index=False)
@@ -362,6 +381,9 @@ def main() -> None:
             print(f"  [FAIL] custom: {e}")
 
     # 4. Consolida + salva
+    if not all_rows:
+        sys.exit("[FAIL] nenhuma serie obtida — todas as fontes falharam. "
+                 "Checar proxy/rede. Nenhum CSV sera gravado.")
     out = pd.concat(all_rows, ignore_index=True)
     out = out.sort_values(["measure", "date"]).reset_index(drop=True)
     out.to_csv(OUT_CSV, index=False)
