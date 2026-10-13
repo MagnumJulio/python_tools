@@ -27,17 +27,21 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 
 # --- Proxy corp opcional (env-driven) ---
-# Corp: exporta CORP_PROXY_URL (e opc. CORP_PROXY_URL_HTTP) antes de rodar.
-# Casa: deixa vazio → curl direto. Requests/urllib3 tem bug de CONNECT-auth
-# com proxy Basic-auth, por isso shell out pra curl.
-_PROXY_URL      = os.environ.get("CORP_PROXY_URL") or None
-_PROXY_URL_HTTP = os.environ.get("CORP_PROXY_URL_HTTP") or _PROXY_URL
-
-if _PROXY_URL:
-    os.environ.setdefault("HTTP_PROXY",  _PROXY_URL_HTTP)
-    os.environ.setdefault("HTTPS_PROXY", _PROXY_URL)
-    os.environ.setdefault("http_proxy",  _PROXY_URL_HTTP)
-    os.environ.setdefault("https_proxy", _PROXY_URL)
+# Respeita HTTP_PROXY/HTTPS_PROXY do ambiente (corp ja seta por default).
+# CORP_PROXY_URL fica como override opcional. Casa: nada setado → curl
+# direto. Requests/urllib3 tem bug de CONNECT-auth com proxy Basic-auth,
+# por isso shell out pra curl.
+_PROXY_URL = (
+    os.environ.get("CORP_PROXY_URL")
+    or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    or os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")
+    or None
+)
+_PROXY_URL_HTTP = (
+    os.environ.get("CORP_PROXY_URL_HTTP")
+    or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+    or _PROXY_URL
+)
 
 
 def _curl_post_json(url: str, payload: dict, timeout: int = 120) -> dict:

@@ -30,7 +30,14 @@ ROOT = Path(__file__).resolve().parent.parent
 CLEV_CSV = ROOT / "data" / "raw" / "cleveland" / "median-pce-full-history.csv"
 OUT_CSV = ROOT / "data" / "pce_alt_measures.csv"
 
-_PROXY_URL = os.environ.get("CORP_PROXY_URL") or None
+# Proxy: respeita HTTP_PROXY/HTTPS_PROXY do ambiente corp (ja setados).
+# CORP_PROXY_URL fica como override opcional.
+_PROXY_URL = (
+    os.environ.get("CORP_PROXY_URL")
+    or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    or os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")
+    or None
+)
 
 
 def _curl_get(url: str, timeout: int = 60, retries: int = 3) -> bytes:

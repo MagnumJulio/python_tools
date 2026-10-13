@@ -21,14 +21,18 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 
 # --- Proxy corp opcional (env-driven) — ver build_diffusion_cpius.py.
-_PROXY_URL      = os.environ.get("CORP_PROXY_URL") or None
-_PROXY_URL_HTTP = os.environ.get("CORP_PROXY_URL_HTTP") or _PROXY_URL
-
-if _PROXY_URL:
-    os.environ.setdefault("HTTP_PROXY",  _PROXY_URL_HTTP)
-    os.environ.setdefault("HTTPS_PROXY", _PROXY_URL)
-    os.environ.setdefault("http_proxy",  _PROXY_URL_HTTP)
-    os.environ.setdefault("https_proxy", _PROXY_URL)
+# Respeita HTTP_PROXY/HTTPS_PROXY do ambiente (corp ja seta por default).
+_PROXY_URL = (
+    os.environ.get("CORP_PROXY_URL")
+    or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    or os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")
+    or None
+)
+_PROXY_URL_HTTP = (
+    os.environ.get("CORP_PROXY_URL_HTTP")
+    or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+    or _PROXY_URL
+)
 
 
 def _curl_get(url: str, timeout: int = 120) -> bytes:

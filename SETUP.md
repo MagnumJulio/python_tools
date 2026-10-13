@@ -43,22 +43,20 @@ Rscript -e "install.packages('seasonal', repos='https://cran.r-project.org')"
 |---|---|---|
 | `BLS_API_KEY` | CPI-U fetch (sem key, trava em rate limit 25/dia) | https://data.bls.gov/registrationEngine/ |
 | `BEA_API_KEY` | PCE fetch | https://apps.bea.gov/API/signup/ |
-| `CORP_PROXY_URL` | **Corp only** — scripts Python que shell-out curl (`build_diffusion_cpius.py`, `fetch_pce.py`, `build_alt_measures_*.py`). Em casa, deixa vazio. | TI corp |
-| `CORP_PROXY_URL_HTTP` | **Corp only, opcional** — se portas HTTP/HTTPS diferirem | TI corp |
+| `HTTP_PROXY` / `HTTPS_PROXY` | **Corp only** — já setadas no corp Itau por default pelo profile. Scripts Python que shell-out curl leem automaticamente. | TI corp (já configurado) |
+| `CORP_PROXY_URL` | **Opcional override** — só se quiser forçar um proxy específico diferente do `HTTPS_PROXY` default. | — |
 
 **Bash** (`~/.bashrc` ou `~/.profile`):
 ```bash
 export BLS_API_KEY="<sua_chave_bls>"
 export BEA_API_KEY="<sua_chave_bea>"
-# Só corp:
-export CORP_PROXY_URL="http://<user>:<pass>@proxynew.itau:8443"
+# HTTP_PROXY/HTTPS_PROXY: corp já tem; casa deixa vazio
 ```
 
 **PowerShell** (`$PROFILE`):
 ```powershell
 $env:BLS_API_KEY = "<sua_chave_bls>"
 $env:BEA_API_KEY = "<sua_chave_bea>"
-$env:CORP_PROXY_URL = "http://<user>:<pass>@proxynew.itau:8443"
 ```
 
 ## 4. Proxy R (corp only)
@@ -140,7 +138,7 @@ Master com calendário + prioridade em `RUNBOOK_RELEASE_DAY.md` na raiz.
 
 | Sintoma | Causa | Fix |
 |---|---|---|
-| `curl rc=5` ou `rc=28` em scripts PCE/CPI difusão/alt-measures | `CORP_PROXY_URL` não setada ou proxy fora do ar | export na seção 3; se corp, verificar com TI |
+| `curl rc=5`/`rc=22`/`rc=28` ou `407 Authentication Required` | Proxy não detectado ou credenciais inválidas | Confirma `echo $HTTPS_PROXY` tem user:pass; se corp e tá vazio, falar com TI. Pra forçar: `export CORP_PROXY_URL=http://user:pass@proxy:port` |
 | `REQUEST_NOT_PROCESSED` BLS | rate limit | esperar 5-10min; confere `BLS_API_KEY` válida |
 | `[FAIL] coluna bls_code` | ALTER TABLE não rodado | seção 6 |
 | `Violation of UNIQUE KEY ... UQ_OPT_Macro_Series_2_Code` | migração não idempotente em DB legado | atualizar p/ commit `f9cccf6`+ (migração agora tem SKIP) |

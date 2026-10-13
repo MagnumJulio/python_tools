@@ -82,10 +82,7 @@ ORDER BY d.date DESC;
 
 ## 7. Alt measures (Atlanta Sticky family + Cleveland Median/Trimmed + custom)
 
-**Pré-req**: `CORP_PROXY_URL` setada (necessária pros scripts Python que shell-out curl, ver `reference_corp_proxy_url_env`):
-```powershell
-$env:CORP_PROXY_URL = "http://<user>:<pass>@proxynew.itau:8443"
-```
+**Pré-req**: proxy corp — scripts já leem `HTTP_PROXY`/`HTTPS_PROXY` do ambiente (corp seta por default). Só se quiser forçar outro, usa `CORP_PROXY_URL` como override.
 
 ```powershell
 python scripts/build_alt_measures_cpi.py        # ~60-120s — 9 cats (6 Atlanta + 2 Cleveland + 1 custom Trim25)

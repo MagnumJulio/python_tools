@@ -52,7 +52,15 @@ BATCH = 50 if BLS_KEY else 25
 YEAR_STRIDE = 20
 START_YEAR = 2000
 
-_PROXY_URL = os.environ.get("CORP_PROXY_URL") or None
+# Proxy: respeita HTTP_PROXY/HTTPS_PROXY do ambiente corp (ja setados).
+# CORP_PROXY_URL fica como override opcional. Shell-out curl pq urllib tem
+# bug conhecido no CONNECT-auth (407) com proxy Basic-auth do Itau.
+_PROXY_URL = (
+    os.environ.get("CORP_PROXY_URL")
+    or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    or os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")
+    or None
+)
 
 
 # ----- Fetch helpers (fallback se cache ausente) ----------------------------
