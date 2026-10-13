@@ -80,18 +80,26 @@ ORDER BY d.date DESC;
 -- valor do mês novo tem que bater CUUR0000SA0 do release BLS Table 1
 ```
 
-## 7. Difusão CPI-U (opcional, novo 2026-09-11)
+## 7. Alt measures (Atlanta Sticky family + Cleveland Median/Trimmed + custom)
 
-**Pré-req**: `CORP_PROXY_URL` setada (`build_diffusion_cpius.py` shell-out curl precisa, ver `reference_corp_proxy_url_env`):
+**Pré-req**: `CORP_PROXY_URL` setada (necessária pros scripts Python que shell-out curl, ver `reference_corp_proxy_url_env`):
 ```powershell
 $env:CORP_PROXY_URL = "http://<user>:<pass>@proxynew.itau:8443"
 ```
 
 ```powershell
+python scripts/build_alt_measures_cpi.py        # ~60-120s — 9 cats (6 Atlanta + 2 Cleveland + 1 custom Trim25)
+python script_itau/load_alt_measures_cpi_to_sql.py --no-confirm
+```
+Grava `CPIUS:alt_*` no SQL corp. Match 100% com Atlanta/Cleveland (fontes oficiais).
+
+## 8. Difusão CPI-U
+
+```powershell
 python scripts/build_diffusion_cpius.py         # ~30-60s
 python script_itau/load_diffusion_to_sql.py     # 5 séries
 ```
-Vale rodar se dashboard consome difusão.
+Grava `CPIUS:diffusion_*`. Já tem filtro <70% items válidos (commit `8de6b4e`).
 
 ---
 

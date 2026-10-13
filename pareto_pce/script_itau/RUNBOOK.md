@@ -39,7 +39,7 @@ Verifica sanity:
 - Contagem: Goods=90, Services=100, Cars=6 (após MARKET_DRIVEN_EXCLUDE).
 - Julho 2026 esperado (referência atual): Goods ~47.8%, Services ~58%, Goods_ex_cars ~50%, Cars exato.
 
-## Carga corp
+## Carga corp — difusão
 
 ```bash
 # 1. Dry-run: confirma escopo, não abre conexão SQL
@@ -54,6 +54,19 @@ python script_itau/load_pce_to_sql.py
 # em OPT_Macro_Series_Data_2. Substitui data existente por series_id
 # (replace=True), preserva metadados. haver_code = NULL nos INSERTs novos.
 ```
+
+## Carga corp — alt measures (Cleveland Median PCE + Dallas Trimmed)
+
+Parte do fluxo mensal padrão desde 2026-10-09. Grava `PCE:alt_*`.
+
+```bash
+python scripts/build_alt_measures_pce.py                        # ~30s — Cleveland CSV + Dallas FRED
+python script_itau/load_alt_measures_pce_to_sql.py --no-confirm # 3 séries SQL (ou 1 se Dallas FRED off)
+```
+
+Fontes:
+- Cleveland Median PCE: CSV oficial full history 1977+ (ambos 1-mo ann + YoY)
+- Dallas Trimmed Mean PCE: FRED only (`PCETRIM1M680SFRBDAL` + `PCETRIM12M680SFRBDAL`) — requer `CORP_PROXY_URL` setada
 
 ## Simulate (casa, sem SQL)
 
