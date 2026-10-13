@@ -1,0 +1,15 @@
+# Python deps dos pipelines pareto_* (IPCA, IPCA-15, CPI-U, PCE)
+# Instalar com: pip install -r requirements.txt
+#
+# Versoes referenciais testadas em out/2026. Pins flexiveis — mínimos funcionais.
+
+pandas>=2.0
+numpy>=1.24
+requests>=2.28
+openpyxl>=3.1          # pd.read_excel (Atlanta/Cleveland/Dallas xlsx)
+statsmodels>=0.14      # STL deseasonalization em build_alt_measures_cpi.py
+matplotlib>=3.5        # charts em alguns probes/audit scripts
+
+# Corp-only (nao instalavel fora da rede Itau):
+#   opt_utils            # SQLConnector pyodbc
+#   pyodbc               # driver ODBC SQL Server (vem junto)
