@@ -34,3 +34,22 @@ leaves — sem ela, iteração é chute.
    `bls_code="PCE:diffusion_yoy_headline"` etc.
 3. Adicionar validação amostral contra série histórica (dá pra checar
    pontos passados do chart BBA se tivermos snapshots).
+
+## Breadth ponderado por bins (análogo ao CPI, pendente)
+
+CPI ganhou breadth 3-bins em 2026-10-09 (via `pareto_cpius/scripts/build_breadth_cpi.py`
+usando pesos subitem RI time-varying). PCE ficou pendente porque não temos
+pesos subitem oficiais nos CSVs.
+
+Pra fechar o paralelo:
+1. Fetch BEA **U20405** (Personal Consumption Expenditures by Type of Product
+   em nominais mensais) via `fetch_pce.py` ou script novo.
+2. Peso implícito mensal = `nominal_i(m) / Σ_i nominal_i(m)` por leaf.
+3. Replicar lógica do `build_breadth_cpi.py` com pesos BEA + os 190 leaves já
+   detectados em `data/leaves_detected.csv`.
+4. 3 séries SQL: `PCE:breadth_above_3pct`, `PCE:breadth_0_to_3pct`, `PCE:breadth_below_0pct`.
+5. Loader + RUNBOOK edit.
+
+Benchmark pros números: Dallas Fed publica a mesma métrica (xlsx `pcedata.xlsx`
+com 5 bins — ver `data/raw/dallas/`). Nossos 3 bins podem agregar os 5 Dallas
+(`<0%` ⊃ nada direto, mas `0-3%` ⊃ `0-2%+2-3%` e `>3%` ⊃ `3-5%+5-10%+>10%`).

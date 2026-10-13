@@ -101,6 +101,16 @@ python script_itau/load_diffusion_to_sql.py     # 5 séries
 ```
 Grava `CPIUS:diffusion_*`. Já tem filtro <70% items válidos (commit `8de6b4e`).
 
+## 9. Inflation breadth (3-bin ponderado por peso subitem)
+
+```powershell
+python scripts/build_breadth_cpi.py             # ~30s (cache ja aquecido pelo step 7)
+python script_itau/load_breadth_cpi_to_sql.py --no-confirm
+```
+Grava `CPIUS:breadth_above_3pct` / `CPIUS:breadth_0_to_3pct` / `CPIUS:breadth_below_0pct`. Soma dos 3 bins = 100 em cada mês. Cross-section ponderada em 177 subitens leaves (RI subitem Dez do ano anterior).
+
+Dashboard JS calcula contribuições / variantes em cima dessas 3 séries.
+
 ---
 
 ## Rollback / troubleshooting
