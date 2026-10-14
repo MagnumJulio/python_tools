@@ -1,0 +1,6 @@
+area_code,area_label,bls_area,item_code
+us,U.S. city average,0000,SEHC
+northeast,Northeast urban,0100,SEHC
+midwest,Midwest urban,0200,SEHC
+south,South urban,0300,SEHC
+west,West urban,0400,SEHC

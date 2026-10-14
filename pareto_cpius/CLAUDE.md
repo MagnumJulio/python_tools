@@ -147,6 +147,37 @@ Depois renormaliza a soma food+energy+core=100 pra preservar coerência hierárq
 
 6. **Loader SQL corp Itaú** (`script_itau/load_cpius_to_sql.py`, ✅ entregue): mesmo padrão de `pareto_ipca/script_itau/load_pareto_to_sql.py` mas com diferenças de escopo — sync 2026-07-20: **só `idx` NSA + idx SA + Weight** (var NSA/SA foi removida do SQL pra não lotar de lixo; variação mensal pode ser derivada do índice no consumo). Cada categoria vira até **3 séries**. Convenções: `data_type="Weight"` (não `"Peso"`), Weight gravado **1×** por categoria com `series_name=f"{label} (Index)"` (par com o idx) — sem duplicação porque não há mais var pareado. Headline `all_items` recebe peso sintético 100.0 constante (sobrescreve valor renormalizado ~99.9997 do CSV). Proveniência gravada em **`bls_code`** com formato simplificado **`CPIUS:{cat}`** — sem sufixo `/Index` (a distinção idx vs Weight sai de `series_name`+`data_type`, não do code); INSERTs novos não setam `haver_code` (o SQL preenche como `NULL` por default). `indicator="CPI"` (não `"CPI-U"` — sync 2026-07-20). Base e custom compartilham o mesmo formato — a distinção sai do próprio `category_code` (ex.: `core_ex_oer` vs `core`), não do code. Migração idempotente (`_migrate_cpius_to_current`) rodada antes do main loop: normaliza qualquer row CPIUS antiga (haver_code populado, sufixo /Index em bls_code, indicator=CPI-U, data_type=Peso) pro formato atual. Total: 47 × 3 = **141 séries** (~44 700 linhas EAV). Simulador local em `simulate_cpius_to_sql.py` (mesma lógica com `MockSQLConnector`).
 
+## OER regional (CPI-U por Census region) — entregue 2026-10-14
+
+Submódulo isolado pra servir OER (`SEHC`) com corte por **região Census**: US city average + 4 regions (Northeast `0100`, Midwest `0200`, South `0300`, West `0400`). Todas NSA mensais, histórico contínuo **dez/1982 → atual**, base nativa comum `DEZ 1982=100`. **SA regional não existe no BLS** — publica SA só pra `0000`; YoY (var 12m) é SA-robusto e resolve pros usos típicos.
+
+**Por que isolado**: cross-cutting diferente (dimensão é _área_, não _item/agregação_), não cabe no `fetch_bls_cpiu.R` que opera em `CUUR0000<item>`. Divisions (`0110`/`0120`/etc.) e metros descartados pelo escopo atual — divisions só têm mensal desde 2017-12 (quebra histórico), metros são multiplicador de ×23 fora de pedido.
+
+**Arquivos**:
+- `scripts/bls_maps/cpiu_oer_regional.csv` — mapa 5 áreas: `(area_code, area_label, bls_area, item_code)`
+- `scripts/fetch_bls_oer_regional.R` — fetcher BLS API v2 (standalone, usa mesma `BLS_API_KEY` + `proxy_config.R` do pipeline principal)
+- `data/cpi_cpius_oer_regional.csv` — long: `date, area_code, area_label, series_id, value_index, value_var_mm, value_var_yoy` (base nativa)
+- `data/cpi_cpius_oer_regional_indice.csv` — long: `date, area_code, area_label, index` rebased jan/2000=100
+- `script_itau/load_oer_regional_to_sql.py` — loader corp
+- `script_itau/simulate_oer_regional_to_sql.py` — simulador local (MockSQLConnector)
+
+**Pipeline mensal**:
+```bash
+cd pareto_cpius
+Rscript scripts/fetch_bls_oer_regional.R          # 5 series NSA, dez/1982 -> atual
+python script_itau/load_oer_regional_to_sql.py    # 4 regions no SQL corp
+```
+
+**Convenções SQL** (variantes do padrão principal):
+- `bls_code` = **`CPIUS_OER:{area}`** — namespace isolado do `CPIUS:{cat}` do loader principal pra: (a) evitar colisão com `CPIUS:oer` (US headline já no SQL), (b) desacoplar migrations idempotentes (`LIKE 'CPIUS:%'` não casa com `'CPIUS_OER:%'` porque `:` ≠ `_`).
+- `series_name` = `CPI-U: OER - {area_label} (Index)` (ex.: `CPI-U: OER - Northeast urban (Index)`).
+- `indicator` = `CPI`, `subject` = `Prices`, `country` = `US`, `data_type` = `NSA`, `frequency` = `M`.
+- **US skipado por default** (`area_code='us'`) — já existe no SQL como `CPIUS:oer` via loader principal. `--include-us` força (gera `CPIUS_OER:us` separado, útil pra audit).
+- Só Index NSA. **Sem Weight** (não faz sentido isolar peso regional de 1 subitem) e **sem SA** (não existe fonte).
+- Total: 4 séries × ~506 obs ≈ 2 024 linhas EAV. Com `--include-us`: 5 × ~506 ≈ 2 530.
+
+**Catálogo BLS verificado** (`cu.series` em 2026-10-14): das 109 combinações `(area × SEHC)` publicadas, 59 têm mensal ativo (`CUUR...R`). Escolhidas as 5 do grupo A (histórico contínuo 1982-12+). Grupo B (9 Census divisions) e grupo C (23 metros) ficaram fora. Metros descontinuados em 2017-M13 ou 1986-1997 (`A104`, `A210`, `A212`-`A214`, `A311`, `A421`, `A425`, `D000`, `D200`, `D300`) não são úteis.
+
 ## Convenções dos scripts
 
 - **Auto-cwd**: descobre a raiz do projeto via `--file=` e faz `setwd()`. Funciona de qualquer pasta de invocação.

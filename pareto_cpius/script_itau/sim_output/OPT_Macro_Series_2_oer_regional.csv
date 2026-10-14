@@ -1,0 +1,5 @@
+series_id,country,subject,indicator,series_name,data_type,frequency,description,haver_code,bls_code
+1,US,Prices,CPI,CPI-U: OER - Midwest urban (Index),NSA,M,"CPI-U OER (Owners' Equivalent Rent of Residences) - Midwest urban - Indice NSA (base nativa DEZ 1982=100, rebased jan/2000=100 pra comparabilidade) - BLS API v2 (CUUR0200SEHC)",,CPIUS_OER:midwest
+2,US,Prices,CPI,CPI-U: OER - Northeast urban (Index),NSA,M,"CPI-U OER (Owners' Equivalent Rent of Residences) - Northeast urban - Indice NSA (base nativa DEZ 1982=100, rebased jan/2000=100 pra comparabilidade) - BLS API v2 (CUUR0100SEHC)",,CPIUS_OER:northeast
+3,US,Prices,CPI,CPI-U: OER - South urban (Index),NSA,M,"CPI-U OER (Owners' Equivalent Rent of Residences) - South urban - Indice NSA (base nativa DEZ 1982=100, rebased jan/2000=100 pra comparabilidade) - BLS API v2 (CUUR0300SEHC)",,CPIUS_OER:south
+4,US,Prices,CPI,CPI-U: OER - West urban (Index),NSA,M,"CPI-U OER (Owners' Equivalent Rent of Residences) - West urban - Indice NSA (base nativa DEZ 1982=100, rebased jan/2000=100 pra comparabilidade) - BLS API v2 (CUUR0400SEHC)",,CPIUS_OER:west
