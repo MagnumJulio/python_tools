@@ -1,4 +1,8 @@
-data/
+data/*
+!data/raw/
+# data/raw/relative_importance/ é archive BLS grande (3MB) — não versionar;
+# só é necessário quando BLS publica Table 6 nova (~fev/ano).
+data/raw/relative_importance/
 scripts/outputs/
 .Renviron
 .env
