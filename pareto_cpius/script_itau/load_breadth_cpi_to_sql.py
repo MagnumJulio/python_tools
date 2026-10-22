@@ -93,10 +93,11 @@ def main():
     today = date.today()
 
     def _ensure(sp):
-        q = session.read_sql(
+        q = pd.read_sql(
             """SELECT series_id FROM OPT_Macro_Series_2
                WHERE country='US' AND subject='Prices' AND indicator='CPI'
                  AND series_name=? AND data_type='NSA'""",
+            session.conn,
             params=[sp["series_name"]],
         )
         if len(q) > 0:
@@ -109,11 +110,12 @@ def main():
                            f"share of basket weight em subitem YoY cross-section.",
             "bls_code": sp["bls_code"],
         }])
-        session.write_sql_table_from_dataframe(meta, "OPT_Macro_Series_2", if_exists="append")
-        q = session.read_sql(
+        session.write_sql_table_from_dataframe("OPT_Macro_Series_2", meta, chunk_size=50)
+        q = pd.read_sql(
             """SELECT series_id FROM OPT_Macro_Series_2
                WHERE country='US' AND subject='Prices' AND indicator='CPI'
                  AND series_name=? AND data_type='NSA'""",
+            session.conn,
             params=[sp["series_name"]],
         )
         return int(q["series_id"].iloc[0])
@@ -127,13 +129,14 @@ def main():
         d["release_date"] = today
         d["vintage_date"] = today
         dmin, dmax = d["date"].min(), d["date"].max()
-        session.execute_sql(
+        session.execute(
             "DELETE FROM OPT_Macro_Series_Data_2 WHERE series_id=? AND date>=? AND date<=?",
             params=[sid, dmin, dmax],
         )
         session.write_sql_table_from_dataframe(
+            "OPT_Macro_Series_Data_2",
             d[["date", "series_id", "value", "release_date", "vintage_date"]],
-            "OPT_Macro_Series_Data_2", if_exists="append",
+            chunk_size=5_000,
         )
         n_series += 1; n_rows += len(d)
         print(f"  [{n_series}/{len(series_plan)}] {sp['bls_code']}: {len(d)} rows")

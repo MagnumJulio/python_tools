@@ -123,10 +123,11 @@ def main():
 
     def _ensure_series(sp: dict) -> int:
         """Lookup ou INSERT em OPT_Macro_Series_2. Retorna series_id."""
-        q = session.read_sql(
+        q = pd.read_sql(
             """SELECT series_id FROM OPT_Macro_Series_2
                WHERE country='US' AND subject='Prices' AND indicator='CPI'
                  AND series_name=? AND data_type='NSA'""",
+            session.conn,
             params=[sp["series_name"]],
         )
         if len(q) > 0:
@@ -138,11 +139,12 @@ def main():
             "description": f"CPI-U alt measure {sp['measure']} ({sp['metric']}) — Fed oficial",
             "bls_code": sp["bls_code"],
         }])
-        session.write_sql_table_from_dataframe(meta, "OPT_Macro_Series_2", if_exists="append")
-        q = session.read_sql(
+        session.write_sql_table_from_dataframe("OPT_Macro_Series_2", meta, chunk_size=50)
+        q = pd.read_sql(
             """SELECT series_id FROM OPT_Macro_Series_2
                WHERE country='US' AND subject='Prices' AND indicator='CPI'
                  AND series_name=? AND data_type='NSA'""",
+            session.conn,
             params=[sp["series_name"]],
         )
         return int(q["series_id"].iloc[0])
@@ -159,13 +161,14 @@ def main():
         data["vintage_date"] = today
         # Substitui o range coberto
         dmin, dmax = data["date"].min(), data["date"].max()
-        session.execute_sql(
+        session.execute(
             "DELETE FROM OPT_Macro_Series_Data_2 WHERE series_id=? AND date>=? AND date<=?",
             params=[series_id, dmin, dmax],
         )
         session.write_sql_table_from_dataframe(
+            "OPT_Macro_Series_Data_2",
             data[["date", "series_id", "value", "release_date", "vintage_date"]],
-            "OPT_Macro_Series_Data_2", if_exists="append",
+            chunk_size=5_000,
         )
         n_series += 1
         n_rows += len(data)
