@@ -31,12 +31,26 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import date
 from pathlib import Path
 from urllib.request import Request, urlopen
 
 import numpy as np
 import pandas as pd
+
+# TTL default pros caches Fed-source (xlsx/csv pequenos, re-fetch barato).
+# Evita o bug "if not path.exists(): download" que travou alt_measures em
+# agosto depois do Atlanta/Cleveland terem publicado setembro.
+CACHE_TTL_HOURS = int(os.environ.get("CACHE_TTL_HOURS", "24"))
+
+
+def _cache_fresh(path: Path, ttl_hours: int = CACHE_TTL_HOURS) -> bool:
+    """True se arquivo existe E foi atualizado nas ultimas ttl_hours."""
+    if not path.exists():
+        return False
+    age_h = (time.time() - path.stat().st_mtime) / 3600
+    return age_h < ttl_hours
 
 ROOT = Path(__file__).resolve().parent.parent
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
@@ -90,9 +104,14 @@ def _curl_get(url: str, timeout: int = 60, retries: int = 3) -> bytes:
 
 
 def fetch_fred_csv(fred_id: str) -> pd.Series:
-    """FRED CSV publico. Sem key."""
+    """FRED CSV publico. Sem key. Usa requests em vez de curl: no corp
+    Itau o curl via proxy Basic-auth dava timeout (rc=28) ou SSL (rc=56)
+    intermitente, requests respeita trust_env e passa."""
+    import requests
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={fred_id}"
-    buf = io.BytesIO(_curl_get(url))
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    buf = io.BytesIO(r.content)
     df = pd.read_csv(buf)
     df.columns = ["date", "value"]
     df["date"] = pd.to_datetime(df["date"])
@@ -103,9 +122,8 @@ def fetch_fred_csv(fred_id: str) -> pd.Series:
 def fetch_atlanta_sticky() -> pd.DataFrame:
     """Parse xlsx oficial Atlanta Fed, retorna long df com as 6 series
     ja em 1-mo annualized percent change (coluna 2 de cada bloco)."""
-    # Baixa se nao tiver localmente
-    if not ATLANTA_XLSX.exists():
-        print(f"[atlanta] baixando xlsx oficial...")
+    if not _cache_fresh(ATLANTA_XLSX):
+        print(f"[atlanta] cache stale/ausente — baixando xlsx oficial...")
         ATLANTA_XLSX.parent.mkdir(parents=True, exist_ok=True)
         url = ("https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/"
                "datafiles/research/inflationproject/stickprice/stickyprice.xlsx")
@@ -253,9 +271,10 @@ def compute_custom_trimmed_sym25(hier_year: int = 2025) -> pd.DataFrame:
     print(f"[custom] universe indent-3 em {hier_year}: {len(codes)}")
 
     # Cache guard: so le se arquivo tem conteudo real (nao vazio/corrompido de
-    # run anterior falha). Senao re-fetch.
+    # run anterior falha) E foi atualizado nos ultimos 7 dias. TTL maior que
+    # Atlanta/Cleveland porque re-fetch de 70 subitens via BLS leva ~2-3min.
     use_cache = (
-        RAW_OUT.exists()
+        _cache_fresh(RAW_OUT, ttl_hours=24 * 7)
         and RAW_OUT.stat().st_size > 1000      # minimo sanity (header + algumas linhas)
         and os.environ.get("FORCE_FETCH") != "1"
     )
@@ -308,7 +327,8 @@ def fetch_cleveland_cpi_chartdata() -> pd.DataFrame:
     """Cleveland Fed Median CPI + Trimmed Mean CPI direto do CSV publico
     (chartdata, YoY, ~10 anos). Fonte primaria quando FRED esta indisponivel."""
     csv_path = ROOT / "data" / "raw" / "cleveland" / "cpi_mediancpi_chartdata.csv"
-    if not csv_path.exists():
+    if not _cache_fresh(csv_path):
+        print(f"[cleveland] cache stale/ausente — baixando chartdata...")
         url = "https://www.clevelandfed.org/-/media/files/webcharts/mediancpi/mediancpi_chartdata.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         csv_path.write_bytes(_curl_get(url, timeout=60))
@@ -327,10 +347,11 @@ def fetch_cleveland_cpi_chartdata() -> pd.DataFrame:
 def main() -> None:
     all_rows = []
 
-    # 1a. FRED (primary quando acessivel) — Cleveland Median + Trimmed 16%,
-    #     1-mo annualized full history (1983+).
+    # 1a. FRED — Cleveland Median + Trimmed 16%, 1-mo annualized (1983+).
+    # FRED e chartdata sao COMPLEMENTARES, nao fallback: FRED entrega ann_1mo,
+    # chartdata entrega ann_12mo. Rodamos ambos sempre; se um falhar, o outro
+    # cobre sua coluna. Consolidacao vem em (4) via groupby(measure,date).
     print("[1a] FRED Cleveland Median + Trimmed (1-mo annualized)...")
-    fred_ok = {}
     for mname, fred_id in [("median_cpi", "MEDCPIM158SFRBCLE"),
                            ("trimmed_mean_16_cpi", "TRMMEANCPIM158SFRBCLE")]:
         try:
@@ -339,24 +360,20 @@ def main() -> None:
             df["measure"] = mname
             df["ann_12mo"] = np.nan
             all_rows.append(df[["date", "measure", "ann_1mo", "ann_12mo"]])
-            fred_ok[mname] = True
-            print(f"  {mname}: {len(df)} obs, {df.date.min().date()} -> {df.date.max().date()}")
+            print(f"  {mname}: {len(df)} obs 1mo, {df.date.min().date()} -> {df.date.max().date()}")
         except Exception as e:
             print(f"  [FAIL FRED] {mname}: {str(e)[:120]}")
 
-    # 1b. Fallback Cleveland chartdata (YoY, 10yr) pros que FRED falhou.
-    if len(fred_ok) < 2:
-        print("[1b] Cleveland chartdata fallback (YoY, ~10 anos)...")
-        try:
-            cle = fetch_cleveland_cpi_chartdata()
-            for m in cle["measure"].unique():
-                if m in fred_ok:
-                    continue
-                sub = cle[cle["measure"] == m]
-                all_rows.append(sub)
-                print(f"  {m}: {len(sub)} obs YoY, {sub.date.min().date()} -> {sub.date.max().date()}")
-        except Exception as e:
-            print(f"  [FAIL Cleveland] {e}")
+    # 1b. Cleveland chartdata — YoY (~10 anos). Complementa FRED (que so da 1mo).
+    print("[1b] Cleveland chartdata (YoY, ~10 anos)...")
+    try:
+        cle = fetch_cleveland_cpi_chartdata()
+        for m in cle["measure"].unique():
+            sub = cle[cle["measure"] == m]
+            all_rows.append(sub)
+            print(f"  {m}: {len(sub)} obs YoY, {sub.date.min().date()} -> {sub.date.max().date()}")
+    except Exception as e:
+        print(f"  [FAIL Cleveland] {e}")
 
     # 2. Atlanta Fed xlsx — 6 series Sticky/Flexible (ann_1mo + ann_12mo)
     print("[2] Atlanta Fed Sticky/Flexible (xlsx oficial)...")
@@ -385,6 +402,11 @@ def main() -> None:
         sys.exit("[FAIL] nenhuma serie obtida — todas as fontes falharam. "
                  "Checar proxy/rede. Nenhum CSV sera gravado.")
     out = pd.concat(all_rows, ignore_index=True)
+    # FRED (ann_1mo) e chartdata (ann_12mo) chegam em linhas separadas pro
+    # mesmo (measure, date); colapsa com max (NaN-safe) — nao ha conflito
+    # porque cada fonte so preenche a coluna que lhe cabe.
+    out = (out.groupby(["measure", "date"], as_index=False)
+              .agg({"ann_1mo": "max", "ann_12mo": "max"}))
     out = out.sort_values(["measure", "date"]).reset_index(drop=True)
     out.to_csv(OUT_CSV, index=False)
     print(f"\n[OK] {len(out)} rows -> {OUT_CSV.relative_to(ROOT)}")

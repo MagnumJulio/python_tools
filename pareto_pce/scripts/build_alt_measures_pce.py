@@ -64,8 +64,13 @@ def _curl_get(url: str, timeout: int = 60, retries: int = 3) -> bytes:
 
 
 def fetch_fred_csv(fred_id: str) -> pd.Series:
+    """FRED CSV publico. Usa requests em vez de curl: no corp Itau o curl
+    via proxy Basic-auth dava timeout/SSL intermitente, requests passa."""
+    import requests
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={fred_id}"
-    buf = io.BytesIO(_curl_get(url))
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    buf = io.BytesIO(r.content)
     df = pd.read_csv(buf)
     df.columns = ["date", "value"]
     df["date"] = pd.to_datetime(df["date"])
@@ -75,8 +80,11 @@ def fetch_fred_csv(fred_id: str) -> pd.Series:
 
 def fetch_cleveland_median_pce() -> pd.DataFrame:
     """CSV Cleveland Fed full history (1977+): Date, MoM%, YoY%."""
-    if not CLEV_CSV.exists():
-        print("[cleveland] baixando full history CSV...")
+    import time
+    ttl_h = int(os.environ.get("CACHE_TTL_HOURS", "24"))
+    fresh = CLEV_CSV.exists() and (time.time() - CLEV_CSV.stat().st_mtime) / 3600 < ttl_h
+    if not fresh:
+        print("[cleveland] cache stale/ausente — baixando full history CSV...")
         CLEV_CSV.parent.mkdir(parents=True, exist_ok=True)
         url = "https://www.clevelandfed.org/-/media/files/webcharts/medianpce/median-pce-full-history.csv"
         CLEV_CSV.write_bytes(_curl_get(url, timeout=60))
