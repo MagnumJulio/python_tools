@@ -80,18 +80,25 @@ def main():
         print(f"[info] carga incremental: ultimos {INCREMENTAL_MONTHS} meses "
               f"(data >= {cutoff.date()})")
 
-    # Monta payload: 1 serie por (measure, metric). metric ∈ {1mo, 12mo}
+    # Monta payload: 1 serie por (measure, metric). metric ∈ {1mo, mom_sa, 12mo}
+    METRIC_LABELS = {
+        "1mo":    "1-mo annualized",
+        "mom_sa": "MoM SA",
+        "12mo":   "YoY",
+    }
     print(f"\n[1] Series a carregar:")
     series_plan = []
     for measure, g in df.groupby("measure"):
         if measure not in MEASURE_LABELS:
             continue
         label, code_slug = MEASURE_LABELS[measure]
-        for metric, col in [("1mo", "ann_1mo"), ("12mo", "ann_12mo")]:
+        for metric, col in [("1mo", "ann_1mo"), ("mom_sa", "mom_sa"), ("12mo", "ann_12mo")]:
+            if col not in g.columns:
+                continue
             s = g[["date", col]].rename(columns={col: "value"}).dropna(subset=["value"])
             if s.empty:
                 continue
-            metric_label = "1-mo annualized" if metric == "1mo" else "YoY"
+            metric_label = METRIC_LABELS[metric]
             series_plan.append({
                 "measure": measure,
                 "metric": metric,

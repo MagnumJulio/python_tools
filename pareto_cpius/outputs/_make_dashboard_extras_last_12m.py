@@ -77,6 +77,7 @@ def alt_pivot(col: str) -> pd.DataFrame:
     return p
 
 alt_1mo = alt_pivot("ann_1mo")
+alt_mom_sa = alt_pivot("mom_sa")
 alt_yoy = alt_pivot("ann_12mo")
 
 # ---------- breadth ----------
@@ -138,6 +139,10 @@ md = [
           "Núcleos alternativos de inflação, taxa anualizada do mês. "
           "Family Atlanta Sticky/Flex (1967+), Cleveland Median/Trimmed (1983+), "
           "Trimmed Sym 25% custom.", 2),
+    to_md(alt_mom_sa, "Alt measures — proxy MoM SA (%)",
+          "Variação mensal SA derivada do 1-mo annualized: "
+          "`mom_sa = (1 + ann_1mo/100)^(1/12) - 1`. Mesma unidade dos MoM SA "
+          "do dash CPI principal (comparação direta com all_items/core).", 2),
     to_md(alt_yoy, "Alt measures — YoY (%)",
           "Mesmas 9 séries, variação 12 meses.", 2),
     to_md(br_pivot, "Inflation breadth — share do peso por bin YoY (%)",

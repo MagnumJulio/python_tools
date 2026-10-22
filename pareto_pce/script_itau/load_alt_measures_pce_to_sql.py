@@ -57,39 +57,46 @@ def main():
 
     # Normaliza: Dallas FRED retorna duas series separadas (1mo e 12mo); Cleveland
     # retorna uma com ambas as colunas. Agrupamos.
+    METRIC_LABELS = {
+        "1mo":    "1-mo annualized",
+        "mom_sa": "MoM SA",
+        "12mo":   "YoY",
+    }
+
     print(f"\n[1] Series a carregar:")
     series_plan = []
 
-    # Cleveland Median PCE: 1 measure, 2 metricas
+    # Cleveland Median PCE: 1 measure, 3 metricas (inclui mom_sa proxy)
     for measure in ["median_pce"]:
         g = df[df["measure"] == measure]
         if g.empty: continue
         label, code_slug = MEASURE_LABELS[measure]
-        for metric, col in [("1mo", "ann_1mo"), ("12mo", "ann_12mo")]:
+        for metric, col in [("1mo", "ann_1mo"), ("mom_sa", "mom_sa"), ("12mo", "ann_12mo")]:
+            if col not in g.columns: continue
             s = g[["date", col]].rename(columns={col: "value"}).dropna(subset=["value"])
             if s.empty: continue
-            metric_label = "1-mo annualized" if metric == "1mo" else "YoY"
             series_plan.append({
                 "measure": measure, "metric": metric,
-                "series_name": f"PCE: {label} [{metric_label}]",
+                "series_name": f"PCE: {label} [{METRIC_LABELS[metric]}]",
                 "bls_code": CODE_FMT.format(code_slug=code_slug, metric=metric),
                 "data": s,
             })
 
-    # Dallas FRED split: measure "_1mo" tem col ann_1mo; measure "_12mo" tem col ann_12mo
+    # Dallas FRED split: measure "_1mo" tem ann_1mo+mom_sa; "_12mo" so ann_12mo.
     for measure, metric, col in [
-        ("trimmed_mean_pce_1mo", "1mo", "ann_1mo"),
-        ("trimmed_mean_pce_12mo", "12mo", "ann_12mo"),
+        ("trimmed_mean_pce_1mo",  "1mo",    "ann_1mo"),
+        ("trimmed_mean_pce_1mo",  "mom_sa", "mom_sa"),
+        ("trimmed_mean_pce_12mo", "12mo",   "ann_12mo"),
     ]:
         g = df[df["measure"] == measure]
         if g.empty: continue
+        if col not in g.columns: continue
         label, code_slug = MEASURE_LABELS[measure]
         s = g[["date", col]].rename(columns={col: "value"}).dropna(subset=["value"])
         if s.empty: continue
-        metric_label = "1-mo annualized" if metric == "1mo" else "YoY"
         series_plan.append({
             "measure": measure, "metric": metric,
-            "series_name": f"PCE: {label} [{metric_label}]",
+            "series_name": f"PCE: {label} [{METRIC_LABELS[metric]}]",
             "bls_code": CODE_FMT.format(code_slug=code_slug, metric=metric),
             "data": s,
         })

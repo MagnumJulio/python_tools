@@ -1,5 +1,32 @@
 # pareto_pce — TODO
 
+## Dallas Trimmed Mean PCE — IDs FRED 404 (bloqueante alt_measures)
+
+Em 2026-10-22, `scripts/build_alt_measures_pce.py` passou a falhar com
+`404 Not Found` nos dois IDs FRED hard-coded:
+
+- `PCETRIM1M680SFRBDAL`  → 1-mo annualized
+- `PCETRIM12M680SFRBDAL` → 12-mo (YoY)
+
+Página FRED `/series/PCETRIM1M680SFRBDAL` também retorna 404 — não é só
+proxy/CDN, o ID sumiu do catálogo. Antes funcionava (CSVs antigos de
+`cpi_cpius_alt_measures.csv` tinham valores). Dallas pode ter:
+(a) renomeado IDs no FRED (comum em revisões de metodologia),
+(b) movido pra endpoint próprio Dallas (ex: xlsx em dallasfed.org),
+(c) consolidado no `PCETRIM1M158SFRBDAL`/variantes.
+
+Impacto: Cleveland Median PCE continua OK (3 series: 1mo, mom_sa, 12mo).
+Dallas sumiu — perdemos 2 das 3 measures PCE no SQL corp.
+
+Passos pra fechar:
+1. Buscar no FRED (fredaccount.stlouisfed.org/public) por "Dallas Trimmed
+   Mean PCE" e capturar os IDs atuais.
+2. Alternativa: baixar xlsx direto Dallas em `dallasfed.org/research/pce`
+   (análogo ao Atlanta Sticky xlsx em `pareto_cpius/data/raw/atlanta/`).
+3. Ajustar `fetch_fred_csv` ou criar `fetch_dallas_pce_xlsx` conforme
+   a fonte escolhida.
+4. Smoke test local + `--dry-run` do loader pra confirmar 5-6 series.
+
 ## Gap contagem leaves vs Itaú BBA (parcial, não crítico)
 
 Chart de referência (Itaú BBA research, foto celular) mostra pra jul-2026:

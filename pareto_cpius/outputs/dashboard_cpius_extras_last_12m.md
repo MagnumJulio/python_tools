@@ -26,6 +26,22 @@ Núcleos alternativos de inflação, taxa anualizada do mês. Family Atlanta Sti
 | Flexible-Price (Atlanta) | 2.11 | 1.72 | 3.95 | -4.52 | 5.67 | 36.61 | 17.65 | 14.13 | -19.33 | -6.00 | 10.17 | 22.22 |
 | Core Flexible-Price (Atlanta) | 0.76 | -0.11 | 1.22 | -2.14 | 4.65 | 2.66 | 4.38 | 0.10 | -5.01 | -2.25 | 6.36 | 7.91 |
 
+### Alt measures — proxy MoM SA (%)
+
+Variação mensal SA derivada do 1-mo annualized: `mom_sa = (1 + ann_1mo/100)^(1/12) - 1`. Mesma unidade dos MoM SA do dash CPI principal (comparação direta com all_items/core).
+
+| Série | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 | 2026-08 | 2026-09 |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Median (Cleveland) | 0.12 | 0.12 | 0.26 | 0.19 | 0.17 | 0.19 | 0.40 | 0.30 | 0.17 | 0.26 | 0.17 | 0.23 |
+| Trimmed Mean 16% (Cleveland) | 0.15 | 0.15 | 0.30 | 0.19 | 0.23 | 0.19 | 0.43 | 0.26 | 0.01 | 0.22 | 0.22 | 0.29 |
+| Trimmed Sym 25% (custom) | n/a | 0.31 | 0.33 | 0.21 | 0.24 | 0.21 | 0.41 | 0.28 | 0.15 | 0.24 | 0.16 | 0.30 |
+| Sticky-Price (Atlanta) | 0.12 | 0.12 | 0.28 | 0.36 | 0.21 | 0.20 | 0.38 | 0.24 | 0.07 | 0.29 | 0.25 | 0.28 |
+| Core Sticky-Price (Atlanta) | 0.11 | 0.11 | 0.25 | 0.38 | 0.20 | 0.20 | 0.39 | 0.24 | 0.06 | 0.29 | 0.26 | 0.29 |
+| Sticky-Price ex Shelter (Atlanta) | 0.09 | 0.09 | 0.25 | 0.47 | 0.21 | 0.14 | 0.24 | 0.17 | -0.06 | 0.31 | 0.32 | 0.24 |
+| Core Sticky-Price ex Shelter (Atlanta) | 0.06 | 0.06 | 0.18 | 0.53 | 0.19 | 0.13 | 0.24 | 0.16 | -0.11 | 0.32 | 0.33 | 0.25 |
+| Flexible-Price (Atlanta) | 0.17 | 0.14 | 0.32 | -0.38 | 0.46 | 2.63 | 1.36 | 1.11 | -1.77 | -0.51 | 0.81 | 1.69 |
+| Core Flexible-Price (Atlanta) | 0.06 | -0.01 | 0.10 | -0.18 | 0.38 | 0.22 | 0.36 | 0.01 | -0.43 | -0.19 | 0.52 | 0.64 |
+
 ### Alt measures — YoY (%)
 
 Mesmas 9 séries, variação 12 meses.

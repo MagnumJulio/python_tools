@@ -407,12 +407,16 @@ def main() -> None:
     # porque cada fonte so preenche a coluna que lhe cabe.
     out = (out.groupby(["measure", "date"], as_index=False)
               .agg({"ann_1mo": "max", "ann_12mo": "max"}))
+    # Proxy MoM SA: inverte anualizacao (todas as fontes publicam ann_1mo SA).
+    out["mom_sa"] = ((1 + out["ann_1mo"] / 100) ** (1 / 12) - 1) * 100
     out = out.sort_values(["measure", "date"]).reset_index(drop=True)
+    out = out[["date", "measure", "ann_1mo", "mom_sa", "ann_12mo"]]
     out.to_csv(OUT_CSV, index=False)
     print(f"\n[OK] {len(out)} rows -> {OUT_CSV.relative_to(ROOT)}")
     print(f"\nSummary por measure:")
     s = out.groupby("measure").agg(
         n_1mo=("ann_1mo", lambda x: x.notna().sum()),
+        n_mom_sa=("mom_sa", lambda x: x.notna().sum()),
         n_12mo=("ann_12mo", lambda x: x.notna().sum()),
         min_date=("date", "min"),
         max_date=("date", "max"),
