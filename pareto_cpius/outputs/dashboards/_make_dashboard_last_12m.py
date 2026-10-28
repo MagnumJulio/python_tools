@@ -6,8 +6,8 @@
 from pathlib import Path
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "outputs" / "dashboard_cpius_last_12m.md"
+ROOT = Path(__file__).resolve().parent.parent.parent
+OUT = ROOT / "outputs" / "dashboards" / "dashboard_cpius_last_12m.md"
 
 CATS = [
     "all_items", "core", "core_goods", "core_services",
@@ -95,7 +95,7 @@ md = [
     "",
     "Dados montados a partir de `data/cpi_cpius_recon.csv` + "
     "`cpi_cpius_custom.csv` + `cpi_cpius_pesos{,_custom}.csv`. Gerado por "
-    "`outputs/_make_dashboard_last_12m.py`.",
+    "`outputs/dashboards/_make_dashboard_last_12m.py`.",
     "",
     "> **Gap 2025-10**: release BLS daquele mês ficou incompleto (shutdown). "
     "Só `new_vehicles`, `used_cars_trucks` e `car_truck_rental` têm dado — "

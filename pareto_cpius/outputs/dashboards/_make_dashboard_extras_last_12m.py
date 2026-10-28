@@ -6,8 +6,8 @@
 from pathlib import Path
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "outputs" / "dashboard_cpius_extras_last_12m.md"
+ROOT = Path(__file__).resolve().parent.parent.parent
+OUT = ROOT / "outputs" / "dashboards" / "dashboard_cpius_extras_last_12m.md"
 
 ALT_LABELS = {
     "median_cpi":                 "Median (Cleveland)",
@@ -119,7 +119,7 @@ md = [
     f"**Diffusion last date**: {di_last:%Y-%m} "
     f"(pode defasar vs alt — depende de todas as subitens leaves estarem no cache).",
     "",
-    "Gerado por `outputs/_make_dashboard_extras_last_12m.py` em cima de "
+    "Gerado por `outputs/dashboards/_make_dashboard_extras_last_12m.py` em cima de "
     "`cpi_cpius_alt_measures.csv` (Atlanta xlsx + Cleveland CSV + custom), "
     "`cpi_cpius_breadth.csv` (cross-section 177 subitens pesados pela RI) e "
     "`cpiu_diffusion.csv` (item-level ponderado, 4 aggregates).",

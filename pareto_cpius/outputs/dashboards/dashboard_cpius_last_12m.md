@@ -2,7 +2,7 @@
 
 **Última data**: 2026-09. **Fonte**: BLS Public Data API v2 (idx NSA/SA, Table 1) + Laspeyres Dez-anchor (customs). **Categorias**: 22 (18 base + 4 custom), ordem do dashboard.
 
-Dados montados a partir de `data/cpi_cpius_recon.csv` + `cpi_cpius_custom.csv` + `cpi_cpius_pesos{,_custom}.csv`. Gerado por `outputs/_make_dashboard_last_12m.py`.
+Dados montados a partir de `data/cpi_cpius_recon.csv` + `cpi_cpius_custom.csv` + `cpi_cpius_pesos{,_custom}.csv`. Gerado por `outputs/dashboards/_make_dashboard_last_12m.py`.
 
 > **Gap 2025-10**: release BLS daquele mês ficou incompleto (shutdown). Só `new_vehicles`, `used_cars_trucks` e `car_truck_rental` têm dado — demais cats aparecem `n/a`. Pesos também não têm 2025-10.
 

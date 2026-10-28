@@ -2,7 +2,7 @@
 
 **Alt measures/Breadth last date**: 2026-09. **Diffusion last date**: 2026-09 (pode defasar vs alt — depende de todas as subitens leaves estarem no cache).
 
-Gerado por `outputs/_make_dashboard_extras_last_12m.py` em cima de `cpi_cpius_alt_measures.csv` (Atlanta xlsx + Cleveland CSV + custom), `cpi_cpius_breadth.csv` (cross-section 177 subitens pesados pela RI) e `cpiu_diffusion.csv` (item-level ponderado, 4 aggregates).
+Gerado por `outputs/dashboards/_make_dashboard_extras_last_12m.py` em cima de `cpi_cpius_alt_measures.csv` (Atlanta xlsx + Cleveland CSV + custom), `cpi_cpius_breadth.csv` (cross-section 177 subitens pesados pela RI) e `cpiu_diffusion.csv` (item-level ponderado, 4 aggregates).
 
 > **Notas de cobertura**:
 > - Cleveland Median/Trimmed Mean 16% publicam **só YoY** (sem 1-mo annualized) — células de 1mo aparecem `n/a`.

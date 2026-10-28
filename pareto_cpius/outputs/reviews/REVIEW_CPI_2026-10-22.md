@@ -28,7 +28,7 @@ destacando pontos fortes e falhas conhecidas.
 
 **SQL loader**: `script_itau/load_cpius_to_sql.py` — 3 datatypes por cat: idx NSA + idx SA + Weight. `bls_code="CPIUS:{cat}"`, `indicator="CPI"`.
 
-**Dashboard**: `outputs/dashboard_cpius_last_12m.md` — 22 cats subset (dash gerente). 5 tabelas (pesos NSA + MoM NSA/SA + YoY NSA/SA).
+**Dashboard**: `outputs/dashboards/dashboard_cpius_last_12m.md` — 22 cats subset (dash gerente). 5 tabelas (pesos NSA + MoM NSA/SA + YoY NSA/SA).
 
 ### 2. Pesos (RI Table 6, Dez-anchor + ajuste implícito mensal)
 
@@ -75,7 +75,7 @@ destacando pontos fortes e falhas conhecidas.
 
 **SQL loader**: 9 measures × até 3 metrics (1mo/mom_sa/12mo) = **26 séries** (Trim25 custom não tem YoY). Namespace `CPIUS:alt_{measure}_{metric}`.
 
-**Dashboard**: `outputs/dashboard_cpius_extras_last_12m.md` (6 tabelas: 1-mo, proxy MoM SA, YoY, breadth, diffusion YoY, diffusion 6m-ann).
+**Dashboard**: `outputs/dashboards/dashboard_cpius_extras_last_12m.md` (6 tabelas: 1-mo, proxy MoM SA, YoY, breadth, diffusion YoY, diffusion 6m-ann).
 
 ### 5. Breadth (3-bin ponderado por peso subitem)
 
