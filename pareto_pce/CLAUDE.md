@@ -1,14 +1,18 @@
 # pareto_pce — pipeline BEA/Fed pra Personal Consumption Expenditures (PCE)
 
 Pipeline irmão do `pareto_cpius` (CPI-US) e `pareto_ipca` (IPCA Brasil) mas pro
-**PCE deflator** — a medida de inflação de referência do Fed FOMC. Serve 3
+**PCE deflator** — a medida de inflação de referência do Fed FOMC. Serve 4
 famílias de métricas no SQL corp Itaú (OPT_Macro_Series_2 / Data_2):
 
 1. **Diffusion** (5 series): share de leaves PCE com YoY > 3% (ou 6m-ann > 3%
    só pra Headline), em 4 agregados (Headline, Goods, Services, Goods ex cars).
 2. **Breadth** (3 series): distribuição de peso cross-section em 3 bins de YoY
    (`below_0 / 0_to_3 / above_3`), ponderado por nominais BEA.
-3. **Alt measures** (2 series): Index level dos core alt measures do Fed —
+3. **Altas distribution** (5 series): distribuição Dallas-style em 5 bins de
+   **MoM SAAR** (`0-2 / 2-3 / 3-5 / 5-10 / >10`), Headline only. Correlação
+   histórica média +0.905 vs Dallas `pcedata.xlsx` (mesma métrica, universos
+   próximos).
+4. **Alt measures** (2 series): Index level dos core alt measures do Fed —
    Cleveland Fed Median PCE + Dallas Fed Trimmed Mean PCE, rebase Jan/2000=100.
 
 Headline/subcomponentes PCE padrão **NÃO** sobem por aqui — o corp já serve
@@ -25,6 +29,7 @@ pareto_pce/
 │   ├── pce_alt_measures.csv               # Cleveland Median + Dallas Trimmed, com value_index
 │   ├── pce_diffusion.csv                  # 4 agregados × 2 metrics
 │   ├── pce_breadth.csv                    # 3 bins (long: date, bin, weight_share)
+│   ├── pce_altas_distribution.csv         # 5 bins Dallas MoM SAAR + bin complemento
 │   ├── leaves_detected.csv                # 190 leaves auditáveis (gerado por build_diffusion.py)
 │   └── raw/
 │       ├── cleveland/median-pce-full-history.csv
@@ -33,10 +38,12 @@ pareto_pce/
 │   ├── fetch_pce.py                       # ⭐ BEA U20404 + U20405 via API
 │   ├── build_diffusion.py                 # 190 leaves + 5 series diffusion
 │   ├── build_breadth_pce.py               # 3 bins breadth ponderado por nominais
+│   ├── build_altas_distribution_pce.py    # 5 bins Dallas MoM SAAR
 │   └── build_alt_measures_pce.py          # Cleveland CSV + Dallas FRED → value_index SA
 ├── script_itau/
 │   ├── load_pce_to_sql.py                 # 5 series diffusion
 │   ├── load_breadth_pce_to_sql.py         # 3 series breadth
+│   ├── load_altas_distribution_pce_to_sql.py # 5 series altas dist Dallas-style
 │   ├── load_alt_measures_pce_to_sql.py    # 2 series alt (Index SA)
 │   ├── simulate_pce_to_sql.py             # local mock (só diffusion)
 │   └── RUNBOOK.md
@@ -54,15 +61,17 @@ export BEA_API_KEY=<key>                             # https://apps.bea.gov/API/
 python scripts/fetch_pce.py                          # U20404 + U20405
 python scripts/build_diffusion.py                    # exporta leaves_detected.csv tambem
 python scripts/build_breadth_pce.py                  # precisa leaves_detected.csv + pce_nominais_raw.csv
+python scripts/build_altas_distribution_pce.py       # idem — 5 bins Dallas MoM SAAR
 python scripts/build_alt_measures_pce.py             # Cleveland CSV + Dallas FRED
 ```
 
 Loaders SQL (só rodam no corp — precisam `opt_utils.database.SQLConnector`):
 
 ```bash
-python script_itau/load_pce_to_sql.py --dry-run              # diffusion
-python script_itau/load_breadth_pce_to_sql.py --dry-run      # breadth
-python script_itau/load_alt_measures_pce_to_sql.py --dry-run # alt measures (Index SA)
+python script_itau/load_pce_to_sql.py --dry-run                        # diffusion
+python script_itau/load_breadth_pce_to_sql.py --dry-run                # breadth
+python script_itau/load_altas_distribution_pce_to_sql.py --dry-run     # altas dist
+python script_itau/load_alt_measures_pce_to_sql.py --dry-run           # alt measures (Index SA)
 ```
 
 Cada loader tem `--dry-run`, `--no-confirm`, `--full` (default varia — ver
@@ -88,6 +97,17 @@ Namespace **`PCE:`** disjunto de IPCA, IPCA-15 e CPI-US. Todas usam:
 - `PCE:breadth_above_3pct`
 - `PCE:breadth_0_to_3pct`
 - `PCE:breadth_below_0pct`
+
+**Altas distribution** (5 series, `data_type='NSA'`, Headline only, bins de MoM SAAR):
+- `PCE:altas_dist_0_2`   — share do peso com MoM SAAR em (0, 2]%
+- `PCE:altas_dist_2_3`   — (2, 3]%
+- `PCE:altas_dist_3_5`   — (3, 5]%
+- `PCE:altas_dist_5_10`  — (5, 10]%
+- `PCE:altas_dist_gt_10` — > 10%
+
+O CSV também guarda um 6º bin `zero_or_below` (complemento: share com MoM
+SAAR ≤ 0) mas ele NÃO sobe pro SQL — alinhado com `pcedata.xlsx` Dallas, que
+publica só os 5 positivos. Analista deriva via `(100 - soma dos 5)` se precisar.
 
 **Alt measures** (2 series, `data_type='SA'`, Index level, rebase Jan/2000=100):
 - `PCE:alt_median_pce`
@@ -170,10 +190,35 @@ Diferença fundamental vs CPI breadth:
 
 Guard de cobertura idêntico (release < 70% dos leaves = data descartada).
 
-**Dallas pcedata.xlsx NÃO é comparador direto**: Dallas mede MoM annualized
-sobre universe próprio (components do Trimmed Mean, com exclusões específicas
-diferentes das nossas), não YoY sobre U20404. Correlação ~0 esperada e
-observada — benchmark conceitual apenas.
+**Dallas pcedata.xlsx NÃO é comparador direto do breadth YoY**: Dallas mede
+MoM SAAR sobre universe próprio, não YoY sobre U20404. Correlação ~0 esperada
+e observada. Pra benchmark apples-to-apples ver seção **Altas distribution**
+abaixo (que usa a mesma métrica MoM SAAR que Dallas, só muda universo).
+
+## Altas distribution — 5 bins Dallas-style
+
+Resposta ao pedido "distribuição de altas pra PCE" (Itaú BBA, 2026-10-28).
+Decompõe o range positivo de inflação em 5 bins de magnitude (`0-2 / 2-3 /
+3-5 / 5-10 / >10%` em MoM SAAR), análogo ao `pcedata.xlsx` do Dallas Fed.
+
+- **Métrica**: MoM SAAR = `((idx[t]/idx[t-1])^12 - 1) * 100` por leaf. U20404
+  é SA (confirmado via médias mensais Jan..Dez 2010-2026 todas ~0.14-0.24%
+  sem spike sazonal), então chain direto sem STL.
+- **Universe**: mesmos 190 leaves do breadth/diffusion.
+- **Peso**: mesmo esquema do breadth — nominais BEA U20405 do próprio mês.
+- **Headline only**: Dallas não decompõe em Goods/Services; mantemos a mesma
+  convenção.
+- **6º bin `zero_or_below`**: complemento (share deflationary / flat). Fica
+  só no CSV, não vai pro SQL — alinhado com `pcedata.xlsx` Dallas que só
+  publica os 5 bins positivos. Derivável via `100 - sum(5)`.
+
+**Validação vs Dallas** (dashboard `dashboard_pce_altas_distribution.md`):
+- Correlação média por bin **+0.905** (vs breadth YoY: 0.0). 3-5% tem corr
+  +0.977; os outros 4 bins entre +0.849 e +0.916.
+- Média histórica de 13 meses overlap: diffs por bin entre -2.35pp e +1.70pp
+  (vs breadth: diffs > 20pp).
+- Confirma: mesma metodologia que Dallas, só muda universe (190 leaves U20404
+  vs ~178 Trimmed Mean components).
 
 ## Dashboards
 
