@@ -65,11 +65,16 @@ def _cleanup_legacy_alt(session, keep_codes: set[str]) -> int:
         no sync 2026-10-28.
       - Variantes fragmentadas Dallas `trimmed_mean_pce_1mo`/`_12mo`
         agora consolidadas em `trimmed_mean_pce`.
+    EXCLUI as `*_custom` do cleanup — essas sao gerenciadas por um loader
+    paralelo (load_alt_measures_pce_custom_to_sql.py) e nao devem ser
+    apagadas aqui mesmo nao estando no keep_codes.
     Deleta data primeiro, depois metadata. Idempotente."""
-    print("\n[cleanup] procurando series PCE:alt_% legadas...")
+    print("\n[cleanup] procurando series PCE:alt_% legadas (exclui *_custom)...")
     df = pd.read_sql(
         "SELECT series_id, series_name, data_type, bls_code "
-        "FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'PCE:alt_%'",
+        "FROM OPT_Macro_Series_2 "
+        "WHERE bls_code LIKE 'PCE:alt_%' "
+        "  AND bls_code NOT LIKE '%\\_custom' ESCAPE '\\'",
         session.conn,
     )
     if df.empty:

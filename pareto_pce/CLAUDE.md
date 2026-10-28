@@ -12,8 +12,11 @@ famílias de métricas no SQL corp Itaú (OPT_Macro_Series_2 / Data_2):
    **MoM SAAR** (`0-2 / 2-3 / 3-5 / 5-10 / >10`), Headline only. Correlação
    histórica média +0.905 vs Dallas `pcedata.xlsx` (mesma métrica, universos
    próximos).
-4. **Alt measures** (2 series): Index level dos core alt measures do Fed —
-   Cleveland Fed Median PCE + Dallas Fed Trimmed Mean PCE, rebase Jan/2000=100.
+4. **Alt measures** (2+2 series): Index level dos core alt measures do Fed —
+   Cleveland Fed Median PCE + Dallas Fed Trimmed Mean PCE scraped (oficiais)
+   + reconstrução bottom-up própria dos 2 (`_custom`) pra decomposição e
+   sensibilidade. Validado: mean|d| YoY 0.09-0.11pp vs oficial (corr +0.99).
+   Todos em Index SA rebase Jan/2000=100.
 
 Headline/subcomponentes PCE padrão **NÃO** sobem por aqui — o corp já serve
 isso bem via Haver Analytics. Este projeto cobre **só o que o Haver não
@@ -26,7 +29,8 @@ pareto_pce/
 ├── data/                                  # gerada em runtime (não commitada)
 │   ├── pce_indices_raw.csv                # BEA U20404 (price indexes) bruto
 │   ├── pce_nominais_raw.csv               # BEA U20405 (current dollars) bruto
-│   ├── pce_alt_measures.csv               # Cleveland Median + Dallas Trimmed, com value_index
+│   ├── pce_alt_measures.csv               # Cleveland Median + Dallas Trimmed (scraped), com value_index
+│   ├── pce_alt_measures_custom.csv        # Mesmas 2 measures bottom-up (`_custom`)
 │   ├── pce_diffusion.csv                  # 4 agregados × 2 metrics
 │   ├── pce_breadth.csv                    # 3 bins (long: date, bin, weight_share)
 │   ├── pce_altas_distribution.csv         # 5 bins Dallas MoM SAAR + bin complemento
@@ -39,12 +43,14 @@ pareto_pce/
 │   ├── build_diffusion.py                 # 190 leaves + 5 series diffusion
 │   ├── build_breadth_pce.py               # 3 bins breadth ponderado por nominais
 │   ├── build_altas_distribution_pce.py    # 5 bins Dallas MoM SAAR
-│   └── build_alt_measures_pce.py          # Cleveland CSV + Dallas FRED → value_index SA
+│   ├── build_alt_measures_pce.py          # Cleveland CSV + Dallas FRED → value_index SA (scraped)
+│   └── build_alt_measures_pce_custom.py   # Mesmas 2 measures bottom-up (190 leaves + nominais)
 ├── script_itau/
 │   ├── load_pce_to_sql.py                 # 5 series diffusion
 │   ├── load_breadth_pce_to_sql.py         # 3 series breadth
 │   ├── load_altas_distribution_pce_to_sql.py # 5 series altas dist Dallas-style
-│   ├── load_alt_measures_pce_to_sql.py    # 2 series alt (Index SA)
+│   ├── load_alt_measures_pce_to_sql.py    # 2 series alt scraped (Index SA)
+│   ├── load_alt_measures_pce_custom_to_sql.py # 2 series alt bottom-up (_custom)
 │   ├── simulate_pce_to_sql.py             # local mock (só diffusion)
 │   └── RUNBOOK.md
 ├── outputs/dashboards/                    # markdown last-12m + validação
@@ -62,16 +68,18 @@ python scripts/fetch_pce.py                          # U20404 + U20405
 python scripts/build_diffusion.py                    # exporta leaves_detected.csv tambem
 python scripts/build_breadth_pce.py                  # precisa leaves_detected.csv + pce_nominais_raw.csv
 python scripts/build_altas_distribution_pce.py       # idem — 5 bins Dallas MoM SAAR
-python scripts/build_alt_measures_pce.py             # Cleveland CSV + Dallas FRED
+python scripts/build_alt_measures_pce.py             # Cleveland CSV + Dallas FRED (scraped)
+python scripts/build_alt_measures_pce_custom.py      # bottom-up Itau (precisa leaves_detected + nominais)
 ```
 
 Loaders SQL (só rodam no corp — precisam `opt_utils.database.SQLConnector`):
 
 ```bash
-python script_itau/load_pce_to_sql.py --dry-run                        # diffusion
-python script_itau/load_breadth_pce_to_sql.py --dry-run                # breadth
-python script_itau/load_altas_distribution_pce_to_sql.py --dry-run     # altas dist
-python script_itau/load_alt_measures_pce_to_sql.py --dry-run           # alt measures (Index SA)
+python script_itau/load_pce_to_sql.py --dry-run                             # diffusion
+python script_itau/load_breadth_pce_to_sql.py --dry-run                     # breadth
+python script_itau/load_altas_distribution_pce_to_sql.py --dry-run          # altas dist
+python script_itau/load_alt_measures_pce_to_sql.py --dry-run                # alt measures scraped
+python script_itau/load_alt_measures_pce_custom_to_sql.py --dry-run         # alt measures custom (bottom-up)
 ```
 
 Cada loader tem `--dry-run`, `--no-confirm`, `--full` (default varia — ver
@@ -109,14 +117,19 @@ O CSV também guarda um 6º bin `zero_or_below` (complemento: share com MoM
 SAAR ≤ 0) mas ele NÃO sobe pro SQL — alinhado com `pcedata.xlsx` Dallas, que
 publica só os 5 positivos. Analista deriva via `(100 - soma dos 5)` se precisar.
 
-**Alt measures** (2 series, `data_type='SA'`, Index level, rebase Jan/2000=100):
-- `PCE:alt_median_pce`
-- `PCE:alt_trimmed_mean_pce`
+**Alt measures scraped** (2 series, `data_type='SA'`, Index level, rebase Jan/2000=100):
+- `PCE:alt_median_pce`         — Cleveland CSV oficial
+- `PCE:alt_trimmed_mean_pce`   — Dallas FRED oficial
 
-Loader de alt measures tem `_cleanup_legacy_alt` que apaga qualquer
-`PCE:alt_%` fora do plano atual — cobre as variantes legadas
-`_1mo/_mom_sa/_12mo` do schema antigo + Dallas fragmentada
-`trimmed_mean_pce_1mo`/`_12mo` do pre-sync 2026-10-28.
+**Alt measures custom** (2 series paralelas, mesmo schema SA):
+- `PCE:alt_median_pce_custom`         — weighted 50th percentile dos 190 leaves U20404
+- `PCE:alt_trimmed_mean_pce_custom`   — trim 24% low + 31% high dos mesmos leaves
+
+Loader scraped tem `_cleanup_legacy_alt` que apaga qualquer `PCE:alt_%`
+**NÃO custom** fora do plano atual — cobre variantes legadas
+`_1mo/_mom_sa/_12mo` do schema antigo. O loader custom é independente
+e nunca é apagado pelo cleanup do scraped (os bls_codes `_custom` não
+colidem com os oficiais).
 
 ## Fontes
 
