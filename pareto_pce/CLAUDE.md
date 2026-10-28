@@ -14,7 +14,7 @@ famílias de métricas no SQL corp Itaú (OPT_Macro_Series_2 / Data_2):
    próximos).
 4. **Alt measures** (2+2 series): Index level dos core alt measures do Fed —
    Cleveland Fed Median PCE + Dallas Fed Trimmed Mean PCE scraped (oficiais)
-   + reconstrução bottom-up própria dos 2 (`_custom`) pra decomposição e
+   + reconstrução bottom-up própria dos 2 (`_proxy`) pra decomposição e
    sensibilidade. Validado: mean|d| YoY 0.09-0.11pp vs oficial (corr +0.99).
    Todos em Index SA rebase Jan/2000=100.
 
@@ -30,7 +30,7 @@ pareto_pce/
 │   ├── pce_indices_raw.csv                # BEA U20404 (price indexes) bruto
 │   ├── pce_nominais_raw.csv               # BEA U20405 (current dollars) bruto
 │   ├── pce_alt_measures.csv               # Cleveland Median + Dallas Trimmed (scraped), com value_index
-│   ├── pce_alt_measures_custom.csv        # Mesmas 2 measures bottom-up (`_custom`)
+│   ├── pce_alt_measures_proxy.csv        # Mesmas 2 measures bottom-up (`_proxy`)
 │   ├── pce_diffusion.csv                  # 4 agregados × 2 metrics
 │   ├── pce_breadth.csv                    # 3 bins (long: date, bin, weight_share)
 │   ├── pce_altas_distribution.csv         # 5 bins Dallas MoM SAAR + bin complemento
@@ -44,13 +44,13 @@ pareto_pce/
 │   ├── build_breadth_pce.py               # 3 bins breadth ponderado por nominais
 │   ├── build_altas_distribution_pce.py    # 5 bins Dallas MoM SAAR
 │   ├── build_alt_measures_pce.py          # Cleveland CSV + Dallas FRED → value_index SA (scraped)
-│   └── build_alt_measures_pce_custom.py   # Mesmas 2 measures bottom-up (190 leaves + nominais)
+│   └── build_alt_measures_pce_proxy.py   # Mesmas 2 measures bottom-up (190 leaves + nominais)
 ├── script_itau/
 │   ├── load_pce_to_sql.py                 # 5 series diffusion
 │   ├── load_breadth_pce_to_sql.py         # 3 series breadth
 │   ├── load_altas_distribution_pce_to_sql.py # 5 series altas dist Dallas-style
 │   ├── load_alt_measures_pce_to_sql.py    # 2 series alt scraped (Index SA)
-│   ├── load_alt_measures_pce_custom_to_sql.py # 2 series alt bottom-up (_custom)
+│   ├── load_alt_measures_pce_proxy_to_sql.py # 2 series alt bottom-up (_proxy)
 │   ├── simulate_pce_to_sql.py             # local mock (só diffusion)
 │   └── RUNBOOK.md
 ├── outputs/dashboards/                    # markdown last-12m + validação
@@ -69,7 +69,7 @@ python scripts/build_diffusion.py                    # exporta leaves_detected.c
 python scripts/build_breadth_pce.py                  # precisa leaves_detected.csv + pce_nominais_raw.csv
 python scripts/build_altas_distribution_pce.py       # idem — 5 bins Dallas MoM SAAR
 python scripts/build_alt_measures_pce.py             # Cleveland CSV + Dallas FRED (scraped)
-python scripts/build_alt_measures_pce_custom.py      # bottom-up Itau (precisa leaves_detected + nominais)
+python scripts/build_alt_measures_pce_proxy.py      # bottom-up Itau (precisa leaves_detected + nominais)
 ```
 
 Loaders SQL (só rodam no corp — precisam `opt_utils.database.SQLConnector`):
@@ -79,7 +79,7 @@ python script_itau/load_pce_to_sql.py --dry-run                             # di
 python script_itau/load_breadth_pce_to_sql.py --dry-run                     # breadth
 python script_itau/load_altas_distribution_pce_to_sql.py --dry-run          # altas dist
 python script_itau/load_alt_measures_pce_to_sql.py --dry-run                # alt measures scraped
-python script_itau/load_alt_measures_pce_custom_to_sql.py --dry-run         # alt measures custom (bottom-up)
+python script_itau/load_alt_measures_pce_proxy_to_sql.py --dry-run         # alt measures proxy (bottom-up)
 ```
 
 Cada loader tem `--dry-run`, `--no-confirm`, `--full` (default varia — ver
@@ -121,14 +121,14 @@ publica só os 5 positivos. Analista deriva via `(100 - soma dos 5)` se precisar
 - `PCE:alt_median_pce`         — Cleveland CSV oficial
 - `PCE:alt_trimmed_mean_pce`   — Dallas FRED oficial
 
-**Alt measures custom** (2 series paralelas, mesmo schema SA):
-- `PCE:alt_median_pce_custom`         — weighted 50th percentile dos 190 leaves U20404
-- `PCE:alt_trimmed_mean_pce_custom`   — trim 24% low + 31% high dos mesmos leaves
+**Alt measures proxy** (2 series paralelas, mesmo schema SA):
+- `PCE:alt_median_pce_proxy`         — weighted 50th percentile dos 190 leaves U20404
+- `PCE:alt_trimmed_mean_pce_proxy`   — trim 24% low + 31% high dos mesmos leaves
 
 Loader scraped tem `_cleanup_legacy_alt` que apaga qualquer `PCE:alt_%`
-**NÃO custom** fora do plano atual — cobre variantes legadas
-`_1mo/_mom_sa/_12mo` do schema antigo. O loader custom é independente
-e nunca é apagado pelo cleanup do scraped (os bls_codes `_custom` não
+**NÃO proxy** fora do plano atual — cobre variantes legadas
+`_1mo/_mom_sa/_12mo` do schema antigo. O loader proxy é independente
+e nunca é apagado pelo cleanup do scraped (os bls_codes `_proxy` não
 colidem com os oficiais).
 
 ## Fontes

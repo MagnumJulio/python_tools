@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # Dashboard markdown last-12m das metricas PCE que vao pro SQL corp:
 #  - Alt measures scraped (2): Median Cleveland + Trimmed Mean Dallas
-#  - Alt measures custom  (2): Median + Trim Mean bottom-up Itau
+#  - Alt measures proxy  (2): Median + Trim Mean bottom-up Itau
 #  - Diffusion (5 series): Headline, Goods, Services, Goods_ex_cars x YoY + 6m-ann
 #  - Breadth (3 series): below_0 / 0_to_3 / above_3, ponderado por nominais BEA
-# Fonte: pce_alt_measures.csv + pce_alt_measures_custom.csv +
+# Fonte: pce_alt_measures.csv + pce_alt_measures_proxy.csv +
 #        pce_diffusion.csv + pce_breadth.csv.
 
 from pathlib import Path
@@ -71,35 +71,35 @@ alt_1mo     = alt_pivot("ann_1mo")
 alt_mom_sa  = alt_pivot("mom_sa")
 alt_yoy     = alt_pivot("ann_12mo")
 
-# ---------- alt measures custom (bottom-up Itau) ----------
-alt_c = pd.read_csv(ROOT / "data" / "pce_alt_measures_custom.csv", parse_dates=["date"])
-ALT_CUSTOM_LABELS = {
-    "median_pce_custom":       "Median (custom bottom-up)",
-    "trimmed_mean_pce_custom": "Trimmed Mean (custom bottom-up)",
+# ---------- alt measures proxy (bottom-up Itau) ----------
+alt_c = pd.read_csv(ROOT / "data" / "pce_alt_measures_proxy.csv", parse_dates=["date"])
+ALT_PROXY_LABELS = {
+    "median_pce_proxy":       "Median (proxy bottom-up)",
+    "trimmed_mean_pce_proxy": "Trimmed Mean (proxy bottom-up)",
 }
-ALT_CUSTOM_ORDER = ["median_pce_custom", "trimmed_mean_pce_custom"]
+ALT_PROXY_ORDER = ["median_pce_proxy", "trimmed_mean_pce_proxy"]
 
-def alt_custom_pivot(col: str) -> pd.DataFrame:
+def alt_proxy_pivot(col: str) -> pd.DataFrame:
     sub = alt_c[alt_c["date"].isin(alt_dates)]
     p = sub.pivot(index="measure", columns="date", values=col)
     p.columns = [c.strftime("%Y-%m") for c in p.columns]
-    p = p.reindex(index=ALT_CUSTOM_ORDER, columns=alt_cols)
-    p.index = [ALT_CUSTOM_LABELS[m] for m in p.index]
+    p = p.reindex(index=ALT_PROXY_ORDER, columns=alt_cols)
+    p.index = [ALT_PROXY_LABELS[m] for m in p.index]
     return p
 
-alt_c_idx    = alt_custom_pivot("value_index")
-alt_c_1mo    = alt_custom_pivot("ann_1mo")
-alt_c_mom_sa = alt_custom_pivot("mom_sa")
-alt_c_yoy    = alt_custom_pivot("ann_12mo")
+alt_c_idx    = alt_proxy_pivot("value_index")
+alt_c_1mo    = alt_proxy_pivot("ann_1mo")
+alt_c_mom_sa = alt_proxy_pivot("mom_sa")
+alt_c_yoy    = alt_proxy_pivot("ann_12mo")
 
-# ---------- combined view: oficial + custom side-by-side ----------
-# Alt measures scraped vs custom em uma única tabela por métrica (4 linhas).
-def alt_combined_pivot(col_scraped: str, col_custom: str = None) -> pd.DataFrame:
-    """Empilha scraped (2 linhas) + custom (2 linhas) na mesma pivot."""
-    col_custom = col_custom or col_scraped
+# ---------- combined view: oficial + proxy side-by-side ----------
+# Alt measures scraped vs proxy em uma única tabela por métrica (4 linhas).
+def alt_combined_pivot(col_scraped: str, col_proxy: str = None) -> pd.DataFrame:
+    """Empilha scraped (2 linhas) + proxy (2 linhas) na mesma pivot."""
+    col_proxy = col_proxy or col_scraped
     scraped = alt_pivot(col_scraped)
-    custom = alt_custom_pivot(col_custom)
-    combined = pd.concat([scraped, custom])
+    proxy_df = alt_proxy_pivot(col_proxy)
+    combined = pd.concat([scraped, proxy_df])
     return combined
 
 # ---------- diffusion ----------
@@ -144,13 +144,13 @@ md = [
     "",
     "Gerado por `outputs/dashboards/_make_dashboard_pce_last_12m.py` em cima de "
     "`pce_alt_measures.csv` (Cleveland CSV + Dallas FRED, scraped), "
-    "`pce_alt_measures_custom.csv` (bottom-up Itaú), `pce_diffusion.csv` e "
+    "`pce_alt_measures_proxy.csv` (bottom-up Itaú), `pce_diffusion.csv` e "
     "`pce_breadth.csv` (BEA U20404 + nominais U20405, 190 leaves).",
     "",
     "> **Notas de cobertura**:",
     "> - Alt measures scraped no SQL: 2 series `PCE:alt_{median_pce,trimmed_mean_pce}` "
     "(Index SA, rebase Jan/2000=100, sync 2026-10-28).",
-    "> - Alt measures custom no SQL: 2 series paralelas `PCE:alt_{..}_pce_custom` "
+    "> - Alt measures proxy no SQL: 2 series paralelas `PCE:alt_{..}_pce_proxy` "
     "(mesma schema; reconstrução bottom-up em cima dos 190 leaves U20404 + "
     "nominais U20405). Validado 2026-10-28: mean|d| YoY = 0.09-0.11pp vs scraped.",
     "> - Diffusion no SQL: 5 series `PCE:diffusion_{headline,goods,services,goods_ex_cars}_yoy` "
@@ -168,11 +168,11 @@ md = [
     to_md(alt_combined_pivot("value_index"),
           "Alt measures — Index level (SA, Jan/2000=100)",
           "Nível do índice que vai pro SQL. **4 series**: 2 scraped (Cleveland "
-          "CSV + Dallas FRED) + 2 custom (bottom-up Itaú em cima dos 190 leaves). "
+          "CSV + Dallas FRED) + 2 proxy (bottom-up Itaú em cima dos 190 leaves). "
           "Jan/2000=100 por construção.", 3),
     to_md(alt_combined_pivot("ann_1mo"),
           "Alt measures — 1-mo annualized (%)",
-          "Taxa anualizada do mês. Scraped vs custom em paralelo — proximidade "
+          "Taxa anualizada do mês. Scraped vs proxy em paralelo — proximidade "
           "mês-a-mês indica se o universe/metodologia bota conta parecida.", 2),
     to_md(alt_combined_pivot("mom_sa"),
           "Alt measures — proxy MoM SA (%)",
@@ -180,9 +180,9 @@ md = [
           "`mom_sa = (1+ann_1mo/100)^(1/12)-1`.", 3),
     to_md(alt_combined_pivot("ann_12mo"),
           "Alt measures — YoY (%)",
-          "Variação 12 meses. Scraped vs custom: diffs esperados < 0.5pp mês-a-mês "
+          "Variação 12 meses. Scraped vs proxy: diffs esperados < 0.5pp mês-a-mês "
           "(mean|d| global = 0.09pp Trim Mean / 0.11pp Median — validado em "
-          "`dashboard_pce_alt_custom_vs_official.md`).", 2),
+          "`dashboard_pce_alt_proxy_vs_official.md`).", 2),
     to_md(di_yoy, "Diffusion — share de itens com YoY > 3% (%)",
           "Difusão item-level sobre 190 leaves do BEA U20404. Fração de itens "
           "com YoY acima de 3%, por bloco. Count-based, não ponderado.", 2),

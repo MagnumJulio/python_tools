@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-# load_alt_measures_pce_custom_to_sql.py
+# load_alt_measures_pce_proxy_to_sql.py
 #
 # Carga das 2 series de alt measures PCE RECONSTRUIDAS bottom-up (nao
-# scraped). Fonte: data/pce_alt_measures_custom.csv (gerado por
-# scripts/build_alt_measures_pce_custom.py).
+# scraped). Fonte: data/pce_alt_measures_proxy.csv (gerado por
+# scripts/build_alt_measures_pce_proxy.py).
 #
 # Pipeline PARALELO ao load_alt_measures_pce_to_sql.py (que serve
 # Cleveland CSV + Dallas FRED oficiais). Objetivo: ter os 2 lado-a-lado
 # no SQL pra decomposicao e sensibilidade — NAO substitui oficial.
 #
 # Convencoes identicas ao loader oficial (SA, Index level, rebase Jan/2000=100):
-#   bls_code    = "PCE:alt_{measure_slug}_custom"
-#   series_name = "PCE: {label} (Index, custom bottom-up Itau)"
+#   bls_code    = "PCE:alt_{measure_slug}_proxy"
+#   series_name = "PCE: {label} (Index, proxy bottom-up Itau)"
 #   data_type   = "SA"
 #   indicator   = "PCE", country = "US", subject = "Prices", frequency = "M"
 #
 # 2 series:
-#   PCE:alt_median_pce_custom
-#   PCE:alt_trimmed_mean_pce_custom
+#   PCE:alt_median_pce_proxy
+#   PCE:alt_trimmed_mean_pce_proxy
 #
-# Methodology (build_alt_measures_pce_custom.py):
+# Methodology (build_alt_measures_pce_proxy.py):
 #  - Universe: 190 leaves U20404 (mesmo breadth/diffusion/altas_dist)
 #  - Peso: nominais U20405 do mes
 #  - Median: weighted 50th percentile de MoM SAAR
@@ -31,8 +31,8 @@
 #
 # Uso:
 #   cd pareto_pce
-#   python script_itau/load_alt_measures_pce_custom_to_sql.py --dry-run
-#   python script_itau/load_alt_measures_pce_custom_to_sql.py --no-confirm
+#   python script_itau/load_alt_measures_pce_proxy_to_sql.py --dry-run
+#   python script_itau/load_alt_measures_pce_proxy_to_sql.py --no-confirm
 
 import argparse
 import sys
@@ -42,11 +42,11 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-IN_CSV = ROOT / "data" / "pce_alt_measures_custom.csv"
+IN_CSV = ROOT / "data" / "pce_alt_measures_proxy.csv"
 
 MEASURE_LABELS = {
-    "median_pce_custom":       ("Median PCE",       "alt_median_pce_custom"),
-    "trimmed_mean_pce_custom": ("Trimmed Mean PCE", "alt_trimmed_mean_pce_custom"),
+    "median_pce_proxy":       ("Median PCE",       "alt_median_pce_proxy"),
+    "trimmed_mean_pce_proxy": ("Trimmed Mean PCE", "alt_trimmed_mean_pce_proxy"),
 }
 
 CODE_FMT = "PCE:{code_slug}"
@@ -55,7 +55,7 @@ CODE_FMT = "PCE:{code_slug}"
 def _load_df() -> pd.DataFrame:
     if not IN_CSV.exists():
         sys.exit(f"[FAIL] {IN_CSV} nao existe. "
-                 f"Rode scripts/build_alt_measures_pce_custom.py primeiro.")
+                 f"Rode scripts/build_alt_measures_pce_proxy.py primeiro.")
     df = pd.read_csv(IN_CSV, parse_dates=["date"])
     if "value_index" not in df.columns:
         sys.exit(f"[FAIL] {IN_CSV.name} sem coluna 'value_index'.")
@@ -72,7 +72,7 @@ def main():
     ap.add_argument("--incremental", action="store_true",
                     help="Carga incremental (ultimos 24m). Default: full history.")
     ap.add_argument("--only", type=str, default=None,
-                    help="Lista CSV de measures (ex: 'median_pce_custom').")
+                    help="Lista CSV de measures (ex: 'median_pce_proxy').")
     args = ap.parse_args()
 
     df = _load_df()
@@ -88,7 +88,7 @@ def main():
     else:
         print(f"[info] carga full history. Use --incremental pra ultimos 24m.")
 
-    print(f"\n[1] Series a carregar (bottom-up custom Itau, so Index SA):")
+    print(f"\n[1] Series a carregar (proxy bottom-up Itau, so Index SA):")
     series_plan = []
     for measure, g in df.groupby("measure"):
         if measure not in MEASURE_LABELS:
@@ -100,7 +100,7 @@ def main():
             continue
         series_plan.append({
             "measure": measure,
-            "series_name": f"PCE: {label} (Index, custom bottom-up Itau)",
+            "series_name": f"PCE: {label} (Index, proxy bottom-up Itau)",
             "bls_code": CODE_FMT.format(code_slug=code_slug),
             "data": s,
         })
@@ -113,7 +113,7 @@ def main():
 
     if not args.no_confirm:
         resp = input(
-            f"\nConfirma carga de {len(series_plan)} series custom (Index SA) "
+            f"\nConfirma carga de {len(series_plan)} series proxy (Index SA) "
             f"no SQL corp? [s/N] "
         )
         if resp.strip().lower() not in ("s", "sim", "y", "yes"):
@@ -148,7 +148,7 @@ def main():
                 f"nominais U20405. Median = weighted 50th percentile MoM SAAR; "
                 f"Trimmed Mean = trim 24/31 asimetrico Dallas. Validado 2026-10-28: "
                 f"mean|d| YoY vs oficial < 0.11pp. NAO substitui o oficial — "
-                f"pair com PCE:alt_{sp['measure'].replace('_custom', '')} pra "
+                f"pair com PCE:alt_{sp['measure'].replace('_proxy', '')} pra "
                 f"decomposicao/sensibilidade."
             ),
             "bls_code": sp["bls_code"],

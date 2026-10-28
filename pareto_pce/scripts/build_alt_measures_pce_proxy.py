@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-# build_alt_measures_pce_custom.py
+# build_alt_measures_pce_proxy.py
 #
 # Reconstrucao bottom-up dos alt measures PCE que o build_alt_measures_pce.py
 # pega direto do Cleveland/Dallas. Objetivo: ter os 2 lado-a-lado no SQL pra
 # decomposicao e sensibilidade — NAO substitui a fonte oficial.
 #
-# 2 measures custom (sufixo `_custom` no measure/bls_code):
-#   - median_pce_custom          : weighted 50th percentile MoM SAAR
-#   - trimmed_mean_pce_custom    : weighted trim mean 24% low + 31% high
+# 2 measures proxy (sufixo `_proxy` no measure/bls_code):
+#   - median_pce_proxy          : weighted 50th percentile MoM SAAR
+#   - trimmed_mean_pce_proxy    : weighted trim mean 24% low + 31% high
 #                                   (asimetrico Dallas, calibrado pra bater
 #                                    headline no long run por conta do skew
 #                                    do PCE)
@@ -24,7 +24,7 @@
 #
 # Uso:
 #   cd pareto_pce
-#   python scripts/build_alt_measures_pce_custom.py
+#   python scripts/build_alt_measures_pce_proxy.py
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ ROOT = Path(__file__).resolve().parent.parent
 IN_PRICES   = ROOT / "data" / "pce_indices_raw.csv"
 IN_NOMINAIS = ROOT / "data" / "pce_nominais_raw.csv"
 LEAVES_CSV  = ROOT / "data" / "leaves_detected.csv"
-OUT_CSV     = ROOT / "data" / "pce_alt_measures_custom.csv"
+OUT_CSV     = ROOT / "data" / "pce_alt_measures_proxy.csv"
 
 COVERAGE_THRESHOLD_PCT = 70.0
 
@@ -102,7 +102,7 @@ def _rebase_jan2000(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat(out, ignore_index=True)
 
 
-def compute_custom_measures(df_prices: pd.DataFrame, df_nominais: pd.DataFrame,
+def compute_proxy_measures(df_prices: pd.DataFrame, df_nominais: pd.DataFrame,
                             leaves: pd.DataFrame) -> pd.DataFrame:
     """Pra cada data, computa MoM SAAR por leaf, aplica weighted median +
     weighted trim mean 24/31. Retorna long df (date, measure, ann_1mo)."""
@@ -140,8 +140,8 @@ def compute_custom_measures(df_prices: pd.DataFrame, df_nominais: pd.DataFrame,
         w = g["nominal"].values
         med = weighted_median(v, w)
         trm = weighted_trim_mean(v, w, TRIM_LOW_FRAC, TRIM_HIGH_FRAC)
-        out_rows.append({"date": d, "median_pce_custom": med,
-                         "trimmed_mean_pce_custom": trm})
+        out_rows.append({"date": d, "median_pce_proxy": med,
+                         "trimmed_mean_pce_proxy": trm})
     wide = pd.DataFrame(out_rows)
 
     # Long format: 1 row por (date, measure) com ann_1mo = valor computado
@@ -164,7 +164,7 @@ def main() -> None:
           f"leaves: {len(leaves)}")
 
     print(f"[2] Weighted median + trim mean (24/31 Dallas) por data...")
-    long = compute_custom_measures(px, nm, leaves)
+    long = compute_proxy_measures(px, nm, leaves)
 
     # value_index: chain universal (idem build_alt_measures_pce.py)
     pieces = []
@@ -206,18 +206,18 @@ def main() -> None:
     if official.exists():
         print(f"\n[benchmark] vs {official.name} (ultimo overlap)")
         off = pd.read_csv(official, parse_dates=["date"])
-        for custom_m, off_m in [("median_pce_custom", "median_pce"),
-                                 ("trimmed_mean_pce_custom", "trimmed_mean_pce")]:
-            c = out[out["measure"] == custom_m][["date", "ann_12mo"]].rename(columns={"ann_12mo": "yoy_custom"})
+        for proxy_m, off_m in [("median_pce_proxy", "median_pce"),
+                                 ("trimmed_mean_pce_proxy", "trimmed_mean_pce")]:
+            c = out[out["measure"] == proxy_m][["date", "ann_12mo"]].rename(columns={"ann_12mo": "yoy_proxy"})
             o = off[off["measure"] == off_m][["date", "ann_12mo"]].rename(columns={"ann_12mo": "yoy_official"})
             cmp = c.merge(o, on="date", how="inner").dropna()
             if cmp.empty:
-                print(f"  {custom_m}: no overlap"); continue
-            diff = (cmp["yoy_custom"] - cmp["yoy_official"]).abs()
+                print(f"  {proxy_m}: no overlap"); continue
+            diff = (cmp["yoy_proxy"] - cmp["yoy_official"]).abs()
             last = cmp.iloc[-1]
-            print(f"  {custom_m:28s}  n={len(cmp):4d}  "
+            print(f"  {proxy_m:28s}  n={len(cmp):4d}  "
                   f"mean|d|={diff.mean():.3f}pp  max|d|={diff.max():.3f}pp  "
-                  f"last {last['date'].date()}: custom={last['yoy_custom']:.3f}% "
+                  f"last {last['date'].date()}: proxy={last['yoy_proxy']:.3f}% "
                   f"vs official={last['yoy_official']:.3f}%")
 
 
