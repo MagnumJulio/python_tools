@@ -1,13 +1,19 @@
 #!/usr/bin/env python
 # fetch_pce.py
-# Baixa U20404 mensal (BEA NIPA Underlying Detail — Price Indexes for PCE by
-# Type of Product) e salva em data/pce_indices_raw.csv.
+# Baixa 2 tabelas BEA NIPA Underlying Detail mensais e salva em data/:
+#   - U20404 — Price Indexes for PCE by Type of Product -> pce_indices_raw.csv
+#   - U20405 — PCE by Type of Product em current dollars -> pce_nominais_raw.csv
+#     (sync 2026-10-28, usada como peso pelo build_breadth_pce.py)
+#
+# As duas tabelas tem a mesma estrutura de LineNumber — mesmas ~400 linhas,
+# os leaves mapeados em build_diffusion.py funcionam identicos pro U20405.
 #
 # Requer env var BEA_API_KEY. Registro gratis em https://apps.bea.gov/API/signup/
 #
 # Uso:
 #   cd pareto_pce
-#   python scripts/fetch_pce.py
+#   python scripts/fetch_pce.py                # ambos (default)
+#   python scripts/fetch_pce.py --skip-nominais  # so U20404 (modo antigo)
 
 import json
 import os
@@ -51,8 +57,9 @@ def _curl_get(url: str, timeout: int = 120) -> bytes:
         )
     return r.stdout
 
-OUT = ROOT / "data" / "pce_indices_raw.csv"
-OUT.parent.mkdir(parents=True, exist_ok=True)
+OUT_PRICES   = ROOT / "data" / "pce_indices_raw.csv"
+OUT_NOMINAIS = ROOT / "data" / "pce_nominais_raw.csv"
+OUT_PRICES.parent.mkdir(parents=True, exist_ok=True)
 
 KEY = os.environ.get("BEA_API_KEY")
 if not KEY:
@@ -69,12 +76,12 @@ YEAR_CHUNKS = [
 ]
 
 
-def fetch(years: str) -> list[dict]:
+def fetch(table_name: str, years: str) -> list[dict]:
     params = {
         "UserID": KEY,
         "method": "GetData",
         "datasetname": "NIUnderlyingDetail",
-        "TableName": "U20404",
+        "TableName": table_name,
         "Frequency": "M",
         "Year": years,
         "ResultFormat": "json",
@@ -85,33 +92,56 @@ def fetch(years: str) -> list[dict]:
         return j["BEAAPI"]["Results"]["Data"]
     except (KeyError, TypeError):
         err = j.get("BEAAPI", {}).get("Error", j)
-        sys.exit(f"[FAIL] BEA API erro: {err}")
+        sys.exit(f"[FAIL] BEA API erro ({table_name}): {err}")
 
 
-all_rows: list[dict] = []
-for chunk in YEAR_CHUNKS:
-    print(f"[fetch] {chunk}...", flush=True)
-    rows = fetch(chunk)
-    print(f"        {len(rows)} rows")
-    all_rows.extend(rows)
+def fetch_table(table_name: str, out_csv: Path, label: str) -> pd.DataFrame:
+    print(f"\n=== Fetching {table_name} ({label}) ===")
+    all_rows: list[dict] = []
+    for chunk in YEAR_CHUNKS:
+        print(f"[fetch] {table_name} {chunk}...", flush=True)
+        rows = fetch(table_name, chunk)
+        print(f"        {len(rows)} rows")
+        all_rows.extend(rows)
 
-df = pd.DataFrame(all_rows)
-df["date"] = pd.to_datetime(df["TimePeriod"], format="%YM%m")
-df["value"] = pd.to_numeric(df["DataValue"].astype(str).str.replace(",", ""), errors="coerce")
-df["line_number"] = pd.to_numeric(df["LineNumber"], errors="coerce").astype("Int64")
-df = (
-    df[["date", "line_number", "LineDescription", "SeriesCode", "value"]]
-    .rename(columns={"LineDescription": "line_description", "SeriesCode": "series_code"})
-    .sort_values(["date", "line_number"])
-    .reset_index(drop=True)
-)
+    df = pd.DataFrame(all_rows)
+    df["date"] = pd.to_datetime(df["TimePeriod"], format="%YM%m")
+    df["value"] = pd.to_numeric(df["DataValue"].astype(str).str.replace(",", ""), errors="coerce")
+    df["line_number"] = pd.to_numeric(df["LineNumber"], errors="coerce").astype("Int64")
+    df = (
+        df[["date", "line_number", "LineDescription", "SeriesCode", "value"]]
+        .rename(columns={"LineDescription": "line_description", "SeriesCode": "series_code"})
+        .sort_values(["date", "line_number"])
+        .reset_index(drop=True)
+    )
 
-df.to_csv(OUT, index=False)
-print(f"\n[OK] {len(df)} rows -> {OUT.relative_to(ROOT)}")
+    df.to_csv(out_csv, index=False)
+    print(f"[OK] {table_name}: {len(df)} rows -> {out_csv.relative_to(ROOT)}")
+    return df
 
-# Diagnostico: mostra as linhas unicas pra facilitar montagem do leaves_map.
+
+# -- Parse args pra permitir skip do nominal se o usuario so quer diffusion
+skip_nominais = "--skip-nominais" in sys.argv
+
+df_prices = fetch_table("U20404", OUT_PRICES, "Price Indexes")
+if not skip_nominais:
+    df_nominais = fetch_table("U20405", OUT_NOMINAIS, "Current Dollars (nominais, pra pesos breadth)")
+
+    # Sanity: as 2 tabelas devem ter MESMAS linhas (mesmo esqueleto hierarquico).
+    lp = set(df_prices["line_number"].dropna().astype(int))
+    ln = set(df_nominais["line_number"].dropna().astype(int))
+    only_p = lp - ln
+    only_n = ln - lp
+    if only_p or only_n:
+        print(f"\n[WARN] LineNumbers divergem entre U20404 e U20405:")
+        if only_p: print(f"  so em U20404 (prices): {sorted(only_p)[:20]}")
+        if only_n: print(f"  so em U20405 (nominais): {sorted(only_n)[:20]}")
+    else:
+        print(f"\n[sanity] U20404 e U20405 compartilham todos os {len(lp)} LineNumbers.")
+
+# Diagnostico: mostra as linhas unicas de U20404 pra facilitar montagem do leaves_map.
 lines = (
-    df[["line_number", "line_description", "series_code"]]
+    df_prices[["line_number", "line_description", "series_code"]]
     .drop_duplicates()
     .sort_values("line_number")
     .reset_index(drop=True)
@@ -119,4 +149,6 @@ lines = (
 print(f"\n[diag] {len(lines)} linhas unicas em U20404 (LineNumber, series_code, descricao):")
 with pd.option_context("display.max_rows", None, "display.width", 200,
                         "display.max_colwidth", 80):
-    print(lines.to_string(index=False))
+    print(lines.head(50).to_string(index=False))
+if len(lines) > 50:
+    print(f"... (+{len(lines)-50} linhas; CSV completo em {OUT_PRICES.relative_to(ROOT)})")
