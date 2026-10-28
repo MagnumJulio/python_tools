@@ -1,13 +1,15 @@
 # PCE dashboard — últimos 12 meses
 
-**Alt measures last date**: 2026-08. **Diffusion last date**: 2026-07 (pode defasar vs alt — depende do release BEA U20404).
+**Alt measures last date**: 2026-08. **Diffusion last date**: 2026-07. **Breadth last date**: 2026-08 (pode defasar vs alt — depende do release BEA U20404+U20405).
 
-Gerado por `outputs/dashboards/_make_dashboard_pce_last_12m.py` em cima de `pce_alt_measures.csv` (Cleveland CSV + Dallas FRED) e `pce_diffusion.csv` (BEA U20404, 190 leaves ponderados por count).
+Gerado por `outputs/dashboards/_make_dashboard_pce_last_12m.py` em cima de `pce_alt_measures.csv` (Cleveland CSV + Dallas FRED), `pce_diffusion.csv` e `pce_breadth.csv` (BEA U20404 + nominais U20405, 190 leaves).
 
 > **Notas de cobertura**:
 > - Alt measures no SQL: 2 series `PCE:alt_{median_pce,trimmed_mean_pce}` (Index SA, rebase Jan/2000=100, sync 2026-10-28).
 > - Diffusion no SQL: 5 series `PCE:diffusion_{headline,goods,services,goods_ex_cars}_yoy` + `PCE:diffusion_headline_6ma_ann` (count-based, nao ponderado).
+> - Breadth no SQL: 3 series `PCE:breadth_{above_3pct,0_to_3pct,below_0pct}` (peso = nominais BEA U20405 do proprio mes; soma = 100% por data).
 > - Dallas IDs renomeados em 2026-10 (`PCETRIM1M158SFRBDAL` + `PCETRIM12M159SFRBDAL`) — antigos `680SFRBDAL` retornavam 404.
+> - Dallas `pcedata.xlsx` NAO e benchmark comparavel direto do breadth: Dallas mede MoM annualized sobre universe Trimmed Mean customizado (nao YoY sobre U20404). Correlacao observada ~0 em 2026-10-28.
 > - Diffusion 6m-ann > 3% so e publicada pra Headline (bate `build_diffusion.py`); Goods/Services nao tem essa metrica.
 
 ### Alt measures — Index level (SA, Jan/2000=100)
@@ -64,3 +66,13 @@ Mesma difusão mas usando variação 6 meses anualizada (sinal mais tempestivo q
 | Série | 2025-08 | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Headline (todos itens) | 42.63 | 44.21 | 42.63 | 41.05 | 44.21 | 42.63 | 50.53 | 50.53 | 51.05 | 51.58 | 47.89 | 47.89 |
+
+### Breadth — share do peso por bin YoY (%)
+
+Cross-section de 190 leaves BEA U20404, agrupados em 3 bins de YoY e ponderados por nominais BEA U20405 do próprio mês. Soma dos 3 bins = 100 em cada mês. Guard de cobertura 70% descarta releases parciais.
+
+| Série | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 | 2026-08 |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| YoY < 0% | 11.30 | 13.91 | 12.22 | 9.35 | 11.76 | 12.00 | 9.70 | 10.23 | 10.04 | 11.30 | 11.48 | 11.44 |
+| 0% ≤ YoY ≤ 3% | 35.21 | 35.59 | 41.47 | 42.62 | 34.96 | 37.74 | 30.23 | 28.83 | 29.87 | 27.63 | 27.33 | 27.56 |
+| YoY > 3% | 53.50 | 50.50 | 46.32 | 48.03 | 53.29 | 50.26 | 60.07 | 60.93 | 60.08 | 61.08 | 61.19 | 61.00 |

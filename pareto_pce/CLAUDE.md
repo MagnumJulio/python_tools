@@ -1,0 +1,201 @@
+# pareto_pce — pipeline BEA/Fed pra Personal Consumption Expenditures (PCE)
+
+Pipeline irmão do `pareto_cpius` (CPI-US) e `pareto_ipca` (IPCA Brasil) mas pro
+**PCE deflator** — a medida de inflação de referência do Fed FOMC. Serve 3
+famílias de métricas no SQL corp Itaú (OPT_Macro_Series_2 / Data_2):
+
+1. **Diffusion** (5 series): share de leaves PCE com YoY > 3% (ou 6m-ann > 3%
+   só pra Headline), em 4 agregados (Headline, Goods, Services, Goods ex cars).
+2. **Breadth** (3 series): distribuição de peso cross-section em 3 bins de YoY
+   (`below_0 / 0_to_3 / above_3`), ponderado por nominais BEA.
+3. **Alt measures** (2 series): Index level dos core alt measures do Fed —
+   Cleveland Fed Median PCE + Dallas Fed Trimmed Mean PCE, rebase Jan/2000=100.
+
+Headline/subcomponentes PCE padrão **NÃO** sobem por aqui — o corp já serve
+isso bem via Haver Analytics. Este projeto cobre **só o que o Haver não
+entrega** (métricas derivadas: diffusion, breadth, alt measures).
+
+## Estrutura
+
+```
+pareto_pce/
+├── data/                                  # gerada em runtime (não commitada)
+│   ├── pce_indices_raw.csv                # BEA U20404 (price indexes) bruto
+│   ├── pce_nominais_raw.csv               # BEA U20405 (current dollars) bruto
+│   ├── pce_alt_measures.csv               # Cleveland Median + Dallas Trimmed, com value_index
+│   ├── pce_diffusion.csv                  # 4 agregados × 2 metrics
+│   ├── pce_breadth.csv                    # 3 bins (long: date, bin, weight_share)
+│   ├── leaves_detected.csv                # 190 leaves auditáveis (gerado por build_diffusion.py)
+│   └── raw/
+│       ├── cleveland/median-pce-full-history.csv
+│       └── dallas/pcedata.xlsx            # benchmark conceitual (NÃO comparável direto)
+├── scripts/
+│   ├── fetch_pce.py                       # ⭐ BEA U20404 + U20405 via API
+│   ├── build_diffusion.py                 # 190 leaves + 5 series diffusion
+│   ├── build_breadth_pce.py               # 3 bins breadth ponderado por nominais
+│   └── build_alt_measures_pce.py          # Cleveland CSV + Dallas FRED → value_index SA
+├── script_itau/
+│   ├── load_pce_to_sql.py                 # 5 series diffusion
+│   ├── load_breadth_pce_to_sql.py         # 3 series breadth
+│   ├── load_alt_measures_pce_to_sql.py    # 2 series alt (Index SA)
+│   ├── simulate_pce_to_sql.py             # local mock (só diffusion)
+│   └── RUNBOOK.md
+├── outputs/dashboards/                    # markdown last-12m + validação
+├── CLAUDE.md                              # (este arquivo)
+└── TODO.md                                # backlog, open items
+```
+
+## Pipeline (ordem mensal)
+
+```bash
+cd pareto_pce
+export BEA_API_KEY=<key>                             # https://apps.bea.gov/API/signup/
+
+python scripts/fetch_pce.py                          # U20404 + U20405
+python scripts/build_diffusion.py                    # exporta leaves_detected.csv tambem
+python scripts/build_breadth_pce.py                  # precisa leaves_detected.csv + pce_nominais_raw.csv
+python scripts/build_alt_measures_pce.py             # Cleveland CSV + Dallas FRED
+```
+
+Loaders SQL (só rodam no corp — precisam `opt_utils.database.SQLConnector`):
+
+```bash
+python script_itau/load_pce_to_sql.py --dry-run              # diffusion
+python script_itau/load_breadth_pce_to_sql.py --dry-run      # breadth
+python script_itau/load_alt_measures_pce_to_sql.py --dry-run # alt measures (Index SA)
+```
+
+Cada loader tem `--dry-run`, `--no-confirm`, `--full` (default varia — ver
+docstring de cada), e preserva CSV principal se release parcial.
+
+## Convenções SQL (namespace PCE)
+
+Namespace **`PCE:`** disjunto de IPCA, IPCA-15 e CPI-US. Todas usam:
+- `country = 'US'`
+- `subject = 'Prices'`
+- `indicator = 'PCE'`
+- `frequency = 'M'`
+- `haver_code = NULL` (nunca populado; `bls_code` é a chave de proveniência)
+
+**Diffusion** (5 series, `data_type='NSA'`):
+- `PCE:diffusion_headline_yoy`      — Share of items YoY > 3%, Headline
+- `PCE:diffusion_headline_6ma_ann`  — Share of items 6m-ann > 3%, Headline
+- `PCE:diffusion_goods_yoy`         — Share of items YoY > 3%, Goods
+- `PCE:diffusion_services_yoy`      — Share of items YoY > 3%, Services
+- `PCE:diffusion_goods_ex_cars_yoy` — Share of items YoY > 3%, Goods ex cars
+
+**Breadth** (3 series, `data_type='NSA'`, soma = 100% por mês):
+- `PCE:breadth_above_3pct`
+- `PCE:breadth_0_to_3pct`
+- `PCE:breadth_below_0pct`
+
+**Alt measures** (2 series, `data_type='SA'`, Index level, rebase Jan/2000=100):
+- `PCE:alt_median_pce`
+- `PCE:alt_trimmed_mean_pce`
+
+Loader de alt measures tem `_cleanup_legacy_alt` que apaga qualquer
+`PCE:alt_%` fora do plano atual — cobre as variantes legadas
+`_1mo/_mom_sa/_12mo` do schema antigo + Dallas fragmentada
+`trimmed_mean_pce_1mo`/`_12mo` do pre-sync 2026-10-28.
+
+## Fontes
+
+- **BEA NIPA Underlying Detail** (`apps.bea.gov/api/data/`, dataset
+  `NIUnderlyingDetail`):
+  - `U20404` — Price Indexes for PCE by Type of Product (320+ linhas/mês × ~400 LineNumbers)
+  - `U20405` — Current Dollars (nominais) com estrutura idêntica, usado como peso do breadth
+- **Cleveland Fed** — Median PCE full history CSV (`clevelandfed.org/-/media/files/webcharts/medianpce/median-pce-full-history.csv`), 1977+
+- **Dallas Fed** — Trimmed Mean PCE via FRED:
+  - `PCETRIM1M158SFRBDAL` (1-mo annualized SA) — IDs atualizados 2026-10
+  - `PCETRIM12M159SFRBDAL` (12-mo YoY)
+  - Fallback xlsx nativo: `dallasfed.org/-/media/documents/research/pce/pcedata.xlsx`
+
+## Diffusion — identificação dos 190 leaves
+
+O U20404 publica ~400 linhas mas a maioria é agregado hierárquico. Pra isolar
+os leaves que entram no diffusion/breadth:
+
+1. **Boundary Goods vs Services**: via `LineNumber` da linha "Goods" (=2) e
+   "Services" (varia por release). Qualquer leaf entre essas = Goods; qualquer
+   leaf depois = Services.
+2. **SUBAGG_LINES**: lista manual em `build_diffusion.py` (linhas 26-148) com
+   todos os LineNumbers que são agregados hierárquicos (Durable goods,
+   Food and beverages, etc.). ~110 agregados.
+3. **MARKET_DRIVEN_EXCLUDE** (linhas 164-178): 9 items Services com YoY
+   anômalos — imputed financial (Commercial banks, Securities commissions,
+   Portfolio mgmt, Trust), streaming (Video, Audio), postal/delivery (First-class
+   postal, Other delivery), Air transport. Calibrado 2026-09-10 pra bater o
+   chart BBA (Services 58% vs BBA 57.8%).
+4. **OUT_OF_SCOPE_RANGES**: Expenditures abroad (146-149), Foreign travel
+   (334-341), NPISHs (342-368), Derived aggregates (369-402).
+5. **CAR_LINES** (6, 9, 13, 17, 21, 22): 6 leaves de motor vehicles usados
+   pra isolar "Goods ex cars".
+
+**Validação (2026-09-10 chart BBA jul-2026)**:
+- Goods: 47.8% nosso vs 47.3% BBA (Δ +0.5pp) ✓
+- Services: 58.0% nosso vs 57.8% BBA (Δ +0.2pp) ✓
+- Goods ex cars: 50.0% nosso vs 49.4% BBA (Δ +0.6pp) ✓
+- Cars: 6 items exato ✓
+
+Contagem final 190 leaves (91 Goods + 109 Services) vs 200 BBA — 10 a menos,
+% agregado compensa. Fechar exato exige nota interna BBA com lista — ver
+TODO.md.
+
+## Alt measures — chain universal pra INDEX
+
+Mesmo padrão do CPI alt measures (sync 2026-10-28):
+
+```
+mom_sa = (1 + ann_1mo/100)^(1/12) - 1
+idx[t] = idx[t-1] * (1 + mom_sa[t])     # cumprod
+```
+
+Rebase final pra Jan/2000=100 por measure. Cleveland CSV + Dallas FRED
+ambos publicam `ann_1mo` SA, então chain universal — nenhuma fonte publica
+index nativo.
+
+**Validação chain** (dashboard `dashboard_pce_alt_index_check.md`):
+- Median Cleveland: 0.0000pp YoY+MoM em TODA história (584 obs YoY, 595 MoM)
+- Trimmed Mean Dallas: max 0.0074pp YoY (round-trip de 2 decimais do FRED),
+  MoM 0.0000pp exato
+
+## Breadth — peso = nominais BEA do próprio mês
+
+Diferença fundamental vs CPI breadth:
+- **CPI**: peso = RI Dez do ano anterior × renormalização mensal (BLS publica
+  arquivo histórico de Relative Importance)
+- **PCE**: peso = nominal BEA U20405 do próprio mês / Σ_leaves nominal_j(m) ×
+  100 (BEA não publica RI em arquivo histórico, mas nominais mensais estão
+  disponíveis — approach direto)
+
+Guard de cobertura idêntico (release < 70% dos leaves = data descartada).
+
+**Dallas pcedata.xlsx NÃO é comparador direto**: Dallas mede MoM annualized
+sobre universe próprio (components do Trimmed Mean, com exclusões específicas
+diferentes das nossas), não YoY sobre U20404. Correlação ~0 esperada e
+observada — benchmark conceitual apenas.
+
+## Dashboards
+
+- `outputs/dashboards/dashboard_pce_last_12m.md` — snapshot mensal: alt
+  measures (Index + 1mo + mom_sa + YoY) + diffusion (YoY>3% + 6m-ann>3%).
+  Regenera com `python outputs/dashboards/_make_dashboard_pce_last_12m.py`.
+- `outputs/dashboards/dashboard_pce_alt_index_check.md` — validação chain do
+  index alt measures (YoY/MoM derivado vs publicado, max |Δ| < 0.002pp
+  esperado).
+
+## Env vars
+
+- `BEA_API_KEY` — obrigatório pro fetch BEA (grátis em `apps.bea.gov/API/signup/`)
+- `CORP_PROXY_URL` ou `HTTPS_PROXY` — proxy corp Itaú quando aplicável
+- `CACHE_TTL_HOURS=24` — janela de re-fetch pros xlsx/CSV Cleveland+Dallas
+
+## Lições aprendidas (herdadas do CPI)
+
+- **HYC00 no DELETE do loader**: driver corp Microsoft ODBC não aceita
+  `datetime.date` em `WHERE date>=? AND date<=?`. Loaders usam só
+  `DELETE WHERE series_id = ?` + re-escreve full history. Default `--full`.
+- **Proxy senha vencida**: build scripts têm guard anti-regressão silenciosa
+  (se vier menos measures que esperado → preserva CSV principal + exit 2).
+- **FRED IDs mudam sem aviso**: Dallas trocou `*680SFRBDAL` por
+  `*158/159SFRBDAL` em 2026-10. Monitorar via search anual.

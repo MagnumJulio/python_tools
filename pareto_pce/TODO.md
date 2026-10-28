@@ -1,31 +1,29 @@
 # pareto_pce — TODO
 
-## Dallas Trimmed Mean PCE — IDs FRED 404 (bloqueante alt_measures)
+## ~~Dallas Trimmed Mean PCE — IDs FRED 404~~ ✅ Fechado 2026-10-28
 
-Em 2026-10-22, `scripts/build_alt_measures_pce.py` passou a falhar com
-`404 Not Found` nos dois IDs FRED hard-coded:
+Dallas tinha renomeado os IDs no FRED (padrao `680SFRBDAL` virou `158SFRBDAL`
++ `159SFRBDAL`). Novos endpoints confirmados e no pipeline:
+- `PCETRIM1M158SFRBDAL`  — 1-mo annualized SA
+- `PCETRIM12M159SFRBDAL` — 12-mo YoY
+- `PCETRIM6M680SFRBDAL`  — 6-mo annualized (ainda vivo, não usado)
 
-- `PCETRIM1M680SFRBDAL`  → 1-mo annualized
-- `PCETRIM12M680SFRBDAL` → 12-mo (YoY)
+Fallback xlsx nativo documentado em
+`reference_fed_alt_measures_endpoints.md`: `dallasfed.org/-/media/documents/research/pce/pcedata.xlsx`.
 
-Página FRED `/series/PCETRIM1M680SFRBDAL` também retorna 404 — não é só
-proxy/CDN, o ID sumiu do catálogo. Antes funcionava (CSVs antigos de
-`cpi_cpius_alt_measures.csv` tinham valores). Dallas pode ter:
-(a) renomeado IDs no FRED (comum em revisões de metodologia),
-(b) movido pra endpoint próprio Dallas (ex: xlsx em dallasfed.org),
-(c) consolidado no `PCETRIM1M158SFRBDAL`/variantes.
+## ~~Breadth ponderado por bins~~ ✅ Fechado 2026-10-28
 
-Impacto: Cleveland Median PCE continua OK (3 series: 1mo, mom_sa, 12mo).
-Dallas sumiu — perdemos 2 das 3 measures PCE no SQL corp.
+Pattern CPI breadth replicado:
+- `scripts/fetch_pce.py` ganhou U20405 (nominais) alem do U20404 (prices).
+- `scripts/build_breadth_pce.py` + `script_itau/load_breadth_pce_to_sql.py`.
+- 3 series SQL: `PCE:breadth_{above_3pct, 0_to_3pct, below_0pct}`, NSA.
+- Peso = nominais BEA U20405 do proprio mes (nao RI Dez como CPI — PCE nao
+  publica RI em arquivo historico, mas nominais sao disponiveis mensais).
 
-Passos pra fechar:
-1. Buscar no FRED (fredaccount.stlouisfed.org/public) por "Dallas Trimmed
-   Mean PCE" e capturar os IDs atuais.
-2. Alternativa: baixar xlsx direto Dallas em `dallasfed.org/research/pce`
-   (análogo ao Atlanta Sticky xlsx em `pareto_cpius/data/raw/atlanta/`).
-3. Ajustar `fetch_fred_csv` ou criar `fetch_dallas_pce_xlsx` conforme
-   a fonte escolhida.
-4. Smoke test local + `--dry-run` do loader pra confirmar 5-6 series.
+**Dallas pcedata.xlsx NAO e benchmark comparavel direto**: Dallas mede MoM
+annualized sobre universe Trimmed Mean customizado (~178 components com
+exclusoes); nosso e YoY sobre 190 leaves U20404. Correlacao ~0 esperada
+e observada. Fica como referencia conceitual, nao sanity check.
 
 ## Gap contagem leaves vs Itaú BBA (parcial, não crítico)
 
@@ -53,30 +51,9 @@ leaves — sem ela, iteração é chute.
 ## Next steps (não urgente)
 
 1. Adicionar peso por expenditure share (T20405) como opção alternativa
-   ao count-based. Chart BBA parece usar count ("Share of PCE Items"),
-   mas versão weighted pode ser útil.
-2. Se subir pro SQL corp: criar `script_itau/` seguindo padrão
-   pareto_cpius/pareto_ipca (load + simulate + RUNBOOK). Requer decisão
-   de indicator/namespace SQL — sugestão: `indicator="PCE"`,
-   `bls_code="PCE:diffusion_yoy_headline"` etc.
-3. Adicionar validação amostral contra série histórica (dá pra checar
-   pontos passados do chart BBA se tivermos snapshots).
-
-## Breadth ponderado por bins (análogo ao CPI, pendente)
-
-CPI ganhou breadth 3-bins em 2026-10-09 (via `pareto_cpius/scripts/build_breadth_cpi.py`
-usando pesos subitem RI time-varying). PCE ficou pendente porque não temos
-pesos subitem oficiais nos CSVs.
-
-Pra fechar o paralelo:
-1. Fetch BEA **U20405** (Personal Consumption Expenditures by Type of Product
-   em nominais mensais) via `fetch_pce.py` ou script novo.
-2. Peso implícito mensal = `nominal_i(m) / Σ_i nominal_i(m)` por leaf.
-3. Replicar lógica do `build_breadth_cpi.py` com pesos BEA + os 190 leaves já
-   detectados em `data/leaves_detected.csv`.
-4. 3 séries SQL: `PCE:breadth_above_3pct`, `PCE:breadth_0_to_3pct`, `PCE:breadth_below_0pct`.
-5. Loader + RUNBOOK edit.
-
-Benchmark pros números: Dallas Fed publica a mesma métrica (xlsx `pcedata.xlsx`
-com 5 bins — ver `data/raw/dallas/`). Nossos 3 bins podem agregar os 5 Dallas
-(`<0%` ⊃ nada direto, mas `0-3%` ⊃ `0-2%+2-3%` e `>3%` ⊃ `3-5%+5-10%+>10%`).
+   ao count-based do diffusion. Chart BBA parece usar count ("Share of PCE
+   Items"), mas versão weighted pode ser útil pra comparar com o breadth.
+2. Validação amostral do breadth contra snapshots BBA (se existir).
+3. Simulador local `simulate_breadth_pce_to_sql.py` seguindo padrão
+   `simulate_pce_to_sql.py` (nao urgente — loader direto ja validado via
+   dry-run).

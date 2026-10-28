@@ -2,7 +2,8 @@
 # Dashboard markdown last-12m das metricas PCE que vao pro SQL corp:
 #  - Alt measures (2): Median Cleveland + Trimmed Mean Dallas
 #  - Diffusion (5 series): Headline, Goods, Services, Goods_ex_cars x YoY + 6m-ann
-# Fonte: data/pce_alt_measures.csv + data/pce_diffusion.csv.
+#  - Breadth (3 series): below_0 / 0_to_3 / above_3, ponderado por nominais BEA
+# Fonte: pce_alt_measures.csv + pce_diffusion.csv + pce_breadth.csv.
 
 from pathlib import Path
 import pandas as pd
@@ -23,6 +24,13 @@ DIFF_LABELS = {
     "Services":      "Services",
 }
 DIFF_ORDER = ["Headline", "Goods", "Goods_ex_cars", "Services"]
+
+BIN_LABELS = {
+    "below_0pct": "YoY < 0%",
+    "0_to_3pct":  "0% ≤ YoY ≤ 3%",
+    "above_3pct": "YoY > 3%",
+}
+BIN_ORDER = ["below_0pct", "0_to_3pct", "above_3pct"]
 
 
 def date_window(last: pd.Timestamp, n: int = 12) -> list[pd.Timestamp]:
@@ -80,25 +88,43 @@ di_yoy = di_pivot("diffusion_yoy_3pct")
 # evitar linha de n/a.
 di_6ma = di_pivot("diffusion_6ma_ann_3pct").loc[[DIFF_LABELS["Headline"]]]
 
+# ---------- breadth ----------
+br = pd.read_csv(ROOT / "data" / "pce_breadth.csv", parse_dates=["date"])
+br_last = br["date"].max()
+br_dates = date_window(br_last)
+br_cols = [d.strftime("%Y-%m") for d in br_dates]
+br_pivot = br[br["date"].isin(br_dates)].pivot(
+    index="bin", columns="date", values="weight_share"
+)
+br_pivot.columns = [c.strftime("%Y-%m") for c in br_pivot.columns]
+br_pivot = br_pivot.reindex(index=BIN_ORDER, columns=br_cols)
+br_pivot.index = [BIN_LABELS[b] for b in br_pivot.index]
+
 # ---------- montagem ----------
 md = [
     "# PCE dashboard — últimos 12 meses",
     "",
     f"**Alt measures last date**: {alt_last:%Y-%m}. "
-    f"**Diffusion last date**: {di_last:%Y-%m} "
-    f"(pode defasar vs alt — depende do release BEA U20404).",
+    f"**Diffusion last date**: {di_last:%Y-%m}. "
+    f"**Breadth last date**: {br_last:%Y-%m} "
+    f"(pode defasar vs alt — depende do release BEA U20404+U20405).",
     "",
     "Gerado por `outputs/dashboards/_make_dashboard_pce_last_12m.py` em cima de "
-    "`pce_alt_measures.csv` (Cleveland CSV + Dallas FRED) e `pce_diffusion.csv` "
-    "(BEA U20404, 190 leaves ponderados por count).",
+    "`pce_alt_measures.csv` (Cleveland CSV + Dallas FRED), `pce_diffusion.csv` "
+    "e `pce_breadth.csv` (BEA U20404 + nominais U20405, 190 leaves).",
     "",
     "> **Notas de cobertura**:",
     "> - Alt measures no SQL: 2 series `PCE:alt_{median_pce,trimmed_mean_pce}` "
     "(Index SA, rebase Jan/2000=100, sync 2026-10-28).",
     "> - Diffusion no SQL: 5 series `PCE:diffusion_{headline,goods,services,goods_ex_cars}_yoy` "
     "+ `PCE:diffusion_headline_6ma_ann` (count-based, nao ponderado).",
+    "> - Breadth no SQL: 3 series `PCE:breadth_{above_3pct,0_to_3pct,below_0pct}` "
+    "(peso = nominais BEA U20405 do proprio mes; soma = 100% por data).",
     "> - Dallas IDs renomeados em 2026-10 (`PCETRIM1M158SFRBDAL` + "
     "`PCETRIM12M159SFRBDAL`) — antigos `680SFRBDAL` retornavam 404.",
+    "> - Dallas `pcedata.xlsx` NAO e benchmark comparavel direto do breadth: "
+    "Dallas mede MoM annualized sobre universe Trimmed Mean customizado (nao YoY "
+    "sobre U20404). Correlacao observada ~0 em 2026-10-28.",
     "> - Diffusion 6m-ann > 3% so e publicada pra Headline (bate "
     "`build_diffusion.py`); Goods/Services nao tem essa metrica.",
     "",
@@ -122,8 +148,13 @@ md = [
     to_md(di_6ma, "Diffusion — share de itens com 6m-ann > 3% (%)",
           "Mesma difusão mas usando variação 6 meses anualizada (sinal mais "
           "tempestivo que YoY).", 2),
+    to_md(br_pivot, "Breadth — share do peso por bin YoY (%)",
+          "Cross-section de 190 leaves BEA U20404, agrupados em 3 bins de YoY "
+          "e ponderados por nominais BEA U20405 do próprio mês. Soma dos 3 "
+          "bins = 100 em cada mês. Guard de cobertura 70% descarta releases "
+          "parciais.", 2),
 ]
 
 OUT.write_text("\n".join(md), encoding="utf-8")
 print(f"[OK] {OUT.relative_to(ROOT)} — alt={alt_last:%Y-%m}, diff={di_last:%Y-%m}, "
-      f"12 meses.")
+      f"breadth={br_last:%Y-%m}, 12 meses.")
