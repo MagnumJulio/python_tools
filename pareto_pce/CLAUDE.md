@@ -199,3 +199,22 @@ observada — benchmark conceitual apenas.
   (se vier menos measures que esperado → preserva CSV principal + exit 2).
 - **FRED IDs mudam sem aviso**: Dallas trocou `*680SFRBDAL` por
   `*158/159SFRBDAL` em 2026-10. Monitorar via search anual.
+
+## Backlog não crítico
+
+Items que seriam "nice to have" mas não bloqueiam entrega atual (todos
+sobreviveram do antigo TODO.md, agora deletado):
+
+- **Gap 10 leaves vs BBA**: 190 (nossos) vs 200 (alvo BBA jul-2026, chart
+  interno — 1 Goods + 9 Services faltando). % agregado compensa (Δ ≤ 0.6pp
+  nos 3 buckets), mas source não fecha exato. Fechar exige nota BBA com a
+  lista oficial; sem ela, iteração vira chute.
+- **Peso por expenditure share pro diffusion**: hoje o diffusion é
+  count-based ("Share of PCE Items"); versão weighted (nominais U20405) seria
+  complementar — reusa a infra do breadth. Chart BBA referência usa count,
+  então não é prioritário.
+- **Validação amostral do breadth vs snapshots BBA**: se aparecer snapshot
+  histórico BBA do breadth, dá pra sanity check pontual.
+- **simulate_breadth_pce_to_sql.py**: espelho local sem SQLConnector corp,
+  padrão `simulate_pce_to_sql.py`. Loader já validou via `--dry-run`, não
+  é urgente.
