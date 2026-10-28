@@ -204,26 +204,34 @@ def main():
     n_rows = 0
     for sp in series_plan:
         series_id = _ensure_series(sp)
-        data = sp["data"].copy()
-        # EOM pra bater o padrao dos outros loaders
-        data["date"] = (pd.to_datetime(data["date"]) + pd.offsets.MonthEnd(0)).dt.date
-        data["series_id"] = series_id
-        data["release_date"] = today
-        data["vintage_date"] = today
-        # Substitui o range coberto
-        dmin, dmax = data["date"].min(), data["date"].max()
+        # Deleta TUDO da serie e re-escreve full (padrao load_cpius_to_sql.py).
+        # Nao binda data: o driver corp (Microsoft ODBC SQL Server) cospe HYC00
+        # em `date>=? AND date<=?` com datetime.date. Como default agora e
+        # --full, deletar tudo + re-escrever da no mesmo resultado.
         session.execute(
-            "DELETE FROM OPT_Macro_Series_Data_2 WHERE series_id=? AND date>=? AND date<=?",
-            params=[series_id, dmin, dmax],
+            "DELETE FROM OPT_Macro_Series_Data_2 WHERE series_id = ?",
+            params=[series_id],
         )
+        # Monta df do zero (padrao cpius loader) pra evitar quirks de dtype
+        # object em coluna mutada por .dt.date — write_sql_table pode pegar
+        # tipo errado no bind.
+        src = sp["data"]
+        dates_eom = (pd.to_datetime(src["date"]) + pd.offsets.MonthEnd(0)).dt.date.values
+        df_data = pd.DataFrame({
+            "date": dates_eom,
+            "series_id": series_id,
+            "value": src["value"].values,
+            "release_date": today,
+            "vintage_date": today,
+        })
         session.write_sql_table_from_dataframe(
             "OPT_Macro_Series_Data_2",
-            data[["date", "series_id", "value", "release_date", "vintage_date"]],
+            df_data[["date", "series_id", "value", "release_date", "vintage_date"]],
             chunk_size=5_000,
         )
         n_series += 1
-        n_rows += len(data)
-        print(f"  [{n_series}/{len(series_plan)}] {sp['bls_code']}: {len(data)} rows")
+        n_rows += len(df_data)
+        print(f"  [{n_series}/{len(series_plan)}] {sp['bls_code']}: {len(df_data)} rows")
 
     session.close()
     print(f"\n[OK] {n_series} series x {n_rows} rows gravados.")
