@@ -64,6 +64,17 @@ OUT_DIR = ROOT / "data"
 ATLANTA_XLSX = ROOT / "data" / "raw" / "atlanta" / "stickyprice.xlsx"
 OUT_CSV = OUT_DIR / "cpi_cpius_alt_measures.csv"
 
+# Universo esperado — se vier menos que isso, o guard em main() preserva o
+# CSV existente em vez de sobrescrever com dado parcial (caso proxy falhe
+# em algumas fontes). `SKIP_CUSTOM=1` tira o custom do conjunto esperado.
+EXPECTED_MEASURES = {
+    "median_cpi", "trimmed_mean_16_cpi",           # Cleveland FRED
+    "flexible_cpi", "core_flexible_cpi",           # Atlanta xlsx
+    "sticky_cpi", "core_sticky_cpi",
+    "sticky_cpi_ex_shelter", "core_sticky_cpi_ex_shelter",
+    "trimmed_sym_25_cpi_custom",                   # custom bottom-up BLS
+}
+
 BLS_URL = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = os.environ.get("BLS_API_KEY", "")
 BATCH = 50 if BLS_KEY else 25
@@ -453,6 +464,44 @@ def main() -> None:
     out = _rebase_jan2000(out)
     out = out.sort_values(["measure", "date"]).reset_index(drop=True)
     out = out[["date", "measure", "value_index", "ann_1mo", "mom_sa", "ann_12mo"]]
+
+    # Guard: regressao silenciosa (bug que truncou 5660->308 rows em 2026-10-28,
+    # proxy senha vencida). 2 modos de falha:
+    #  (A) measure ausente: fonte falhou e nao caiu em nenhum cache.
+    #  (B) measure presente mas sem ann_1mo: chartdata/cache deu YoY, mas o
+    #      chain-source (FRED ann_1mo p/ Cleveland, xlsx p/ Atlanta) morreu —
+    #      value_index derivado fica FLAT em 100 (corrupcao silenciosa).
+    # Em qualquer dos casos: NAO sobrescreve CSV principal, grava .partial pro
+    # debug, exit rc=2 pra Jupyter notar.
+    expected = EXPECTED_MEASURES.copy()
+    if os.environ.get("SKIP_CUSTOM") == "1":
+        expected.discard("trimmed_sym_25_cpi_custom")
+    got = set(out["measure"].unique())
+    missing = expected - got
+    bad_chain = sorted(
+        m for m in (expected & got)
+        if out[(out["measure"] == m) & out["ann_1mo"].notna()].empty
+    )
+    if missing or bad_chain:
+        if missing:
+            print(f"\n[FAIL] {len(missing)}/{len(expected)} measures ausentes: "
+                  f"{sorted(missing)}")
+        if bad_chain:
+            print(f"\n[FAIL] {len(bad_chain)} measures sem ann_1mo (chain gera "
+                  f"value_index flat=100): {bad_chain}")
+        partial = OUT_CSV.with_suffix(".partial.csv")
+        out.to_csv(partial, index=False)
+        print(f"  {len(out)} rows salvos em {partial.name} (debug). CSV principal "
+              f"{OUT_CSV.name} NAO foi sobrescrito.")
+        if OUT_CSV.exists():
+            try:
+                prev_rows = sum(1 for _ in OUT_CSV.open()) - 1
+                print(f"  CSV principal preservado com {prev_rows} rows de run anterior.")
+            except Exception:
+                pass
+        print(f"  Checar proxy/rede nas fontes faltantes e re-rodar.")
+        sys.exit(2)
+
     out.to_csv(OUT_CSV, index=False)
     print(f"\n[OK] {len(out)} rows -> {OUT_CSV.relative_to(ROOT)}")
     print(f"\nSummary por measure:")
