@@ -124,8 +124,10 @@ def fetch_fred_csv(fred_id: str) -> pd.Series:
 
 
 def fetch_atlanta_sticky() -> pd.DataFrame:
-    """Parse xlsx oficial Atlanta Fed, retorna long df com as 6 series
-    ja em 1-mo annualized percent change (coluna 2 de cada bloco)."""
+    """Parse xlsx oficial Atlanta Fed, retorna long df com as 6 series.
+    Atlanta NAO publica index level nativo — cada bloco de 4 cols é:
+    (MoM decimal, 1-mo annualized %, 3-mo a.r., 12-mo %). O index é
+    reconstruido em main() via _chain_index(ann_1mo)."""
     if not _cache_fresh(ATLANTA_XLSX):
         print(f"[atlanta] cache stale/ausente — baixando xlsx oficial...")
         ATLANTA_XLSX.parent.mkdir(parents=True, exist_ok=True)
@@ -133,10 +135,7 @@ def fetch_atlanta_sticky() -> pd.DataFrame:
                "datafiles/research/inflationproject/stickprice/stickyprice.xlsx")
         ATLANTA_XLSX.write_bytes(_curl_get(url, timeout=120))
 
-    # Layout: linha 0 = headers com 6 blocos de 4 colunas cada (index, 1mo ann, 3mo a.r., 12mo).
-    # Primeira coluna = date. Linhas 1+ = data.
     df = pd.read_excel(ATLANTA_XLSX, sheet_name="Data", header=None)
-    # Nome dos 6 blocos — ordem no xlsx:
     SERIES_NAMES = [
         "flexible_cpi",
         "core_flexible_cpi",
@@ -145,11 +144,9 @@ def fetch_atlanta_sticky() -> pd.DataFrame:
         "sticky_cpi_ex_shelter",
         "core_sticky_cpi_ex_shelter",
     ]
-    # Cada bloco tem 4 cols: Index level, 1-mo ann, 3-mo a.r., 12mo. Pegamos 1-mo ann
-    # (coluna de offset +1 dentro de cada bloco de 4, começando no indice 1).
     out_rows = []
     for i, name in enumerate(SERIES_NAMES):
-        col_1mo = 1 + i * 4 + 1   # Date = col 0; bloco i começa em col 1+i*4
+        col_1mo  = 1 + i * 4 + 1
         col_12mo = 1 + i * 4 + 3
         s = df.iloc[1:, [0, col_1mo, col_12mo]].copy()
         s.columns = ["date", "ann_1mo", "ann_12mo"]
@@ -160,6 +157,32 @@ def fetch_atlanta_sticky() -> pd.DataFrame:
         s["measure"] = name
         out_rows.append(s)
     return pd.concat(out_rows, ignore_index=True)
+
+
+def _chain_index(ann_1mo: pd.Series, base: float = 100.0) -> pd.Series:
+    """Converte ann_1mo (% annualized) em indice encadeado.
+    idx[0] = base; idx[t] = idx[t-1] * (1 + mom[t]) com
+    mom = (1+ann_1mo/100)^(1/12) - 1. NaN em ann_1mo propaga como fator 1."""
+    mom = (1 + ann_1mo / 100) ** (1 / 12) - 1
+    factor = (1 + mom.fillna(0)).cumprod()
+    return base * factor
+
+
+def _rebase_jan2000(df: pd.DataFrame) -> pd.DataFrame:
+    """Rebase value_index pra Jan/2000=100 por measure. Se nao houver obs em
+    Jan/2000, usa primeira obs nao-nula como anchor (idx=100 nela)."""
+    base_dt = pd.Timestamp("2000-01-01")
+    out = []
+    for measure, g in df.groupby("measure"):
+        g = g.sort_values("date").copy()
+        notnull = g.dropna(subset=["value_index"])
+        if notnull.empty:
+            out.append(g); continue
+        hit = notnull[notnull["date"] == base_dt]
+        base = float(hit["value_index"].iloc[0]) if not hit.empty else float(notnull["value_index"].iloc[0])
+        g["value_index"] = g["value_index"] / base * 100.0
+        out.append(g)
+    return pd.concat(out, ignore_index=True)
 
 
 # ----- Custom Trimmed Sym 25% (bottom-up, nao oficial) ----------------------
@@ -324,7 +347,8 @@ def compute_custom_trimmed_sym25(hier_year: int = 2025) -> pd.DataFrame:
     out = df.groupby("date", group_keys=False).apply(_trim).rename("ann_1mo").reset_index()
     out["measure"] = "trimmed_sym_25_cpi_custom"
     out["ann_12mo"] = np.nan
-    return out[["date", "measure", "ann_1mo", "ann_12mo"]]
+    out["value_index"] = np.nan   # chain centralizado em main() apos consolidacao
+    return out[["date", "measure", "value_index", "ann_1mo", "ann_12mo"]]
 
 
 def fetch_cleveland_cpi_chartdata() -> pd.DataFrame:
@@ -362,8 +386,9 @@ def main() -> None:
             s = fetch_fred_csv(fred_id)
             df = s.rename("ann_1mo").reset_index()
             df["measure"] = mname
+            df["value_index"] = np.nan   # chain centralizado em (4)
             df["ann_12mo"] = np.nan
-            all_rows.append(df[["date", "measure", "ann_1mo", "ann_12mo"]])
+            all_rows.append(df[["date", "measure", "value_index", "ann_1mo", "ann_12mo"]])
             print(f"  {mname}: {len(df)} obs 1mo, {df.date.min().date()} -> {df.date.max().date()}")
         except Exception as e:
             print(f"  [FAIL FRED] {mname}: {str(e)[:120]}")
@@ -372,8 +397,9 @@ def main() -> None:
     print("[1b] Cleveland chartdata (YoY, ~10 anos)...")
     try:
         cle = fetch_cleveland_cpi_chartdata()
+        cle["value_index"] = np.nan   # YoY-only, nao contribui pra index
         for m in cle["measure"].unique():
-            sub = cle[cle["measure"] == m]
+            sub = cle[cle["measure"] == m][["date", "measure", "value_index", "ann_1mo", "ann_12mo"]]
             all_rows.append(sub)
             print(f"  {m}: {len(sub)} obs YoY, {sub.date.min().date()} -> {sub.date.max().date()}")
     except Exception as e:
@@ -383,8 +409,9 @@ def main() -> None:
     print("[2] Atlanta Fed Sticky/Flexible (xlsx oficial)...")
     try:
         at = fetch_atlanta_sticky()
+        at["value_index"] = np.nan   # chain centralizado em (4)
         for name in at["measure"].unique():
-            sub = at[at["measure"] == name][["date", "measure", "ann_1mo", "ann_12mo"]].copy()
+            sub = at[at["measure"] == name][["date", "measure", "value_index", "ann_1mo", "ann_12mo"]].copy()
             all_rows.append(sub)
             n = len(sub.dropna(subset=["ann_1mo"]))
             print(f"  {name}: {n} obs, {sub.date.min().date()} -> {sub.date.max().date()}")
@@ -406,22 +433,34 @@ def main() -> None:
         sys.exit("[FAIL] nenhuma serie obtida — todas as fontes falharam. "
                  "Checar proxy/rede. Nenhum CSV sera gravado.")
     out = pd.concat(all_rows, ignore_index=True)
-    # FRED (ann_1mo) e chartdata (ann_12mo) chegam em linhas separadas pro
-    # mesmo (measure, date); colapsa com max (NaN-safe) — nao ha conflito
-    # porque cada fonte so preenche a coluna que lhe cabe.
+    # FRED (ann_1mo) + chartdata (ann_12mo) + Atlanta (todos) chegam em linhas
+    # separadas pro mesmo (measure, date); colapsa com max (NaN-safe).
     out = (out.groupby(["measure", "date"], as_index=False)
-              .agg({"ann_1mo": "max", "ann_12mo": "max"}))
+              .agg({"value_index": "max", "ann_1mo": "max", "ann_12mo": "max"}))
     # Proxy MoM SA: inverte anualizacao (todas as fontes publicam ann_1mo SA).
     out["mom_sa"] = ((1 + out["ann_1mo"] / 100) ** (1 / 12) - 1) * 100
+    # Para measures sem value_index nativo (Cleveland FRED, custom), encadeia
+    # a partir do ann_1mo. Atlanta ja tem index nativo (Dec 1982=100).
+    pieces = []
+    for measure, g in out.groupby("measure"):
+        g = g.sort_values("date").reset_index(drop=True).copy()
+        if g["value_index"].isna().all():
+            g["value_index"] = _chain_index(g["ann_1mo"]).values
+        pieces.append(g)
+    out = pd.concat(pieces, ignore_index=True)
+    # Rebase todas as series pra Jan/2000=100 pra bater com cpi_cpius_indice.csv.
+    # Custom começa 2001-01 → fallback: primeira obs nao-nula = 100.
+    out = _rebase_jan2000(out)
     out = out.sort_values(["measure", "date"]).reset_index(drop=True)
-    out = out[["date", "measure", "ann_1mo", "mom_sa", "ann_12mo"]]
+    out = out[["date", "measure", "value_index", "ann_1mo", "mom_sa", "ann_12mo"]]
     out.to_csv(OUT_CSV, index=False)
     print(f"\n[OK] {len(out)} rows -> {OUT_CSV.relative_to(ROOT)}")
     print(f"\nSummary por measure:")
     s = out.groupby("measure").agg(
+        n_idx=("value_index", lambda x: x.notna().sum()),
         n_1mo=("ann_1mo", lambda x: x.notna().sum()),
-        n_mom_sa=("mom_sa", lambda x: x.notna().sum()),
         n_12mo=("ann_12mo", lambda x: x.notna().sum()),
+        idx_jan2000=("value_index", lambda x: round(x.iloc[(out.loc[x.index, "date"] - pd.Timestamp("2000-01-01")).abs().argmin()], 2) if x.notna().any() else None),
         min_date=("date", "min"),
         max_date=("date", "max"),
     )
