@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # Dashboard markdown last-12m das metricas PCE que vao pro SQL corp:
-#  - Alt measures (2): Median Cleveland + Trimmed Mean Dallas
+#  - Alt measures scraped (2): Median Cleveland + Trimmed Mean Dallas
+#  - Alt measures custom  (2): Median + Trim Mean bottom-up Itau
 #  - Diffusion (5 series): Headline, Goods, Services, Goods_ex_cars x YoY + 6m-ann
 #  - Breadth (3 series): below_0 / 0_to_3 / above_3, ponderado por nominais BEA
-# Fonte: pce_alt_measures.csv + pce_diffusion.csv + pce_breadth.csv.
+# Fonte: pce_alt_measures.csv + pce_alt_measures_custom.csv +
+#        pce_diffusion.csv + pce_breadth.csv.
 
 from pathlib import Path
 import pandas as pd
@@ -69,6 +71,37 @@ alt_1mo     = alt_pivot("ann_1mo")
 alt_mom_sa  = alt_pivot("mom_sa")
 alt_yoy     = alt_pivot("ann_12mo")
 
+# ---------- alt measures custom (bottom-up Itau) ----------
+alt_c = pd.read_csv(ROOT / "data" / "pce_alt_measures_custom.csv", parse_dates=["date"])
+ALT_CUSTOM_LABELS = {
+    "median_pce_custom":       "Median (custom bottom-up)",
+    "trimmed_mean_pce_custom": "Trimmed Mean (custom bottom-up)",
+}
+ALT_CUSTOM_ORDER = ["median_pce_custom", "trimmed_mean_pce_custom"]
+
+def alt_custom_pivot(col: str) -> pd.DataFrame:
+    sub = alt_c[alt_c["date"].isin(alt_dates)]
+    p = sub.pivot(index="measure", columns="date", values=col)
+    p.columns = [c.strftime("%Y-%m") for c in p.columns]
+    p = p.reindex(index=ALT_CUSTOM_ORDER, columns=alt_cols)
+    p.index = [ALT_CUSTOM_LABELS[m] for m in p.index]
+    return p
+
+alt_c_idx    = alt_custom_pivot("value_index")
+alt_c_1mo    = alt_custom_pivot("ann_1mo")
+alt_c_mom_sa = alt_custom_pivot("mom_sa")
+alt_c_yoy    = alt_custom_pivot("ann_12mo")
+
+# ---------- combined view: oficial + custom side-by-side ----------
+# Alt measures scraped vs custom em uma única tabela por métrica (4 linhas).
+def alt_combined_pivot(col_scraped: str, col_custom: str = None) -> pd.DataFrame:
+    """Empilha scraped (2 linhas) + custom (2 linhas) na mesma pivot."""
+    col_custom = col_custom or col_scraped
+    scraped = alt_pivot(col_scraped)
+    custom = alt_custom_pivot(col_custom)
+    combined = pd.concat([scraped, custom])
+    return combined
+
 # ---------- diffusion ----------
 di = pd.read_csv(ROOT / "data" / "pce_diffusion.csv", parse_dates=["date"])
 di_last = di["date"].max()
@@ -110,12 +143,16 @@ md = [
     f"(pode defasar vs alt — depende do release BEA U20404+U20405).",
     "",
     "Gerado por `outputs/dashboards/_make_dashboard_pce_last_12m.py` em cima de "
-    "`pce_alt_measures.csv` (Cleveland CSV + Dallas FRED), `pce_diffusion.csv` "
-    "e `pce_breadth.csv` (BEA U20404 + nominais U20405, 190 leaves).",
+    "`pce_alt_measures.csv` (Cleveland CSV + Dallas FRED, scraped), "
+    "`pce_alt_measures_custom.csv` (bottom-up Itaú), `pce_diffusion.csv` e "
+    "`pce_breadth.csv` (BEA U20404 + nominais U20405, 190 leaves).",
     "",
     "> **Notas de cobertura**:",
-    "> - Alt measures no SQL: 2 series `PCE:alt_{median_pce,trimmed_mean_pce}` "
+    "> - Alt measures scraped no SQL: 2 series `PCE:alt_{median_pce,trimmed_mean_pce}` "
     "(Index SA, rebase Jan/2000=100, sync 2026-10-28).",
+    "> - Alt measures custom no SQL: 2 series paralelas `PCE:alt_{..}_pce_custom` "
+    "(mesma schema; reconstrução bottom-up em cima dos 190 leaves U20404 + "
+    "nominais U20405). Validado 2026-10-28: mean|d| YoY = 0.09-0.11pp vs scraped.",
     "> - Diffusion no SQL: 5 series `PCE:diffusion_{headline,goods,services,goods_ex_cars}_yoy` "
     "+ `PCE:diffusion_headline_6ma_ann` (count-based, nao ponderado).",
     "> - Breadth no SQL: 3 series `PCE:breadth_{above_3pct,0_to_3pct,below_0pct}` "
@@ -128,20 +165,24 @@ md = [
     "> - Diffusion 6m-ann > 3% so e publicada pra Headline (bate "
     "`build_diffusion.py`); Goods/Services nao tem essa metrica.",
     "",
-    to_md(alt_idx, "Alt measures — Index level (SA, Jan/2000=100)",
-          "Nível do índice que vai pro SQL (`PCE:alt_{measure}`, data_type=SA). "
-          "Derivadas: YoY = idx[t]/idx[t-12]-1, MoM = idx[t]/idx[t-1]-1.", 3),
-    to_md(alt_1mo, "Alt measures — 1-mo annualized (%)",
-          "Taxa anualizada do mês. Cleveland Median (1977+ full history), "
-          "Dallas Trimmed Mean (1977+ full history).", 2),
-    to_md(alt_mom_sa, "Alt measures — proxy MoM SA (%)",
+    to_md(alt_combined_pivot("value_index"),
+          "Alt measures — Index level (SA, Jan/2000=100)",
+          "Nível do índice que vai pro SQL. **4 series**: 2 scraped (Cleveland "
+          "CSV + Dallas FRED) + 2 custom (bottom-up Itaú em cima dos 190 leaves). "
+          "Jan/2000=100 por construção.", 3),
+    to_md(alt_combined_pivot("ann_1mo"),
+          "Alt measures — 1-mo annualized (%)",
+          "Taxa anualizada do mês. Scraped vs custom em paralelo — proximidade "
+          "mês-a-mês indica se o universe/metodologia bota conta parecida.", 2),
+    to_md(alt_combined_pivot("mom_sa"),
+          "Alt measures — proxy MoM SA (%)",
           "Variação mensal SA derivada do 1-mo annualized: "
-          "`mom_sa = (1+ann_1mo/100)^(1/12)-1`. Mesma unidade do MoM SA do "
-          "dash PCE principal (Haver).", 2),
-    to_md(alt_yoy, "Alt measures — YoY (%)",
-          "Variação 12 meses. Cleveland sai do CSV direto, Dallas do FRED "
-          "`PCETRIM12M159SFRBDAL` (round-trip de 2 decimais pode criar diff "
-          "~0.01pp vs derivado do index).", 2),
+          "`mom_sa = (1+ann_1mo/100)^(1/12)-1`.", 3),
+    to_md(alt_combined_pivot("ann_12mo"),
+          "Alt measures — YoY (%)",
+          "Variação 12 meses. Scraped vs custom: diffs esperados < 0.5pp mês-a-mês "
+          "(mean|d| global = 0.09pp Trim Mean / 0.11pp Median — validado em "
+          "`dashboard_pce_alt_custom_vs_official.md`).", 2),
     to_md(di_yoy, "Diffusion — share de itens com YoY > 3% (%)",
           "Difusão item-level sobre 190 leaves do BEA U20404. Fração de itens "
           "com YoY acima de 3%, por bloco. Count-based, não ponderado.", 2),
