@@ -20,7 +20,7 @@ Pro dashboard (22 cats) o fluxo rápido está em `RUNBOOK_ATUALIZACAO_DASHBOARD.
 
 ## Operação mensal — full re-load (`load_cpius_to_sql.py`)
 
-Fluxo canônico: regenera CSVs via pipeline R, carrega no SQL com `load_cpius_to_sql.py --only`. Loader usa `replace=True` — apaga rows das cats escolhidas e reinserde full (~317 rows por série).
+Fluxo canônico: regenera CSVs via pipeline R, carrega no SQL com `load_cpius_to_sql.py`. Loader usa `replace=True` — apaga rows das cats carregadas e reinserde full (~317 rows por série).
 
 **Passo 1 — regenera CSVs (pipeline R full):**
 
@@ -35,17 +35,19 @@ Só rodar `python scripts/parse_historical_ri.py` se BLS publicou Table 6 nova (
 
 **Passo 2 — carga SQL:**
 
-Full (49 cats):
+Full (49 cats) — **sem `--only`**:
 ```bash
-python script_itau/load_cpius_to_sql.py --only all
+python script_itau/load_cpius_to_sql.py
 ```
 
 Dashboard subset (22 cats): ver `RUNBOOK_ATUALIZACAO_DASHBOARD.md`.
 
-Subset arbitrário (CSV, sem espaços):
+Subset arbitrário via `--only` (CSV, sem espaços):
 ```bash
 python script_itau/load_cpius_to_sql.py --only motor_fuel,gasoline,fuel_oil
 ```
+
+> `--only` espera `category_code` exatos (ex: `all_items`, `core`). Não existe cat `all` — sem `--only` já carrega todas.
 
 Aceita mistura base + custom. Se uma custom entra no `--only`, as bases dela vão pro fetch mas só vão pro SQL se estiverem explicitamente listadas.
 

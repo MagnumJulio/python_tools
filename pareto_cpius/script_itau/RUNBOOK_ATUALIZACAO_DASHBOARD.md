@@ -108,6 +108,15 @@ Grava `CPIUS:breadth_above_3pct` / `CPIUS:breadth_0_to_3pct` / `CPIUS:breadth_be
 
 Dashboard JS calcula contribuições / variantes em cima dessas 3 séries.
 
+## 10. Dashboards markdown locais (análise rápida)
+
+```powershell
+python outputs/dashboards/_make_dashboard_last_12m.py           # 22 cats CPI principal
+python outputs/dashboards/_make_dashboard_extras_last_12m.py    # alt measures + breadth + diffusion
+```
+
+Geram `outputs/dashboards/dashboard_cpius_last_12m.md` + `..._extras_last_12m.md` com as 5 tabelas last-12m (pesos NSA / MoM NSA / MoM SA / YoY NSA / YoY SA) e 6 tabelas extras (1-mo ann / proxy MoM SA / YoY / breadth / diffusion). Reproduzíveis — rode após qualquer step que atualize `data/cpi_cpius_*.csv`.
+
 ---
 
 ## Rollback / troubleshooting
@@ -116,7 +125,7 @@ Dashboard JS calcula contribuições / variantes em cima dessas 3 séries.
 - **`[WARN] sem dados: CUUR0000XXX` numa cat**: BLS reestruturou item code. Ver `RUNBOOK.md` seção "Cat solta" — precisa atualizar `scripts/bls_maps/cpiu_table_1.csv`.
 - **`[WARN] RI_BASE_DATE esta N meses atras`** no step 2: bump anual da base RI. Adicionar novo `.xlsx` em `data/raw/relative_importance/` + reparse (`scripts/parse_historical_ri.py`). Uma vez por ano.
 - **SQL row conflict**: `_migrate_cpius_to_current` roda antes do main loop e normaliza rows antigas (haver_code populado, sufixo /Index no bls_code, data_type='Peso') — idempotente (guard anti-UQ desde commit f9cccf6).
-- **Corp vs local divergem** (deferred 2026-08-21): dívida conhecida, +0.15 a +0.33pp em algumas cats pós-fix SASL5. Ver memória `project_pareto_cpius_corp_vs_local_diverge.md`. Não bloqueia release.
+- **`[WARN] 2025-10-01: cobertura 11.4% < 70.0%` no step 9**: filtro de cobertura descarta datas com release parcial (shutdown BLS Out/2025). Comportamento esperado desde commit `325f17d`.
 
 ## Categorias NÃO cobertas neste run
 
