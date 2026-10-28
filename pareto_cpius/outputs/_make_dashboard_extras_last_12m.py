@@ -129,9 +129,9 @@ md = [
     "annualized) — células de 1mo aparecem `n/a`.",
     "> - Trimmed Sym 25% custom tem **só 1-mo annualized** (construção não "
     "produz YoY) — células de YoY aparecem `n/a`.",
-    "> - Breadth em **2025-10 é anômalo** (`below_0pct=40%`): release BLS "
-    "incompleto no shutdown jogou várias subitens em NaN que o pipeline "
-    "classificou no bin de baixo. Não é sinal de deflação, é dado faltante.",
+    "> - Breadth em **2025-10 descartado** (cobertura 11% < 70% threshold): "
+    "release BLS incompleto no shutdown. Guard aplicado em "
+    "`build_breadth_cpi.py` descarta datas com cobertura abaixo do limiar.",
     "> - Diffusion 6m-ann > 3% só é publicada para Headline (bate "
     "`build_diffusion_cpius.py`); Goods/Services não têm essa métrica.",
     "",

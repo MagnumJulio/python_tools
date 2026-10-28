@@ -43,7 +43,9 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
 PESOS_CSV = ROOT / "data" / "cpi_cpius_pesos_annual_subitem.csv"
-RAW_CACHE = ROOT / "data" / "cpi_cpius_subitem_sa_raw.csv"
+# Cache isolado: 177 leaves. Antes compartilhado com build_alt_measures_cpi.py
+# (que escrevia 70 indent-3 e destruia os 107 extras). Separado em 2026-10-22.
+RAW_CACHE = ROOT / "data" / "cpi_cpius_subitem_breadth_raw.csv"
 OUT_CSV = ROOT / "data" / "cpi_cpius_breadth.csv"
 
 BLS_URL = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
@@ -170,6 +172,9 @@ def _deseasonalize_nsa(df_idx: pd.DataFrame) -> pd.DataFrame:
 
 # ----- Breadth logic --------------------------------------------------------
 
+COVERAGE_THRESHOLD_PCT = 70.0
+
+
 def compute_breadth(df_sa: pd.DataFrame, df_wgt: pd.DataFrame) -> pd.DataFrame:
     """3-bin breadth ponderado por peso subitem.
 
@@ -178,6 +183,11 @@ def compute_breadth(df_sa: pd.DataFrame, df_wgt: pd.DataFrame) -> pd.DataFrame:
 
     Retorna long df: date, bin, weight_share. bin ∈ {above_3pct, 0_to_3pct, below_0pct}.
     Soma dos 3 bins = 100.0 por date (renormalizada entre items com YoY valido).
+
+    Guard de cobertura: datas com soma de peso dos items validos <
+    COVERAGE_THRESHOLD_PCT sao descartadas (ex: shutdown BLS Out/2025 teve
+    6 items = 11% do peso — renormalizar gera breadth enviesado). Analogo
+    ao filter que build_diffusion_cpius.py ja faz.
     """
     df = df_sa.sort_values(["item_code", "date"]).copy()
     df["yoy"] = df.groupby("item_code")["value_index"].pct_change(12) * 100
@@ -188,6 +198,15 @@ def compute_breadth(df_sa: pd.DataFrame, df_wgt: pd.DataFrame) -> pd.DataFrame:
     ]
     df = df.merge(w, on=["year_for_weight", "item_code"], how="inner")
     df = df.dropna(subset=["yoy"])
+
+    # Guard: descarta datas com cobertura abaixo do threshold
+    coverage = df.groupby("date")["weight"].sum()
+    dropped = coverage[coverage < COVERAGE_THRESHOLD_PCT]
+    if not dropped.empty:
+        for d, c in dropped.items():
+            print(f"[WARN] {d.date()}: cobertura {c:.1f}% < "
+                  f"{COVERAGE_THRESHOLD_PCT}% — descartada (release parcial?)")
+        df = df[~df["date"].isin(dropped.index)]
 
     def _bin(y: float) -> str:
         if y > 3.0:

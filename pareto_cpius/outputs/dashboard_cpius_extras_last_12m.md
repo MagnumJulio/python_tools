@@ -7,7 +7,7 @@ Gerado por `outputs/_make_dashboard_extras_last_12m.py` em cima de `cpi_cpius_al
 > **Notas de cobertura**:
 > - Cleveland Median/Trimmed Mean 16% publicam **só YoY** (sem 1-mo annualized) — células de 1mo aparecem `n/a`.
 > - Trimmed Sym 25% custom tem **só 1-mo annualized** (construção não produz YoY) — células de YoY aparecem `n/a`.
-> - Breadth em **2025-10 é anômalo** (`below_0pct=40%`): release BLS incompleto no shutdown jogou várias subitens em NaN que o pipeline classificou no bin de baixo. Não é sinal de deflação, é dado faltante.
+> - Breadth em **2025-10 descartado** (cobertura 11% < 70% threshold): release BLS incompleto no shutdown. Guard aplicado em `build_breadth_cpi.py` descarta datas com cobertura abaixo do limiar.
 > - Diffusion 6m-ann > 3% só é publicada para Headline (bate `build_diffusion_cpius.py`); Goods/Services não têm essa métrica.
 
 ### Alt measures — 1-mo annualized (%)
@@ -62,11 +62,11 @@ Mesmas 9 séries, variação 12 meses.
 
 Cross-section de 177 subitens leaves CPI-U, agrupados em 3 bins de YoY e ponderados pelo peso RI Dez do ano anterior. Soma dos 3 bins = 100 em cada mês.
 
-| Série | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 | 2026-08 |
+| Série | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 | 2026-08 | 2026-09 |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| YoY < 0% | 10.03 | 40.12 | 11.39 | 12.53 | 14.62 | 15.90 | 12.65 | 11.21 | 14.52 | 14.51 | 14.55 | 13.22 |
-| 0% ≤ YoY ≤ 3% | 24.07 | 38.48 | 25.51 | 23.45 | 21.61 | 26.95 | 28.00 | 19.01 | 16.14 | 16.24 | 17.67 | 17.83 |
-| YoY > 3% | 65.89 | 21.40 | 63.10 | 64.01 | 63.77 | 57.15 | 59.35 | 69.78 | 69.34 | 69.25 | 67.78 | 68.95 |
+| YoY < 0% | n/a | 11.39 | 12.53 | 14.62 | 15.90 | 12.65 | 11.21 | 14.52 | 14.51 | 14.63 | 13.22 | 14.44 |
+| 0% ≤ YoY ≤ 3% | n/a | 25.51 | 23.45 | 21.61 | 26.95 | 28.00 | 19.01 | 16.14 | 16.24 | 17.59 | 17.52 | 14.12 |
+| YoY > 3% | n/a | 63.10 | 64.01 | 63.77 | 57.15 | 59.35 | 69.78 | 69.34 | 69.25 | 67.78 | 69.25 | 71.44 |
 
 ### Diffusion — share de itens com YoY > 3% (%)
 

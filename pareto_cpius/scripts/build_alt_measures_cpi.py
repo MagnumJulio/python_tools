@@ -55,7 +55,11 @@ def _cache_fresh(path: Path, ttl_hours: int = CACHE_TTL_HOURS) -> bool:
 ROOT = Path(__file__).resolve().parent.parent
 HIER_CSV = ROOT / "data" / "cpi_cpius_subitem_hierarchy.csv"
 PESOS_CSV = ROOT / "data" / "cpi_cpius_pesos_annual_subitem.csv"
-RAW_OUT = ROOT / "data" / "cpi_cpius_subitem_sa_raw.csv"
+# Cache isolado: 70 indent-3 nodes do Trim25 custom. Antes era
+# cpi_cpius_subitem_sa_raw.csv (compartilhado com build_breadth_cpi.py,
+# 177 leaves) — overwrite destruiu os 107 extras do breadth. Separado em
+# 2026-10-22.
+RAW_OUT = ROOT / "data" / "cpi_cpius_subitem_alt_raw.csv"
 OUT_DIR = ROOT / "data"
 ATLANTA_XLSX = ROOT / "data" / "raw" / "atlanta" / "stickyprice.xlsx"
 OUT_CSV = OUT_DIR / "cpi_cpius_alt_measures.csv"

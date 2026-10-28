@@ -139,11 +139,14 @@ def main():
         )
         if len(q) > 0:
             return int(q["series_id"].iloc[0])
+        origin = ("custom bottom-up Itau (nao e fonte oficial Fed)"
+                  if sp["measure"].endswith("_custom")
+                  else "Fed oficial")
         meta = pd.DataFrame([{
             "country": "US", "subject": "Prices", "indicator": "CPI",
             "series_name": sp["series_name"], "data_type": "NSA",
             "frequency": "M",
-            "description": f"CPI-U alt measure {sp['measure']} ({sp['metric']}) — Fed oficial",
+            "description": f"CPI-U alt measure {sp['measure']} ({sp['metric']}) — {origin}",
             "bls_code": sp["bls_code"],
         }])
         session.write_sql_table_from_dataframe("OPT_Macro_Series_2", meta, chunk_size=50)
