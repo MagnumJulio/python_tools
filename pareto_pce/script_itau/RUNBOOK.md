@@ -145,6 +145,7 @@ cd pareto_pce
 
 :: Fase 1a — pos release BEA (manha, ~08:35 ET)
 python scripts/fetch_pce.py                          :: ~30-60s (U20404 + U20405)
+python scripts/build_pce_categorias.py               :: <5s (33 cats x Index+Weight; preview MoM Sep bate Haver)
 python scripts/build_diffusion.py                    :: <5s (gera leaves_detected.csv)
 python scripts/build_breadth_pce.py                  :: <5s (precisa leaves_detected + nominais)
 python scripts/build_altas_distribution_pce.py       :: <5s (idem)
@@ -158,6 +159,11 @@ python scripts/build_alt_measures_pce_proxy.py       :: re-roda sem flag pra ver
 
 **Sanity automática** entre fase 1 e fase 2:
 
+- Categorias: preview do último mês imprime weight + idx + MoM% de cada
+  categoria. Comparar visualmente com a tabela Haver (headline + core devem
+  bater < 0.01pp). Dashboard completo em
+  `outputs/dashboards/dashboard_pce_categorias_vs_haver.md` (regera com
+  `_make_dashboard_pce_categorias_vs_haver.py`).
 - Diffusion: Goods=90, Services=100, Cars=6 após MARKET_DRIVEN_EXCLUDE.
 - Breadth: `n_bad = 0` no sanity (soma dos 3 bins = 100 em todas as datas).
 - Altas distribution: `sanity` = 100.00±0.01 por data (6 bins incluindo
@@ -168,10 +174,11 @@ python scripts/build_alt_measures_pce_proxy.py       :: re-roda sem flag pra ver
 
 ```cmd
 :: Grupo A — sobem logo apos fase 1a (manha, independentes do Fed)
-python script_itau/load_pce_to_sql.py --no-confirm                           :: 5 series diffusion
+python script_itau/load_pce_categorias_to_sql.py --no-confirm                :: 66 series (33 cats x 2)
+python script_itau/load_pce_to_sql.py --no-confirm                           :: 9 series diffusion
 python script_itau/load_breadth_pce_to_sql.py --no-confirm --full            :: 3 series breadth
 python script_itau/load_altas_distribution_pce_to_sql.py --no-confirm --full :: 5 series altas dist
-python script_itau/load_alt_measures_pce_proxy_to_sql.py --no-confirm        :: 2 series proxy
+python script_itau/load_alt_measures_pce_proxy_to_sql.py --no-confirm        :: 6 series proxy (headline + G/S)
 
 :: Grupo B — sobem depois (precisa Cleveland + Dallas publicarem)
 python script_itau/load_alt_measures_pce_to_sql.py --no-confirm              :: 2 series scraped + cleanup
@@ -179,7 +186,7 @@ python script_itau/load_alt_measures_pce_to_sql.py --no-confirm              :: 
 
 Cada loader tem `--dry-run` pra listar o escopo sem abrir conexao SQL.
 
-Total: 25 series × ~300 obs ≈ 7500 rows novas/atualizadas em
+Total: 91 series × ~300 obs ≈ 27 300 rows novas/atualizadas em
 `OPT_Macro_Series_Data_2` por release. Cada loader faz `DELETE WHERE
 series_id = ?` + re-escreve full (pattern HYC00-safe).
 
