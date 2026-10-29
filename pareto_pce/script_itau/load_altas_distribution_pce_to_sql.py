@@ -9,11 +9,11 @@
 # data_type="NSA" (serie temporal, nao transformacao):
 #
 #   bls_code                     series_name
-#   PCE:altas_dist_0_2           PCE: Distribuicao de altas (0-2% MoM SAAR)
-#   PCE:altas_dist_2_3           PCE: Distribuicao de altas (2-3% MoM SAAR)
-#   PCE:altas_dist_3_5           PCE: Distribuicao de altas (3-5% MoM SAAR)
-#   PCE:altas_dist_5_10          PCE: Distribuicao de altas (5-10% MoM SAAR)
-#   PCE:altas_dist_gt_10         PCE: Distribuicao de altas (>10% MoM SAAR)
+#   PCE:dist_0_2           PCE: Distribuicao de altas (0-2% MoM SAAR)
+#   PCE:dist_2_3           PCE: Distribuicao de altas (2-3% MoM SAAR)
+#   PCE:dist_3_5           PCE: Distribuicao de altas (3-5% MoM SAAR)
+#   PCE:dist_5_10          PCE: Distribuicao de altas (5-10% MoM SAAR)
+#   PCE:dist_gt_10         PCE: Distribuicao de altas (>10% MoM SAAR)
 #
 # Nao sobe `zero_or_below` (bin complemento). O CSV tem 6 bins somando 100%;
 # aqui sobem so os 5 bins positivos — alinhado com pcedata.xlsx Dallas.
@@ -39,11 +39,11 @@ IN_CSV = ROOT / "data" / "pce_altas_distribution.csv"
 
 BIN_META = {
     # bin_code -> (series_name, bls_code)
-    "0_to_2":  ("PCE: Distribuicao de altas (0-2% MoM SAAR)",  "PCE:altas_dist_0_2"),
-    "2_to_3":  ("PCE: Distribuicao de altas (2-3% MoM SAAR)",  "PCE:altas_dist_2_3"),
-    "3_to_5":  ("PCE: Distribuicao de altas (3-5% MoM SAAR)",  "PCE:altas_dist_3_5"),
-    "5_to_10": ("PCE: Distribuicao de altas (5-10% MoM SAAR)", "PCE:altas_dist_5_10"),
-    "gt_10":   ("PCE: Distribuicao de altas (>10% MoM SAAR)",  "PCE:altas_dist_gt_10"),
+    "0_to_2":  ("PCE: Distribuicao de altas (0-2% MoM SAAR)",  "PCE:dist_0_2"),
+    "2_to_3":  ("PCE: Distribuicao de altas (2-3% MoM SAAR)",  "PCE:dist_2_3"),
+    "3_to_5":  ("PCE: Distribuicao de altas (3-5% MoM SAAR)",  "PCE:dist_3_5"),
+    "5_to_10": ("PCE: Distribuicao de altas (5-10% MoM SAAR)", "PCE:dist_5_10"),
+    "gt_10":   ("PCE: Distribuicao de altas (>10% MoM SAAR)",  "PCE:dist_gt_10"),
 }
 
 INCREMENTAL_MONTHS = 24
@@ -101,6 +101,26 @@ def main():
 
     session = SQLConnector(connector="pyodbc")
     today = date.today()
+
+    # Migração 2026-10-29: antes dessa data o bls_code era PCE:altas_dist_*
+    # (bug: colidia com LIKE 'PCE:alt_%' do _cleanup_legacy_alt dos loaders
+    # alt_measures, que apagava essas rows toda vez que rodava). Agora e
+    # PCE:dist_*. Apaga lixo pre-fix.
+    df_legacy = pd.read_sql(
+        "SELECT series_id, series_name, bls_code FROM OPT_Macro_Series_2 "
+        "WHERE bls_code LIKE 'PCE:altas_dist_%'",
+        session.conn,
+    )
+    if not df_legacy.empty:
+        print(f"\n[migracao] {len(df_legacy)} series legadas PCE:altas_dist_* "
+              f"(formato pre-2026-10-29) a apagar:")
+        print(df_legacy.to_string(index=False))
+        for sid in df_legacy["series_id"].astype(int):
+            session.execute("DELETE FROM OPT_Macro_Series_Data_2 WHERE series_id = ?",
+                            params=[int(sid)])
+            session.execute("DELETE FROM OPT_Macro_Series_2 WHERE series_id = ?",
+                            params=[int(sid)])
+        print(f"  [OK] {len(df_legacy)} series legadas deletadas.")
 
     def _ensure(sp):
         q = pd.read_sql(

@@ -68,12 +68,19 @@ def _cleanup_legacy_alt(session, keep_codes: set[str]) -> int:
     EXCLUI as `*_proxy` do cleanup — essas sao gerenciadas por um loader
     paralelo (load_alt_measures_pce_proxy_to_sql.py) e nao devem ser
     apagadas aqui mesmo nao estando no keep_codes.
-    Deleta data primeiro, depois metadata. Idempotente."""
+    Deleta data primeiro, depois metadata. Idempotente.
+
+    IMPORTANTE: usa `LIKE 'PCE:alt\\_%' ESCAPE '\\'` em vez de `LIKE 'PCE:alt_%'`
+    pra FORCAR o `_` apos `alt` ser literal — caso contrario capturaria
+    PCE:altas_dist_*, PCE:alturaX, etc. Bug historico 2026-10-29: antes
+    disso o filtro apagava as 5 series PCE:altas_dist_* toda vez que
+    rodava, porque `altas_dist_0_2` casa com `PCE:alt_%` (match literal
+    `PCE:alt` + `as_dist_0_2` wildcard `_%`)."""
     print("\n[cleanup] procurando series PCE:alt_% legadas (exclui *_proxy)...")
     df = pd.read_sql(
         "SELECT series_id, series_name, data_type, bls_code "
         "FROM OPT_Macro_Series_2 "
-        "WHERE bls_code LIKE 'PCE:alt_%' "
+        "WHERE bls_code LIKE 'PCE:alt\\_%' ESCAPE '\\' "
         "  AND bls_code NOT LIKE '%\\_proxy' ESCAPE '\\'",
         session.conn,
     )

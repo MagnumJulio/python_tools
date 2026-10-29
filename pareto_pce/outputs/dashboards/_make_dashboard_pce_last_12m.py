@@ -202,7 +202,7 @@ md = [
     "escala estrutural — analises diferentes.",
     "> - Breadth no SQL: 3 series `PCE:breadth_{above_3pct,0_to_3pct,below_0pct}` "
     "(peso = nominais BEA U20405 do proprio mes; soma = 100% por data).",
-    "> - Altas distribution no SQL: 5 series `PCE:altas_dist_{0_2,2_3,3_5,5_10,gt_10}` "
+    "> - Altas distribution no SQL: 5 series `PCE:dist_{0_2,2_3,3_5,5_10,gt_10}` "
     "(mesmo pesos, mas em bins de MoM SAAR em vez de YoY — estilo Dallas pcedata.xlsx; "
     "bin `zero_or_below` fica so no CSV, nao sobe pro SQL).",
     "> - Dallas IDs renomeados em 2026-10 (`PCETRIM1M158SFRBDAL` + "
@@ -258,7 +258,7 @@ md = [
           "Decomposição do share positivo em 5 bins Dallas-style (0-2 / 2-3 / "
           "3-5 / 5-10 / >10%) + bin complemento `≤ 0`. Mesmos 190 leaves + "
           "nominais, mas em magnitude de MoM SAAR em vez de YoY. Soma 6 bins = "
-          "100%. Pros 5 bins positivos vão pro SQL `PCE:altas_dist_*`; "
+          "100%. Pros 5 bins positivos vão pro SQL `PCE:dist_*`; "
           "`zero_or_below` fica só no CSV (derivável = 100 − Σ(5)).", 2),
 ]
 

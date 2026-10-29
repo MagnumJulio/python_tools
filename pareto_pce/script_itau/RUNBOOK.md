@@ -51,11 +51,20 @@ Todas `country='US'`, `subject='Prices'`, `indicator='PCE'`, `frequency='M'`.
 
 | bls_code | series_name |
 |---|---|
-| `PCE:altas_dist_0_2`   | PCE: Distribuicao de altas (0-2% MoM SAAR) |
-| `PCE:altas_dist_2_3`   | PCE: Distribuicao de altas (2-3% MoM SAAR) |
-| `PCE:altas_dist_3_5`   | PCE: Distribuicao de altas (3-5% MoM SAAR) |
-| `PCE:altas_dist_5_10`  | PCE: Distribuicao de altas (5-10% MoM SAAR) |
-| `PCE:altas_dist_gt_10` | PCE: Distribuicao de altas (>10% MoM SAAR) |
+| `PCE:dist_0_2`   | PCE: Distribuicao de altas (0-2% MoM SAAR) |
+| `PCE:dist_2_3`   | PCE: Distribuicao de altas (2-3% MoM SAAR) |
+| `PCE:dist_3_5`   | PCE: Distribuicao de altas (3-5% MoM SAAR) |
+| `PCE:dist_5_10`  | PCE: Distribuicao de altas (5-10% MoM SAAR) |
+| `PCE:dist_gt_10` | PCE: Distribuicao de altas (>10% MoM SAAR) |
+
+> **Nota 2026-10-29**: bls_code renomeado de `PCE:altas_dist_*` pra `PCE:dist_*`
+> por conta de bug: o padrao antigo casava com o filtro `LIKE 'PCE:alt_%'` do
+> `_cleanup_legacy_alt` dos loaders alt_measures (porque `PCE:alt` casa literal
+> e `as_dist_0_2` casa com `_%`), apagando as 5 series toda vez que o scraped
+> loader rodava. Fix: (1) rename pra `PCE:dist_*`, (2) `_cleanup_legacy_alt`
+> agora usa `LIKE 'PCE:alt\_%' ESCAPE '\'` forcando `_` literal apos `alt`,
+> (3) `load_altas_distribution_pce_to_sql.py` tem migracao automatica que
+> apaga lixo `PCE:altas_dist_*` ja existente no corp.
 
 ### Alt measures scraped (2 series, `data_type='SA'`, Index Jan/2000=100)
 
@@ -173,9 +182,9 @@ SELECT
     CASE
         WHEN bls_code LIKE 'PCE:diffusion_%' THEN 'diffusion'
         WHEN bls_code LIKE 'PCE:breadth_%'   THEN 'breadth'
-        WHEN bls_code LIKE 'PCE:altas_dist_%' THEN 'altas_dist'
-        WHEN bls_code LIKE 'PCE:alt_%_proxy'  THEN 'alt_proxy'
-        WHEN bls_code LIKE 'PCE:alt_%'       THEN 'alt_scraped'
+        WHEN bls_code LIKE 'PCE:dist\_%' ESCAPE '\' THEN 'altas_dist'
+        WHEN bls_code LIKE 'PCE:alt\_%\_proxy' ESCAPE '\' THEN 'alt_proxy'
+        WHEN bls_code LIKE 'PCE:alt\_%' ESCAPE '\'        THEN 'alt_scraped'
         ELSE 'other'
     END AS familia,
     COUNT(*) AS n
@@ -226,17 +235,17 @@ SELECT * FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'PCE:%';
 DELETE FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (
     SELECT series_id FROM OPT_Macro_Series_2
-    WHERE bls_code LIKE 'PCE:altas_dist_%'
+    WHERE bls_code LIKE 'PCE:dist\_%' ESCAPE '\'
 );
-DELETE FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'PCE:altas_dist_%';
+DELETE FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'PCE:dist\_%' ESCAPE '\';
 
 -- Rollback apenas dos proxy (preservando scraped)
 DELETE FROM OPT_Macro_Series_Data_2
 WHERE series_id IN (
     SELECT series_id FROM OPT_Macro_Series_2
-    WHERE bls_code LIKE 'PCE:alt_%_proxy'
+    WHERE bls_code LIKE 'PCE:alt\_%\_proxy' ESCAPE '\'
 );
-DELETE FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'PCE:alt_%_proxy';
+DELETE FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'PCE:alt\_%\_proxy' ESCAPE '\';
 ```
 
 Após rollback de dados, re-rodar o loader da família substitui limpo.

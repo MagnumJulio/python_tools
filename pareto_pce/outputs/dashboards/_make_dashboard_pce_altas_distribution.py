@@ -143,7 +143,7 @@ md = [
     "190 leaves do U20404, peso = nominais BEA do mês, bins de **MoM SAAR** "
     "(`((idx[t]/idx[t-1])^12 - 1)*100`). U20404 é SA — chain direto sem STL.",
     "",
-    "**5 bins Dallas-style sobem pro SQL** (`PCE:altas_dist_{0_2, 2_3, 3_5, "
+    "**5 bins Dallas-style sobem pro SQL** (`PCE:dist_{0_2, 2_3, 3_5, "
     "5_10, gt_10}`). O 6º bin `zero_or_below` (deflationary) fica só no CSV; "
     "o analista deriva via `(100 - soma dos 5)` se precisar.",
     "",

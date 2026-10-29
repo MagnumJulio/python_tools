@@ -4,7 +4,7 @@
 
 Fonte: `data/pce_altas_distribution.csv` (gerado por `scripts/build_altas_distribution_pce.py` em cima do BEA U20404 + U20405). 190 leaves do U20404, peso = nominais BEA do mês, bins de **MoM SAAR** (`((idx[t]/idx[t-1])^12 - 1)*100`). U20404 é SA — chain direto sem STL.
 
-**5 bins Dallas-style sobem pro SQL** (`PCE:altas_dist_{0_2, 2_3, 3_5, 5_10, gt_10}`). O 6º bin `zero_or_below` (deflationary) fica só no CSV; o analista deriva via `(100 - soma dos 5)` se precisar.
+**5 bins Dallas-style sobem pro SQL** (`PCE:dist_{0_2, 2_3, 3_5, 5_10, gt_10}`). O 6º bin `zero_or_below` (deflationary) fica só no CSV; o analista deriva via `(100 - soma dos 5)` se precisar.
 
 **Benchmark Dallas pcedata.xlsx**: dessa vez a métrica é a MESMA (MoM SAAR, 5 bins); diferença é só o universo (190 leaves U20404 vs ~178 components do Trimmed Mean Dallas). Correlação por bin alta esperada e observada.
 

@@ -112,11 +112,11 @@ Namespace **`PCE:`** disjunto de IPCA, IPCA-15 e CPI-US. Todas usam:
 - `PCE:breadth_below_0pct`
 
 **Altas distribution** (5 series, `data_type='NSA'`, Headline only, bins de MoM SAAR):
-- `PCE:altas_dist_0_2`   — share do peso com MoM SAAR em (0, 2]%
-- `PCE:altas_dist_2_3`   — (2, 3]%
-- `PCE:altas_dist_3_5`   — (3, 5]%
-- `PCE:altas_dist_5_10`  — (5, 10]%
-- `PCE:altas_dist_gt_10` — > 10%
+- `PCE:dist_0_2`   — share do peso com MoM SAAR em (0, 2]%
+- `PCE:dist_2_3`   — (2, 3]%
+- `PCE:dist_3_5`   — (3, 5]%
+- `PCE:dist_5_10`  — (5, 10]%
+- `PCE:dist_gt_10` — > 10%
 
 O CSV também guarda um 6º bin `zero_or_below` (complemento: share com MoM
 SAAR ≤ 0) mas ele NÃO sobe pro SQL — alinhado com `pcedata.xlsx` Dallas, que
