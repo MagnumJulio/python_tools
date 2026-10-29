@@ -81,7 +81,11 @@ def _collect_series_plan(args, labels: dict[str, str]) -> list[dict]:
                 "data": s,
             })
 
-        # Weight — pra headline sobrescreve com 100.0 fixo
+        # Weight — pra headline sobrescreve com 100.0 fixo.
+        # IMPORTANTE: series_name identico ao do Index ("(Index)" nos dois) —
+        # distincao sai de data_type. Convencao do pattern CPI (load_cpius_to_sql
+        # linha 542): frontend corp pareia Weight com Index via
+        # series_name+country+indicator; nomes diferentes quebram o chart.
         w = peso[peso["cat"] == slug][["date", "weight"]].rename(columns={"weight": "value"})
         if slug == "all_items":
             w = w.copy()
@@ -90,7 +94,7 @@ def _collect_series_plan(args, labels: dict[str, str]) -> list[dict]:
         if not w.empty:
             plan.append({
                 "slug": slug,
-                "series_name": f"PCE: {label} (Weight)",
+                "series_name": f"PCE: {label} (Index)",   # MESMO do Index — bate con pattern CPI
                 "bls_code": CODE_FMT.format(slug=slug),
                 "data_type": "Weight",
                 "data": w,
@@ -138,6 +142,31 @@ def main():
 
     session = SQLConnector(connector="pyodbc")
     today = date.today()
+
+    # Migração 2026-10-29: antes dessa data o series_name dos Weight tinha
+    # sufixo "(Weight)" em vez de "(Index)". Isso quebra o pareamento no
+    # frontend corp (que casa Weight x Index via series_name+country+indicator).
+    # Pattern CPI (load_cpius_to_sql linha 542) usa "(Index)" nos dois. Fix:
+    # renomear qualquer row PCE:*  data_type='Weight' com '(Weight)' no nome
+    # pra '(Index)'. Idempotente.
+    df_legacy = pd.read_sql(
+        "SELECT series_id, series_name, bls_code FROM OPT_Macro_Series_2 "
+        "WHERE country='US' AND subject='Prices' AND indicator='PCE' "
+        "  AND data_type='Weight' AND series_name LIKE '%(Weight)' "
+        "  AND bls_code LIKE 'PCE:%'",
+        session.conn,
+    )
+    if not df_legacy.empty:
+        print(f"\n[migracao] {len(df_legacy)} series Weight PCE com series_name "
+              f"'(Weight)' legadas a renomear pra '(Index)':")
+        for _, r in df_legacy.iterrows():
+            new_name = r["series_name"].replace(" (Weight)", " (Index)")
+            session.execute(
+                "UPDATE OPT_Macro_Series_2 SET series_name = ? WHERE series_id = ?",
+                params=[new_name, int(r["series_id"])],
+            )
+            print(f"  id={r['series_id']}: '{r['series_name']}' -> '{new_name}'")
+        print(f"  [OK] {len(df_legacy)} series renomeadas.")
 
     def _ensure(sp: dict) -> int:
         q = pd.read_sql(
