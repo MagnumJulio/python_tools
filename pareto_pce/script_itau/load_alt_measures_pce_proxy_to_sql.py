@@ -138,19 +138,19 @@ def main():
         )
         if len(q) > 0:
             return int(q["series_id"].iloc[0])
+        # Description cap: coluna NVARCHAR 300 chars (600 bytes UTF-16). Short.
+        pair_code = f"PCE:alt_{sp['measure'].replace('_proxy', '')}"
+        desc = (
+            f"PCE alt {sp['measure']} (Index SA, Jan/2000=100). "
+            f"Proxy bottom-up Itau: 190 leaves BEA U20404 ponderados por "
+            f"nominais U20405. Pair com {pair_code} (oficial). "
+            f"mean|d| YoY vs oficial <0.11pp (2026-10)."
+        )
         meta = pd.DataFrame([{
             "country": "US", "subject": "Prices", "indicator": "PCE",
             "series_name": sp["series_name"], "data_type": "SA",
             "frequency": "M",
-            "description": (
-                f"PCE alt measure {sp['measure']} (Index, SA, rebase Jan/2000=100). "
-                f"Reconstruct bottom-up Itau: 190 leaves U20404 ponderados por "
-                f"nominais U20405. Median = weighted 50th percentile MoM SAAR; "
-                f"Trimmed Mean = trim 24/31 asimetrico Dallas. Validado 2026-10-28: "
-                f"mean|d| YoY vs oficial < 0.11pp. NAO substitui o oficial — "
-                f"pair com PCE:alt_{sp['measure'].replace('_proxy', '')} pra "
-                f"decomposicao/sensibilidade."
-            ),
+            "description": desc,
             "bls_code": sp["bls_code"],
         }])
         session.write_sql_table_from_dataframe("OPT_Macro_Series_2", meta, chunk_size=50)
