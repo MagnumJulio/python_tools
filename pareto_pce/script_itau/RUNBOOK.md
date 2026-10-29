@@ -252,6 +252,13 @@ Após rollback de dados, re-rodar o loader da família substitui limpo.
 
 ## Problemas conhecidos
 
+- **BEA dataset disabled nos minutos pré-release** (erro 21): BEA bloqueia
+  o endpoint `NIUnderlyingDetail` por ~5-15 min antes/durante o release pra
+  garantir consistência. `fetch_pce.py` detecta e faz retry com backoff
+  exponencial (60s → 120s → 240s → 480s → 960s, default 5 tentativas ≈
+  32 min). Configurável via `--max-retries N` e `--retry-delay SECONDS`.
+  Se continuar falhando após o backoff, esperar 10-15 min adicionais e
+  re-rodar. Mensagem: `BEA dataset NIUnderlyingDetail disabled (erro 21)`.
 - **Dallas FRED 404** (histórico 2026-10): IDs `PCETRIM1M680SFRBDAL` +
   `PCETRIM12M680SFRBDAL` sumiram do FRED. Agora usamos
   `PCETRIM1M158SFRBDAL` + `PCETRIM12M159SFRBDAL`. Se Dallas renomear de

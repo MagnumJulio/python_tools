@@ -15,10 +15,12 @@
 #   python scripts/fetch_pce.py                # ambos (default)
 #   python scripts/fetch_pce.py --skip-nominais  # so U20404 (modo antigo)
 
+import argparse
 import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -76,6 +78,24 @@ YEAR_CHUNKS = [
 ]
 
 
+class BEADatasetDisabled(Exception):
+    """BEA erro 21 — dataset temporariamente disabled.
+    Comum nos minutos imediatamente antes/durante release da BEA (eles
+    bloqueiam o endpoint pra garantir consistencia dos dados servidos)."""
+
+
+def _is_dataset_disabled(err: dict | str) -> bool:
+    """Detecta erro 21 (dataset disabled). Pode vir como dict com APIErrorCode
+    ou como string livre do BEA. Verifica ambos."""
+    if isinstance(err, dict):
+        code = str(err.get("APIErrorCode", "") or err.get("ErrorDetail", {}).get("Error", ""))
+        desc = str(err.get("APIErrorDescription", "") or err.get("ErrorDetail", {}).get("Description", ""))
+        if code == "21" or "disabled" in desc.lower():
+            return True
+    s = str(err).lower()
+    return "code 21" in s or "currently disabled" in s
+
+
 def fetch(table_name: str, years: str) -> list[dict]:
     params = {
         "UserID": KEY,
@@ -92,17 +112,45 @@ def fetch(table_name: str, years: str) -> list[dict]:
         return j["BEAAPI"]["Results"]["Data"]
     except (KeyError, TypeError):
         err = j.get("BEAAPI", {}).get("Error", j)
+        if _is_dataset_disabled(err):
+            raise BEADatasetDisabled(
+                f"BEA dataset NIUnderlyingDetail disabled (erro 21). "
+                f"Comum nos minutos pre-release — tenta de novo em alguns min. "
+                f"Erro raw: {err}"
+            )
         sys.exit(f"[FAIL] BEA API erro ({table_name}): {err}")
 
 
-def fetch_table(table_name: str, out_csv: Path, label: str) -> pd.DataFrame:
+def fetch_table(table_name: str, out_csv: Path, label: str,
+                max_retries: int = 5, retry_delay: int = 60) -> pd.DataFrame:
+    """Fetch com retry em caso de BEADatasetDisabled (erro 21).
+
+    Backoff exponencial a partir de retry_delay: 60s, 120s, 240s, 480s, 960s
+    (default 5 retries ≈ 32 min). Ajustavel via CLI --max-retries / --retry-delay.
+    """
     print(f"\n=== Fetching {table_name} ({label}) ===")
-    all_rows: list[dict] = []
-    for chunk in YEAR_CHUNKS:
-        print(f"[fetch] {table_name} {chunk}...", flush=True)
-        rows = fetch(table_name, chunk)
-        print(f"        {len(rows)} rows")
-        all_rows.extend(rows)
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            all_rows: list[dict] = []
+            for chunk in YEAR_CHUNKS:
+                print(f"[fetch] {table_name} {chunk}...", flush=True)
+                rows = fetch(table_name, chunk)
+                print(f"        {len(rows)} rows")
+                all_rows.extend(rows)
+            break   # saiu limpo
+        except BEADatasetDisabled as e:
+            if attempt > max_retries:
+                sys.exit(f"\n[FAIL] BEA dataset ainda disabled apos {max_retries} "
+                         f"retries. Tentativa manual: aguarde o release concluir "
+                         f"(~5-15 min apos 08:30 ET) e re-rode. Erro: {e}")
+            wait = retry_delay * (2 ** (attempt - 1))
+            next_try = time.strftime("%H:%M:%S", time.localtime(time.time() + wait))
+            print(f"\n[retry {attempt}/{max_retries}] {table_name}: "
+                  f"BEA disabled (erro 21). Aguardando {wait}s "
+                  f"(proxima tentativa ~{next_try})...", flush=True)
+            time.sleep(wait)
 
     df = pd.DataFrame(all_rows)
     df["date"] = pd.to_datetime(df["TimePeriod"], format="%YM%m")
@@ -120,12 +168,25 @@ def fetch_table(table_name: str, out_csv: Path, label: str) -> pd.DataFrame:
     return df
 
 
-# -- Parse args pra permitir skip do nominal se o usuario so quer diffusion
-skip_nominais = "--skip-nominais" in sys.argv
+# -- CLI args
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--skip-nominais", action="store_true",
+                 help="So fetcha U20404 (prices), pula U20405 (nominais).")
+_ap.add_argument("--max-retries", type=int, default=5,
+                 help="Max retries em caso de BEA dataset disabled (erro 21). "
+                      "Backoff exponencial: 60s, 120s, 240s, 480s, 960s. "
+                      "Default: 5 (~32 min).")
+_ap.add_argument("--retry-delay", type=int, default=60,
+                 help="Delay base em segundos pro backoff. Default: 60.")
+_args, _ = _ap.parse_known_args()
 
-df_prices = fetch_table("U20404", OUT_PRICES, "Price Indexes")
-if not skip_nominais:
-    df_nominais = fetch_table("U20405", OUT_NOMINAIS, "Current Dollars (nominais, pra pesos breadth)")
+df_prices = fetch_table("U20404", OUT_PRICES, "Price Indexes",
+                        max_retries=_args.max_retries, retry_delay=_args.retry_delay)
+if not _args.skip_nominais:
+    df_nominais = fetch_table("U20405", OUT_NOMINAIS,
+                              "Current Dollars (nominais, pra pesos breadth)",
+                              max_retries=_args.max_retries,
+                              retry_delay=_args.retry_delay)
 
     # Sanity: as 2 tabelas devem ter MESMAS linhas (mesmo esqueleto hierarquico).
     lp = set(df_prices["line_number"].dropna().astype(int))
