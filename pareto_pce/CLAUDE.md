@@ -4,18 +4,23 @@ Pipeline irmão do `pareto_cpius` (CPI-US) e `pareto_ipca` (IPCA Brasil) mas pro
 **PCE deflator** — a medida de inflação de referência do Fed FOMC. Serve 4
 famílias de métricas no SQL corp Itaú (OPT_Macro_Series_2 / Data_2):
 
-1. **Diffusion** (5 series): share de leaves PCE com YoY > 3% (ou 6m-ann > 3%
-   só pra Headline), em 4 agregados (Headline, Goods, Services, Goods ex cars).
+1. **Diffusion** (9 series): share de leaves PCE em 2 cortes complementares:
+   - **YoY > 3%** (sinal estrutural, 5 series): 4 agregados + 6m-ann só headline
+   - **MoM > 0%** (impulso corrente, 4 series): 4 agregados — share em inflação
+     positiva vs deflationary, mais tempestivo que YoY
 2. **Breadth** (3 series): distribuição de peso cross-section em 3 bins de YoY
    (`below_0 / 0_to_3 / above_3`), ponderado por nominais BEA.
 3. **Altas distribution** (5 series): distribuição Dallas-style em 5 bins de
    **MoM SAAR** (`0-2 / 2-3 / 3-5 / 5-10 / >10`), Headline only. Correlação
    histórica média +0.905 vs Dallas `pcedata.xlsx` (mesma métrica, universos
    próximos).
-4. **Alt measures** (2+2 series): Index level dos core alt measures do Fed —
-   Cleveland Fed Median PCE + Dallas Fed Trimmed Mean PCE scraped (oficiais)
-   + reconstrução bottom-up própria dos 2 (`_proxy`) pra decomposição e
-   sensibilidade. Validado: mean|d| YoY 0.09-0.11pp vs oficial (corr +0.99).
+4. **Alt measures** (2+6 series): Index level dos core alt measures do Fed —
+   - 2 scraped oficial: Cleveland Fed Median PCE + Dallas Fed Trimmed Mean PCE
+   - 2 proxy headline (`_proxy`): reconstrução bottom-up do Fed oficial.
+     Validado: mean|d| YoY 0.09-0.11pp vs oficial (corr +0.99).
+   - 4 proxy Goods/Services (`_goods_proxy`, `_services_proxy`): mesma
+     metodologia aplicada só nos 90 leaves Goods ou 100 leaves Services.
+     **Sem oficial pra comparar** — Fed não decompõe.
    Todos em Index SA rebase Jan/2000=100.
 
 Headline/subcomponentes PCE padrão **NÃO** sobem por aqui — o corp já serve

@@ -1,5 +1,9 @@
 # RUNBOOK — pareto_pce carga no SQL corp
 
+> **Atualizado 2026-10-29**: adicionados 4 series diffusion MoM>0 (impulso
+> corrente) + 4 series alt measures proxy Goods/Services. Total agora: **25
+> series PCE** (era 17).
+
 ## Pré-requisitos
 
 - Máquina corp com `opt_utils` no PYTHONPATH.
@@ -10,11 +14,13 @@
 - Coluna `bls_code` já criada no `OPT_Macro_Series_2` (compartilhada com
   IPCA/CPI-US).
 
-## Escopo servido — 17 series no SQL corp
+## Escopo servido — 25 series no SQL corp
 
 Todas `country='US'`, `subject='Prices'`, `indicator='PCE'`, `frequency='M'`.
 
-### Diffusion (5 series, `data_type='NSA'`)
+### Diffusion (9 series, `data_type='NSA'`)
+
+**YoY > 3%** (sinal estrutural — carrega 12m de bagagem):
 
 | bls_code | series_name |
 |---|---|
@@ -23,6 +29,15 @@ Todas `country='US'`, `subject='Prices'`, `indicator='PCE'`, `frequency='M'`.
 | `PCE:diffusion_goods_yoy`         | PCE: Diffusion Goods (YoY > 3%) |
 | `PCE:diffusion_services_yoy`      | PCE: Diffusion Services (YoY > 3%) |
 | `PCE:diffusion_goods_ex_cars_yoy` | PCE: Diffusion Goods ex Cars (YoY > 3%) |
+
+**MoM > 0** (impulso corrente — share em inflação positiva vs deflationary):
+
+| bls_code | series_name |
+|---|---|
+| `PCE:diffusion_headline_mom_above_0`      | PCE: Diffusion Headline (MoM > 0%) |
+| `PCE:diffusion_goods_mom_above_0`         | PCE: Diffusion Goods (MoM > 0%) |
+| `PCE:diffusion_services_mom_above_0`      | PCE: Diffusion Services (MoM > 0%) |
+| `PCE:diffusion_goods_ex_cars_mom_above_0` | PCE: Diffusion Goods ex Cars (MoM > 0%) |
 
 ### Breadth (3 series, `data_type='NSA'`, soma = 100% por mês)
 
@@ -49,12 +64,23 @@ Todas `country='US'`, `subject='Prices'`, `indicator='PCE'`, `frequency='M'`.
 | `PCE:alt_median_pce`       | PCE: Median (Cleveland Fed) (Index) |
 | `PCE:alt_trimmed_mean_pce` | PCE: Trimmed Mean (Dallas Fed) (Index) |
 
-### Alt measures proxy (2 series, `data_type='SA'`, bottom-up Itaú)
+### Alt measures proxy (6 series, `data_type='SA'`, bottom-up Itaú)
+
+Headline (pair com scraped Fed oficial):
 
 | bls_code | series_name |
 |---|---|
 | `PCE:alt_median_pce_proxy`       | PCE: Median PCE (Index, proxy bottom-up Itau) |
 | `PCE:alt_trimmed_mean_pce_proxy` | PCE: Trimmed Mean PCE (Index, proxy bottom-up Itau) |
+
+Goods / Services (**sem oficial** — Fed não decompõe):
+
+| bls_code | series_name |
+|---|---|
+| `PCE:alt_median_pce_goods_proxy`           | PCE: Median PCE Goods (Index, proxy bottom-up Itau) |
+| `PCE:alt_trimmed_mean_pce_goods_proxy`     | PCE: Trimmed Mean PCE Goods (Index, proxy bottom-up Itau) |
+| `PCE:alt_median_pce_services_proxy`        | PCE: Median PCE Services (Index, proxy bottom-up Itau) |
+| `PCE:alt_trimmed_mean_pce_services_proxy`  | PCE: Trimmed Mean PCE Services (Index, proxy bottom-up Itau) |
 
 Cobertura: **2000-01/2001-01 → mês mais recente do release BEA** (~300 obs
 por série, exceto alt measures scraped que vão até 1977+).
@@ -130,7 +156,7 @@ python script_itau/load_alt_measures_pce_to_sql.py --no-confirm              :: 
 
 Cada loader tem `--dry-run` pra listar o escopo sem abrir conexao SQL.
 
-Total: 17 series × ~300 obs ≈ 5100 rows novas/atualizadas em
+Total: 25 series × ~300 obs ≈ 7500 rows novas/atualizadas em
 `OPT_Macro_Series_Data_2` por release. Cada loader faz `DELETE WHERE
 series_id = ?` + re-escreve full (pattern HYC00-safe).
 
@@ -139,10 +165,10 @@ series_id = ?` + re-escreve full (pattern HYC00-safe).
 Após rodar os 5 loaders, confirmar no SQL:
 
 ```sql
--- Deve retornar 17 series
+-- Deve retornar 25 series
 SELECT COUNT(*) FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'PCE:%';
 
--- Breakdown por família (deve ser 5/3/5/2/2)
+-- Breakdown por família (deve ser 9/3/5/2/6)
 SELECT
     CASE
         WHEN bls_code LIKE 'PCE:diffusion_%' THEN 'diffusion'

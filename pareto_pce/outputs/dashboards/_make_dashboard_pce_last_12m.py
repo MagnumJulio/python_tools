@@ -74,10 +74,19 @@ alt_yoy     = alt_pivot("ann_12mo")
 # ---------- alt measures proxy (bottom-up Itau) ----------
 alt_c = pd.read_csv(ROOT / "data" / "pce_alt_measures_proxy.csv", parse_dates=["date"])
 ALT_PROXY_LABELS = {
-    "median_pce_proxy":       "Median (proxy bottom-up)",
-    "trimmed_mean_pce_proxy": "Trimmed Mean (proxy bottom-up)",
+    "median_pce_proxy":              "Median (proxy bottom-up)",
+    "trimmed_mean_pce_proxy":        "Trimmed Mean (proxy bottom-up)",
+    "median_pce_goods_proxy":        "Median Goods (proxy)",
+    "trimmed_mean_pce_goods_proxy":  "Trimmed Mean Goods (proxy)",
+    "median_pce_services_proxy":     "Median Services (proxy)",
+    "trimmed_mean_pce_services_proxy": "Trimmed Mean Services (proxy)",
 }
+# ORDER só pros 2 headline (combined view). G/S saem num bloco separado.
 ALT_PROXY_ORDER = ["median_pce_proxy", "trimmed_mean_pce_proxy"]
+ALT_PROXY_GS_ORDER = [
+    "median_pce_goods_proxy", "median_pce_services_proxy",
+    "trimmed_mean_pce_goods_proxy", "trimmed_mean_pce_services_proxy",
+]
 
 def alt_proxy_pivot(col: str) -> pd.DataFrame:
     sub = alt_c[alt_c["date"].isin(alt_dates)]
@@ -91,6 +100,18 @@ alt_c_idx    = alt_proxy_pivot("value_index")
 alt_c_1mo    = alt_proxy_pivot("ann_1mo")
 alt_c_mom_sa = alt_proxy_pivot("mom_sa")
 alt_c_yoy    = alt_proxy_pivot("ann_12mo")
+
+def alt_proxy_gs_pivot(col: str) -> pd.DataFrame:
+    """So os 4 G/S proxies, sem oficial pareado (G/S nao tem oficial Fed)."""
+    sub = alt_c[alt_c["date"].isin(alt_dates)]
+    p = sub.pivot(index="measure", columns="date", values=col)
+    p.columns = [c.strftime("%Y-%m") for c in p.columns]
+    p = p.reindex(index=ALT_PROXY_GS_ORDER, columns=alt_cols)
+    p.index = [ALT_PROXY_LABELS[m] for m in p.index]
+    return p
+
+alt_gs_yoy = alt_proxy_gs_pivot("ann_12mo")
+alt_gs_1mo = alt_proxy_gs_pivot("ann_1mo")
 
 # ---------- combined view: oficial + proxy side-by-side ----------
 # Alt measures scraped vs proxy em uma única tabela por métrica (4 linhas).
@@ -120,6 +141,8 @@ di_yoy = di_pivot("diffusion_yoy_3pct")
 # 6m-ann so eh publicada pra Headline (mesma convencao do CPI); filtra pra
 # evitar linha de n/a.
 di_6ma = di_pivot("diffusion_6ma_ann_3pct").loc[[DIFF_LABELS["Headline"]]]
+# MoM > 0 — impulso corrente (adicionado 2026-10-29), 4 agregados
+di_mom = di_pivot("diffusion_mom_above_0")
 
 # ---------- breadth ----------
 br = pd.read_csv(ROOT / "data" / "pce_breadth.csv", parse_dates=["date"])
@@ -150,11 +173,12 @@ md = [
     "> **Notas de cobertura**:",
     "> - Alt measures scraped no SQL: 2 series `PCE:alt_{median_pce,trimmed_mean_pce}` "
     "(Index SA, rebase Jan/2000=100, sync 2026-10-28).",
-    "> - Alt measures proxy no SQL: 2 series paralelas `PCE:alt_{..}_pce_proxy` "
-    "(mesma schema; reconstrução bottom-up em cima dos 190 leaves U20404 + "
-    "nominais U20405). Validado 2026-10-28: mean|d| YoY = 0.09-0.11pp vs scraped.",
-    "> - Diffusion no SQL: 5 series `PCE:diffusion_{headline,goods,services,goods_ex_cars}_yoy` "
-    "+ `PCE:diffusion_headline_6ma_ann` (count-based, nao ponderado).",
+    "> - Alt measures proxy no SQL: **6 series** (2 headline + 4 Goods/Services). "
+    "Headline validado 2026-10-28: mean|d| YoY = 0.09-0.11pp vs scraped. "
+    "G/S sao proxy puro — Cleveland/Dallas nao publicam decomposicao.",
+    "> - Diffusion no SQL: **9 series** = 4 YoY>3% + 1 6m-ann>3% (headline) + "
+    "4 MoM>0% (adicionado 2026-10-29). MoM>0 mede impulso corrente, YoY>3 mede "
+    "escala estrutural — analises diferentes.",
     "> - Breadth no SQL: 3 series `PCE:breadth_{above_3pct,0_to_3pct,below_0pct}` "
     "(peso = nominais BEA U20405 do proprio mes; soma = 100% por data).",
     "> - Dallas IDs renomeados em 2026-10 (`PCETRIM1M158SFRBDAL` + "
@@ -183,12 +207,24 @@ md = [
           "Variação 12 meses. Scraped vs proxy: diffs esperados < 0.5pp mês-a-mês "
           "(mean|d| global = 0.09pp Trim Mean / 0.11pp Median — validado em "
           "`dashboard_pce_alt_proxy_vs_official.md`).", 2),
+    to_md(alt_gs_yoy, "Alt measures proxy Goods/Services — YoY (%)",
+          "Reconstrução bottom-up aplicada só nos leaves Goods (90) ou "
+          "Services (100). **Sem oficial Fed pra comparar** — Cleveland/Dallas "
+          "só publicam headline. Esperado Services > Goods em YoY (sticky vs "
+          "cíclico).", 2),
+    to_md(alt_gs_1mo, "Alt measures proxy Goods/Services — 1-mo annualized (%)",
+          "Mesma decomposição em taxa anualizada mensal.", 2),
     to_md(di_yoy, "Diffusion — share de itens com YoY > 3% (%)",
           "Difusão item-level sobre 190 leaves do BEA U20404. Fração de itens "
           "com YoY acima de 3%, por bloco. Count-based, não ponderado.", 2),
     to_md(di_6ma, "Diffusion — share de itens com 6m-ann > 3% (%)",
           "Mesma difusão mas usando variação 6 meses anualizada (sinal mais "
           "tempestivo que YoY).", 2),
+    to_md(di_mom, "Diffusion — share de itens com MoM > 0% (%)",
+          "**Impulso corrente do mês**: fração de leaves com MoM positiva "
+          "vs deflationary. Threshold 0 (não 3) — mede quão **amplo** é o "
+          "aumento de preço, independente de magnitude. Sinal mais tempestivo "
+          "que YoY (que carrega 12m de bagagem).", 2),
     to_md(br_pivot, "Breadth — share do peso por bin YoY (%)",
           "Cross-section de 190 leaves BEA U20404, agrupados em 3 bins de YoY "
           "e ponderados por nominais BEA U20405 do próprio mês. Soma dos 3 "

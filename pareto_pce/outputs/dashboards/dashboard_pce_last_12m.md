@@ -1,13 +1,13 @@
 # PCE dashboard — últimos 12 meses
 
-**Alt measures last date**: 2026-08. **Diffusion last date**: 2026-07. **Breadth last date**: 2026-08 (pode defasar vs alt — depende do release BEA U20404+U20405).
+**Alt measures last date**: 2026-08. **Diffusion last date**: 2026-08. **Breadth last date**: 2026-08 (pode defasar vs alt — depende do release BEA U20404+U20405).
 
 Gerado por `outputs/dashboards/_make_dashboard_pce_last_12m.py` em cima de `pce_alt_measures.csv` (Cleveland CSV + Dallas FRED, scraped), `pce_alt_measures_proxy.csv` (bottom-up Itaú), `pce_diffusion.csv` e `pce_breadth.csv` (BEA U20404 + nominais U20405, 190 leaves).
 
 > **Notas de cobertura**:
 > - Alt measures scraped no SQL: 2 series `PCE:alt_{median_pce,trimmed_mean_pce}` (Index SA, rebase Jan/2000=100, sync 2026-10-28).
-> - Alt measures proxy no SQL: 2 series paralelas `PCE:alt_{..}_pce_proxy` (mesma schema; reconstrução bottom-up em cima dos 190 leaves U20404 + nominais U20405). Validado 2026-10-28: mean|d| YoY = 0.09-0.11pp vs scraped.
-> - Diffusion no SQL: 5 series `PCE:diffusion_{headline,goods,services,goods_ex_cars}_yoy` + `PCE:diffusion_headline_6ma_ann` (count-based, nao ponderado).
+> - Alt measures proxy no SQL: **6 series** (2 headline + 4 Goods/Services). Headline validado 2026-10-28: mean|d| YoY = 0.09-0.11pp vs scraped. G/S sao proxy puro — Cleveland/Dallas nao publicam decomposicao.
+> - Diffusion no SQL: **9 series** = 4 YoY>3% + 1 6m-ann>3% (headline) + 4 MoM>0% (adicionado 2026-10-29). MoM>0 mede impulso corrente, YoY>3 mede escala estrutural — analises diferentes.
 > - Breadth no SQL: 3 series `PCE:breadth_{above_3pct,0_to_3pct,below_0pct}` (peso = nominais BEA U20405 do proprio mes; soma = 100% por data).
 > - Dallas IDs renomeados em 2026-10 (`PCETRIM1M158SFRBDAL` + `PCETRIM12M159SFRBDAL`) — antigos `680SFRBDAL` retornavam 404.
 > - Dallas `pcedata.xlsx` NAO e benchmark comparavel direto do breadth: Dallas mede MoM annualized sobre universe Trimmed Mean customizado (nao YoY sobre U20404). Correlacao observada ~0 em 2026-10-28.
@@ -57,24 +57,57 @@ Variação 12 meses. Scraped vs proxy: diffs esperados < 0.5pp mês-a-mês (mean
 | Median (proxy bottom-up) | 3.17 | 3.09 | 2.98 | 2.96 | 2.87 | 2.80 | 2.78 | 2.64 | 2.69 | 2.53 | 2.63 | 2.53 |
 | Trimmed Mean (proxy bottom-up) | 2.62 | 2.48 | 2.38 | 2.33 | 2.32 | 2.26 | 2.26 | 2.21 | 2.25 | 2.07 | 2.11 | 2.03 |
 
+### Alt measures proxy Goods/Services — YoY (%)
+
+Reconstrução bottom-up aplicada só nos leaves Goods (90) ou Services (100). **Sem oficial Fed pra comparar** — Cleveland/Dallas só publicam headline. Esperado Services > Goods em YoY (sticky vs cíclico).
+
+| Série | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 | 2026-08 |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Median Goods (proxy) | 1.28 | 1.21 | 1.18 | 1.27 | 1.28 | 1.41 | 1.43 | 1.37 | 1.28 | 1.00 | 1.03 | 1.01 |
+| Median Services (proxy) | 3.45 | 3.28 | 3.17 | 3.13 | 3.04 | 2.96 | 2.94 | 2.79 | 2.86 | 2.79 | 2.82 | 2.67 |
+| Trimmed Mean Goods (proxy) | 0.78 | 0.69 | 0.65 | 0.72 | 0.57 | 0.69 | 0.74 | 0.83 | 0.71 | 0.43 | 0.38 | 0.40 |
+| Trimmed Mean Services (proxy) | 3.01 | 2.86 | 2.77 | 2.71 | 2.70 | 2.62 | 2.59 | 2.52 | 2.57 | 2.43 | 2.48 | 2.38 |
+
+### Alt measures proxy Goods/Services — 1-mo annualized (%)
+
+Mesma decomposição em taxa anualizada mensal.
+
+| Série | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 | 2026-08 |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Median Goods (proxy) | 4.16 | -0.18 | -0.15 | 1.63 | 2.62 | 1.80 | 0.39 | 0.31 | -0.56 | 0.00 | 0.31 | 1.93 |
+| Median Services (proxy) | 1.82 | 1.95 | 1.94 | 3.29 | 2.66 | 2.71 | 3.46 | 2.29 | 3.55 | 2.94 | 3.11 | 2.31 |
+| Trimmed Mean Goods (proxy) | 3.91 | -1.18 | -0.66 | 0.89 | 1.62 | 1.77 | -0.51 | 1.26 | -1.03 | -0.57 | -1.28 | 0.71 |
+| Trimmed Mean Services (proxy) | 1.75 | 1.86 | 1.94 | 2.76 | 2.50 | 2.27 | 3.12 | 2.86 | 3.13 | 2.00 | 2.44 | 1.90 |
+
 ### Diffusion — share de itens com YoY > 3% (%)
 
 Difusão item-level sobre 190 leaves do BEA U20404. Fração de itens com YoY acima de 3%, por bloco. Count-based, não ponderado.
 
-| Série | 2025-08 | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 |
+| Série | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 | 2026-08 |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Headline (todos itens) | 41.05 | 42.63 | 40.00 | 42.63 | 44.74 | 47.37 | 51.05 | 52.63 | 49.47 | 49.47 | 49.47 | 53.16 |
-| Goods | 25.56 | 28.89 | 27.78 | 26.67 | 33.33 | 33.33 | 47.78 | 45.56 | 46.67 | 43.33 | 43.33 | 47.78 |
-| Goods ex cars | 23.81 | 27.38 | 26.19 | 25.00 | 33.33 | 35.71 | 48.81 | 46.43 | 47.62 | 46.43 | 45.24 | 50.00 |
-| Services | 55.00 | 55.00 | 51.00 | 57.00 | 55.00 | 60.00 | 54.00 | 59.00 | 52.00 | 55.00 | 55.00 | 58.00 |
+| Headline (todos itens) | 43.16 | 40.00 | 40.53 | 44.74 | 45.79 | 51.05 | 51.58 | 52.11 | 51.05 | 50.53 | 51.58 | 51.05 |
+| Goods | 28.89 | 26.67 | 26.67 | 32.22 | 32.22 | 45.56 | 43.33 | 46.67 | 42.22 | 42.22 | 46.67 | 43.33 |
+| Goods ex cars | 27.38 | 25.00 | 25.00 | 32.14 | 34.52 | 46.43 | 44.05 | 47.62 | 45.24 | 44.05 | 48.81 | 46.43 |
+| Services | 56.00 | 52.00 | 53.00 | 56.00 | 58.00 | 56.00 | 59.00 | 57.00 | 59.00 | 58.00 | 56.00 | 58.00 |
 
 ### Diffusion — share de itens com 6m-ann > 3% (%)
 
 Mesma difusão mas usando variação 6 meses anualizada (sinal mais tempestivo que YoY).
 
-| Série | 2025-08 | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 |
+| Série | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 | 2026-08 |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Headline (todos itens) | 42.63 | 44.21 | 42.63 | 41.05 | 44.21 | 42.63 | 50.53 | 50.53 | 51.05 | 51.58 | 47.89 | 47.89 |
+| Headline (todos itens) | 45.26 | 42.11 | 43.16 | 45.79 | 45.26 | 50.00 | 51.05 | 51.05 | 52.11 | 48.42 | 48.42 | 43.16 |
+
+### Diffusion — share de itens com MoM > 0% (%)
+
+**Impulso corrente do mês**: fração de leaves com MoM positiva vs deflationary. Threshold 0 (não 3) — mede quão **amplo** é o aumento de preço, independente de magnitude. Sinal mais tempestivo que YoY (que carrega 12m de bagagem).
+
+| Série | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 | 2026-08 |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Headline (todos itens) | 70.53 | 64.74 | 62.63 | 68.42 | 67.37 | 64.21 | 63.16 | 64.21 | 61.58 | 57.89 | 64.21 | 64.74 |
+| Goods | 64.44 | 51.11 | 50.00 | 58.89 | 62.22 | 58.89 | 50.00 | 61.11 | 50.00 | 51.11 | 54.44 | 61.11 |
+| Goods ex cars | 64.29 | 48.81 | 47.62 | 60.71 | 64.29 | 60.71 | 50.00 | 61.90 | 51.19 | 51.19 | 51.19 | 59.52 |
+| Services | 76.00 | 77.00 | 74.00 | 77.00 | 72.00 | 69.00 | 75.00 | 67.00 | 72.00 | 64.00 | 73.00 | 68.00 |
 
 ### Breadth — share do peso por bin YoY (%)
 
