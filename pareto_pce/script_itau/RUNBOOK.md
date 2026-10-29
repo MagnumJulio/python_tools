@@ -1,8 +1,8 @@
 # RUNBOOK — pareto_pce carga no SQL corp
 
-> **Atualizado 2026-10-29**: adicionados 4 series diffusion MoM>0 (impulso
-> corrente) + 4 series alt measures proxy Goods/Services. Total agora: **25
-> series PCE** (era 17).
+> **Atualizado 2026-10-29**: adicionados 4 diffusion MoM>0 + 4 proxy G/S + 66
+> categorias (33 Index SA + 33 Weight, análogo pareto_cpius). Total agora:
+> **91 series PCE** (era 25).
 
 ## Pré-requisitos
 
@@ -14,9 +14,23 @@
 - Coluna `bls_code` já criada no `OPT_Macro_Series_2` (compartilhada com
   IPCA/CPI-US).
 
-## Escopo servido — 25 series no SQL corp
+## Escopo servido — 91 series no SQL corp
 
 Todas `country='US'`, `subject='Prices'`, `indicator='PCE'`, `frequency='M'`.
+
+### Categorias (66 series: 33 Index SA + 33 Weight)
+
+33 agregações hierárquicas BEA U20404 (headline + core + goods/services + 4
+customs via álgebra Laspeyres). Para cada categoria vai 2 series: `data_type='SA'`
+(Index level Jan/2000=100) + `data_type='Weight'` (share nominal U20405 vs
+headline, %). bls_code = `PCE:{slug}` (ex: `PCE:all_items`, `PCE:core`,
+`PCE:services_ex_energy_housing`). Lista completa em
+`scripts/bea_maps/pce_categorias.csv`.
+
+Validado 2026-10-29 vs Haver (tabela ground truth do usuário):
+- Weights batem exato (até 0.01pp arredondamento)
+- MoM SA max|d| global = 0.0485pp em 1 custom; 32/33 cats < 0.006pp
+- Dashboard `outputs/dashboards/dashboard_pce_categorias_vs_haver.md` detalha
 
 ### Diffusion (9 series, `data_type='NSA'`)
 

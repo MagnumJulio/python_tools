@@ -1,9 +1,13 @@
 # pareto_pce — pipeline BEA/Fed pra Personal Consumption Expenditures (PCE)
 
 Pipeline irmão do `pareto_cpius` (CPI-US) e `pareto_ipca` (IPCA Brasil) mas pro
-**PCE deflator** — a medida de inflação de referência do Fed FOMC. Serve 4
+**PCE deflator** — a medida de inflação de referência do Fed FOMC. Serve 5
 famílias de métricas no SQL corp Itaú (OPT_Macro_Series_2 / Data_2):
 
+0. **Categorias** (66 series): 33 agregações hierárquicas (headline + core +
+   goods/services breakdown + 4 customs) × 2 (Index SA + Weight). Análogo
+   ao pareto_cpius. Validado 2026-10-29 vs Haver (ground truth): max|d|
+   global = 0.0485pp, 32/33 categorias < 0.006pp.
 1. **Diffusion** (9 series): share de leaves PCE em 2 cortes complementares:
    - **YoY > 3%** (sinal estrutural, 5 series): 4 agregados + 6m-ann só headline
    - **MoM > 0%** (impulso corrente, 4 series): 4 agregados — share em inflação
@@ -36,6 +40,8 @@ pareto_pce/
 │   ├── pce_nominais_raw.csv               # BEA U20405 (current dollars) bruto
 │   ├── pce_alt_measures.csv               # Cleveland Median + Dallas Trimmed (scraped), com value_index
 │   ├── pce_alt_measures_proxy.csv        # Mesmas 2 measures bottom-up (`_proxy`)
+│   ├── pce_categorias_indice.csv          # 33 cats × Index SA (long: date, cat, value_index)
+│   ├── pce_categorias_pesos.csv           # 33 cats × Weight (long: date, cat, weight)
 │   ├── pce_diffusion.csv                  # 4 agregados × 2 metrics
 │   ├── pce_breadth.csv                    # 3 bins (long: date, bin, weight_share)
 │   ├── pce_altas_distribution.csv         # 5 bins Dallas MoM SAAR + bin complemento
@@ -45,12 +51,16 @@ pareto_pce/
 │       └── dallas/pcedata.xlsx            # benchmark conceitual (NÃO comparável direto)
 ├── scripts/
 │   ├── fetch_pce.py                       # ⭐ BEA U20404 + U20405 via API
+│   ├── bea_maps/
+│   │   └── pce_categorias.csv             # 33 cats: 29 direct + 4 custom (recipe Laspeyres)
+│   ├── build_pce_categorias.py            # Index SA + Weight pros 33 agregados principais
 │   ├── build_diffusion.py                 # 190 leaves + 5 series diffusion
 │   ├── build_breadth_pce.py               # 3 bins breadth ponderado por nominais
 │   ├── build_altas_distribution_pce.py    # 5 bins Dallas MoM SAAR
 │   ├── build_alt_measures_pce.py          # Cleveland CSV + Dallas FRED → value_index SA (scraped)
 │   └── build_alt_measures_pce_proxy.py   # Mesmas 2 measures bottom-up (190 leaves + nominais)
 ├── script_itau/
+│   ├── load_pce_categorias_to_sql.py      # 66 series (33 Index SA + 33 Weight)
 │   ├── load_pce_to_sql.py                 # 5 series diffusion
 │   ├── load_breadth_pce_to_sql.py         # 3 series breadth
 │   ├── load_altas_distribution_pce_to_sql.py # 5 series altas dist Dallas-style
@@ -70,6 +80,7 @@ cd pareto_pce
 export BEA_API_KEY=<key>                             # https://apps.bea.gov/API/signup/
 
 python scripts/fetch_pce.py                          # U20404 + U20405
+python scripts/build_pce_categorias.py               # 33 cats × (Index + Weight)
 python scripts/build_diffusion.py                    # exporta leaves_detected.csv tambem
 python scripts/build_breadth_pce.py                  # precisa leaves_detected.csv + pce_nominais_raw.csv
 python scripts/build_altas_distribution_pce.py       # idem — 5 bins Dallas MoM SAAR
@@ -80,6 +91,7 @@ python scripts/build_alt_measures_pce_proxy.py      # bottom-up Itau (precisa le
 Loaders SQL (só rodam no corp — precisam `opt_utils.database.SQLConnector`):
 
 ```bash
+python script_itau/load_pce_categorias_to_sql.py --dry-run                  # 66 series (33 cats × 2)
 python script_itau/load_pce_to_sql.py --dry-run                             # diffusion
 python script_itau/load_breadth_pce_to_sql.py --dry-run                     # breadth
 python script_itau/load_altas_distribution_pce_to_sql.py --dry-run          # altas dist
@@ -121,6 +133,34 @@ Namespace **`PCE:`** disjunto de IPCA, IPCA-15 e CPI-US. Todas usam:
 O CSV também guarda um 6º bin `zero_or_below` (complemento: share com MoM
 SAAR ≤ 0) mas ele NÃO sobe pro SQL — alinhado com `pcedata.xlsx` Dallas, que
 publica só os 5 positivos. Analista deriva via `(100 - soma dos 5)` se precisar.
+
+**Categorias** (33 cats × 2 series = 66 total, `PCE:{slug}`):
+- `data_type='SA'`: Index level rebase Jan/2000=100
+- `data_type='Weight'`: share do nominal mensal U20405 vs headline (%)
+
+24 directs (line_number BEA U20404 — ver `bea_maps/pce_categorias.csv`):
+- Headline/Core: `all_items` (1), `core` (374), `goods` (2), `core_goods` (375),
+  `services` (150), `services_ex_energy` (376), `market_based` (377),
+  `market_based_ex_food_energy` (402)
+- Goods detail: `durable_goods` (3), `motor_vehicles` (4), `furnishings` (23),
+  `recreational_goods` (38), `other_durable` (62), `nondurable_goods` (72),
+  `food_bev_offprem` (73), `clothing` (104), `gasoline` (113), `other_nondurable` (120)
+- Services detail: `hh_consumption_services` (151), `housing_utilities` (152),
+  `housing` (153), `health_care` (172), `transportation_services` (190),
+  `recreation_services` (209), `food_services_accom` (234),
+  `financial_services_insurance` (252), `other_services` (280)
+- Food/Energy: `food` (73), `energy` (371)
+
+4 customs via Laspeyres (não publicadas pelo BEA):
+- `services_ex_energy_housing` = 376 − 153
+- `services_ex_energy_airfare_healthcare` = 376 − 207 − 172
+- `services_ex_energy_housing_pubtrans_medical` = 376 − 153 − 190 − 172 (nota:
+  "public transportation" aqui é Transportation Services inteira line 190,
+  bate com convenção Haver)
+- `all_items_ex_food_energy_housing` = 1 − 73 − 371 − 153
+
+Validação dashboard `dashboard_pce_categorias_vs_haver.md`: max|d| MoM global
+= 0.0485pp (1 custom), 32/33 cats < 0.006pp. Pesos batem 1:1 com Haver.
 
 **Alt measures scraped** (2 series, `data_type='SA'`, Index level, rebase Jan/2000=100):
 - `PCE:alt_median_pce`         — Cleveland CSV oficial
