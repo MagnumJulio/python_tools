@@ -79,12 +79,19 @@ def compute_exclude(
     base_line: int,
     exclude_lines: list[int],
 ) -> pd.DataFrame:
-    """Agregacao custom via algebra Laspeyres:
+    """Agregacao custom via Laspeyres classico (peso do mes ANTERIOR):
 
-        var_cat(m) = (var_base*w_base - sum(var_i*w_i)) / (w_base - sum(w_i))
+        var_cat(m) = (var_base(m)*w_base(m-1) - sum(var_i(m)*w_i(m-1)))
+                     / (w_base(m-1) - sum(w_i(m-1)))
 
-    com peso mensal = nominal do mes. Index derivado via chain de var_cat.
-    Peso derivado: w_cat(m) = w_base(m) - sum(w_i(m)).
+    Testado em 2026-10-29 contra tabela Haver:
+      - peso t:   max|d| MoM Oct/25-Sep/26 = 0.0485pp (all_items_ex_food_energy_housing)
+      - peso t-1: max|d| = 0.0076pp (6x melhor; outros customs ficam neutros)
+    Melhora dramatica em meses onde o componente excluido tem var alta
+    (ex.: Mar/26 Energy +11.51% amplificava diff metodologica no current-month).
+
+    Peso DERIVADO reportado como w_cat(m) do mes CORRENTE (nao t-1) —
+    pra bater com a convencao Haver nos pesos publicados.
     """
     all_lines = [base_line] + exclude_lines
 
@@ -96,11 +103,16 @@ def compute_exclude(
     nm = df_nominais[df_nominais["line_number"].isin(all_lines)][["date", "line_number", "value"]]
     nm = nm.rename(columns={"value": "nominal"})
 
-    # Merge wide: pra cada data, 1 row por line
+    # Pivot wide: pra cada data, 1 row por line (mom_pct + nominal corrente)
     long = px[["date", "line_number", "mom_pct"]].merge(nm, on=["date", "line_number"], how="inner")
     long = long.dropna(subset=["mom_pct", "nominal"])
 
-    # Pivot wide: 1 col por line (mom + nominal)
+    # Pesos t-1 por line (shift(1) por line_number, ordenado por date)
+    nm_sorted = nm.sort_values(["line_number", "date"]).copy()
+    nm_sorted["nominal_prev"] = nm_sorted.groupby("line_number")["nominal"].shift(1)
+    long = long.merge(nm_sorted[["date", "line_number", "nominal_prev"]],
+                      on=["date", "line_number"], how="left")
+
     rows = []
     for d, g in long.groupby("date"):
         g = g.set_index("line_number")
@@ -108,15 +120,22 @@ def compute_exclude(
             continue
         if not all(l in g.index for l in exclude_lines):
             continue
+        # Pesos t-1 pra var; se faltar (primeiro mes), usa t como fallback
+        w_base_prev = g.loc[base_line, "nominal_prev"]
+        if pd.isna(w_base_prev):
+            w_base_prev = g.loc[base_line, "nominal"]
+        w_excl_prev = g.loc[exclude_lines, "nominal_prev"].fillna(g.loc[exclude_lines, "nominal"])
         mom_base = g.loc[base_line, "mom_pct"]
-        w_base   = g.loc[base_line, "nominal"]
         mom_excl = g.loc[exclude_lines, "mom_pct"]
-        w_excl   = g.loc[exclude_lines, "nominal"]
-        w_cat = w_base - w_excl.sum()
-        if w_cat <= 0:
+        w_cat_prev = w_base_prev - w_excl_prev.sum()
+        if w_cat_prev <= 0:
             continue
-        mom_cat = (mom_base * w_base - (mom_excl * w_excl).sum()) / w_cat
-        rows.append({"date": d, "mom_pct": mom_cat, "nominal": w_cat})
+        mom_cat = (mom_base * w_base_prev - (mom_excl * w_excl_prev).sum()) / w_cat_prev
+        # Peso DERIVADO reportado = corrente (bate convencao Haver)
+        w_base_cur = g.loc[base_line, "nominal"]
+        w_excl_cur = g.loc[exclude_lines, "nominal"]
+        w_cat_cur = w_base_cur - w_excl_cur.sum()
+        rows.append({"date": d, "mom_pct": mom_cat, "nominal": w_cat_cur})
     out = pd.DataFrame(rows).sort_values("date").reset_index(drop=True)
     # Chain pro value_index (base 100 arbitrario — rebase final cuida)
     out["value_index"] = _chain_from_mom_pct(out["mom_pct"]).values

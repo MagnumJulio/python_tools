@@ -56,10 +56,11 @@ max|d| por categoria sobre os 12 meses. Valores < 0.02pp = diff só de arredonda
 
 | Categoria | max|d| (pp) | mean|d| (pp) |
 |:---|---:|---:|
-| PCE excluding Food Energy & Housing | 0.0485 | 0.0103 |
-| Services ex Energy, Housing, Public Transportation and Medical Services | 0.0062 | 0.0023 |
-| Household Consumption Expenditures (Services) | 0.0050 | 0.0018 |
+| PCE excluding Food Energy & Housing | 0.0076 | 0.0031 |
+| Services ex Energy, Housing, Public Transportation and Medical Services | 0.0067 | 0.0024 |
+| Services ex Energy, Airfare and Healthcare | 0.0063 | 0.0029 |
 | Services ex Energy and Housing | 0.0050 | 0.0027 |
+| Household Consumption Expenditures (Services) | 0.0050 | 0.0018 |
 | Recreational Goods & Vehicles | 0.0050 | 0.0024 |
 | Housing & Utilities | 0.0050 | 0.0027 |
 | Other Durable Goods | 0.0049 | 0.0023 |
@@ -88,7 +89,6 @@ max|d| por categoria sobre os 12 meses. Valores < 0.02pp = diff só de arredonda
 | Other Nondurable Goods | 0.0042 | 0.0024 |
 | Food & Beverages Purchased for Off-Premises | 0.0041 | 0.0020 |
 | Food | 0.0041 | 0.0020 |
-| Services ex Energy, Airfare and Healthcare | 0.0041 | 0.0025 |
 
 ### MoM SA % — nossos valores (bottom-up BEA)
 
@@ -112,8 +112,8 @@ Derivado de `pce_categorias_indice.csv`: `(idx[t]/idx[t-1] − 1) × 100`.
 | Other Nondurable Goods | 0.00 | 0.01 | 0.28 | 0.13 | 0.50 | -0.33 | -0.10 | -0.25 | 0.27 | -0.06 | -0.09 | 0.16 |
 | Services | 0.25 | 0.24 | 0.32 | 0.42 | 0.23 | 0.29 | 0.35 | 0.42 | 0.14 | 0.13 | 0.31 | 0.35 |
 | Services ex Energy | 0.24 | 0.22 | 0.30 | 0.43 | 0.24 | 0.29 | 0.31 | 0.42 | 0.17 | 0.13 | 0.33 | 0.36 |
-| Services ex Energy and Housing | 0.27 | 0.25 | 0.30 | 0.49 | 0.25 | 0.29 | 0.25 | 0.46 | 0.15 | 0.09 | 0.37 | 0.37 |
-| Services ex Energy, Airfare and Healthcare | 0.15 | 0.21 | 0.40 | 0.35 | 0.22 | 0.24 | 0.35 | 0.41 | 0.11 | 0.11 | 0.39 | 0.34 |
+| Services ex Energy and Housing | 0.27 | 0.25 | 0.30 | 0.49 | 0.25 | 0.30 | 0.25 | 0.46 | 0.15 | 0.09 | 0.37 | 0.37 |
+| Services ex Energy, Airfare and Healthcare | 0.15 | 0.21 | 0.40 | 0.35 | 0.22 | 0.24 | 0.35 | 0.41 | 0.11 | 0.11 | 0.39 | 0.35 |
 | Services ex Energy, Housing, Public Transportation and Medical Services | 0.14 | 0.24 | 0.50 | 0.42 | 0.20 | 0.16 | 0.31 | 0.51 | -0.00 | 0.03 | 0.46 | 0.29 |
 | Housing | 0.14 | 0.14 | 0.30 | 0.23 | 0.20 | 0.26 | 0.53 | 0.31 | 0.22 | 0.26 | 0.19 | 0.32 |
 | Household Consumption Expenditures (Services) | 0.28 | 0.26 | 0.33 | 0.40 | 0.24 | 0.32 | 0.33 | 0.41 | 0.20 | 0.13 | 0.31 | 0.37 |
@@ -124,7 +124,7 @@ Derivado de `pce_categorias_indice.csv`: `(idx[t]/idx[t-1] − 1) × 100`.
 | Food Services & Accommodations | 0.13 | 0.13 | 0.87 | 0.10 | 0.35 | 0.24 | 0.54 | 0.30 | -0.08 | -0.07 | 0.48 | 0.43 |
 | Financial Services & Insurance | 0.34 | 0.49 | 0.40 | 0.55 | 0.12 | 0.33 | 0.46 | 0.58 | 0.32 | 0.06 | 0.28 | 0.39 |
 | Other Services | 0.23 | 0.41 | -0.36 | 0.33 | 0.49 | 0.04 | -0.18 | 0.71 | 0.16 | 0.03 | 0.86 | 0.17 |
-| PCE excluding Food Energy & Housing | 0.18 | 0.16 | 0.32 | 0.43 | 0.37 | 0.20 | 0.22 | 0.30 | 0.10 | 0.11 | 0.27 | 0.30 |
+| PCE excluding Food Energy & Housing | 0.18 | 0.16 | 0.32 | 0.43 | 0.37 | 0.25 | 0.23 | 0.31 | 0.11 | 0.11 | 0.28 | 0.32 |
 | Food | -0.01 | -0.01 | 0.41 | 0.23 | 0.27 | -0.14 | 0.49 | 0.06 | 0.25 | -0.08 | 0.03 | -0.02 |
 | Energy | -0.24 | 1.72 | 0.23 | -1.78 | 0.77 | 11.51 | 3.86 | 3.95 | -5.84 | -1.41 | 2.30 | 5.36 |
 | Market-based PCE | 0.16 | 0.19 | 0.33 | 0.26 | 0.38 | 0.71 | 0.45 | 0.40 | -0.11 | 0.05 | 0.32 | 0.54 |
@@ -192,9 +192,9 @@ Valores próximos de 0 = reconstrução perfeita. Até 0.01pp é esperado pelo a
 | Other Nondurable Goods | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | 0.00 | -0.00 | 0.00 | 0.00 | 0.00 | -0.00 |
 | Services | 0.00 | -0.00 | -0.00 | 0.00 | 0.00 | 0.00 | -0.00 | 0.00 | 0.00 | 0.00 | 0.00 | -0.00 |
 | Services ex Energy | -0.00 | 0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 | 0.00 | -0.00 | -0.00 | -0.00 | -0.00 |
-| Services ex Energy and Housing | -0.00 | -0.00 | 0.00 | 0.00 | -0.00 | 0.00 | -0.00 | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 |
-| Services ex Energy, Airfare and Healthcare | -0.00 | -0.00 | -0.00 | 0.00 | 0.00 | 0.00 | -0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 |
-| Services ex Energy, Housing, Public Transportation and Medical Services | 0.00 | 0.00 | 0.00 | -0.00 | 0.00 | 0.01 | -0.00 | 0.00 | -0.00 | -0.00 | -0.00 | -0.00 |
+| Services ex Energy and Housing | -0.00 | -0.00 | 0.00 | 0.00 | -0.00 | 0.01 | -0.00 | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 |
+| Services ex Energy, Airfare and Healthcare | -0.00 | -0.00 | -0.00 | 0.00 | 0.00 | 0.00 | -0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.01 |
+| Services ex Energy, Housing, Public Transportation and Medical Services | 0.00 | 0.00 | 0.00 | -0.00 | 0.00 | 0.01 | -0.00 | 0.00 | -0.00 | -0.00 | -0.00 | 0.00 |
 | Housing | 0.00 | 0.00 | 0.00 | -0.00 | 0.00 | 0.00 | 0.00 | -0.00 | 0.00 | -0.00 | -0.00 | 0.00 |
 | Household Consumption Expenditures (Services) | 0.00 | -0.00 | 0.00 | -0.00 | -0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | -0.00 |
 | Housing & Utilities | 0.00 | -0.00 | 0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 | 0.00 | 0.00 | 0.00 | -0.00 |
@@ -204,7 +204,7 @@ Valores próximos de 0 = reconstrução perfeita. Até 0.01pp é esperado pelo a
 | Food Services & Accommodations | 0.00 | 0.00 | 0.00 | 0.00 | -0.00 | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | -0.00 | -0.00 |
 | Financial Services & Insurance | -0.00 | 0.00 | -0.00 | 0.00 | 0.00 | -0.00 | 0.00 | 0.00 | -0.00 | 0.00 | -0.00 | 0.00 |
 | Other Services | -0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 | 0.00 | -0.00 | 0.00 | -0.00 | 0.00 | 0.00 |
-| PCE excluding Food Energy & Housing | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | -0.05 | -0.01 | -0.01 | -0.02 | 0.00 | -0.01 | -0.02 |
+| PCE excluding Food Energy & Housing | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | -0.00 | -0.00 | -0.00 | -0.01 | 0.00 | -0.00 | -0.00 |
 | Food | -0.00 | -0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | 0.00 | -0.00 | 0.00 | 0.00 |
 | Energy | 0.00 | -0.00 | 0.00 | 0.00 | -0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | -0.00 |
 | Market-based PCE | -0.00 | -0.00 | 0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | 0.00 | -0.00 | -0.00 |
