@@ -144,6 +144,27 @@ di_6ma = di_pivot("diffusion_6ma_ann_3pct").loc[[DIFF_LABELS["Headline"]]]
 # MoM > 0 — impulso corrente (adicionado 2026-10-29), 4 agregados
 di_mom = di_pivot("diffusion_mom_above_0")
 
+# ---------- altas distribution (5 bins Dallas-style MoM SAAR) ----------
+ad = pd.read_csv(ROOT / "data" / "pce_altas_distribution.csv", parse_dates=["date"])
+ad_last = ad["date"].max()
+ad_dates = date_window(ad_last)
+ad_cols = [d.strftime("%Y-%m") for d in ad_dates]
+AD_LABELS = {
+    "0_to_2":        "0-2% MoM SAAR",
+    "2_to_3":        "2-3%",
+    "3_to_5":        "3-5%",
+    "5_to_10":       "5-10%",
+    "gt_10":         ">10%",
+    "zero_or_below": "≤ 0% (deflationary)",
+}
+AD_ORDER = ["0_to_2", "2_to_3", "3_to_5", "5_to_10", "gt_10", "zero_or_below"]
+ad_pivot = ad[ad["date"].isin(ad_dates)].pivot(
+    index="bin", columns="date", values="weight_share"
+)
+ad_pivot.columns = [c.strftime("%Y-%m") for c in ad_pivot.columns]
+ad_pivot = ad_pivot.reindex(index=AD_ORDER, columns=ad_cols)
+ad_pivot.index = [AD_LABELS[b] for b in ad_pivot.index]
+
 # ---------- breadth ----------
 br = pd.read_csv(ROOT / "data" / "pce_breadth.csv", parse_dates=["date"])
 br_last = br["date"].max()
@@ -181,6 +202,9 @@ md = [
     "escala estrutural — analises diferentes.",
     "> - Breadth no SQL: 3 series `PCE:breadth_{above_3pct,0_to_3pct,below_0pct}` "
     "(peso = nominais BEA U20405 do proprio mes; soma = 100% por data).",
+    "> - Altas distribution no SQL: 5 series `PCE:altas_dist_{0_2,2_3,3_5,5_10,gt_10}` "
+    "(mesmo pesos, mas em bins de MoM SAAR em vez de YoY — estilo Dallas pcedata.xlsx; "
+    "bin `zero_or_below` fica so no CSV, nao sobe pro SQL).",
     "> - Dallas IDs renomeados em 2026-10 (`PCETRIM1M158SFRBDAL` + "
     "`PCETRIM12M159SFRBDAL`) — antigos `680SFRBDAL` retornavam 404.",
     "> - Dallas `pcedata.xlsx` NAO e benchmark comparavel direto do breadth: "
@@ -230,6 +254,12 @@ md = [
           "e ponderados por nominais BEA U20405 do próprio mês. Soma dos 3 "
           "bins = 100 em cada mês. Guard de cobertura 70% descarta releases "
           "parciais.", 2),
+    to_md(ad_pivot, "Altas distribution — share do peso por bin MoM SAAR (%)",
+          "Decomposição do share positivo em 5 bins Dallas-style (0-2 / 2-3 / "
+          "3-5 / 5-10 / >10%) + bin complemento `≤ 0`. Mesmos 190 leaves + "
+          "nominais, mas em magnitude de MoM SAAR em vez de YoY. Soma 6 bins = "
+          "100%. Pros 5 bins positivos vão pro SQL `PCE:altas_dist_*`; "
+          "`zero_or_below` fica só no CSV (derivável = 100 − Σ(5)).", 2),
 ]
 
 OUT.write_text("\n".join(md), encoding="utf-8")

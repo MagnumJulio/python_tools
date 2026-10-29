@@ -9,6 +9,7 @@ Gerado por `outputs/dashboards/_make_dashboard_pce_last_12m.py` em cima de `pce_
 > - Alt measures proxy no SQL: **6 series** (2 headline + 4 Goods/Services). Headline validado 2026-10-28: mean|d| YoY = 0.09-0.11pp vs scraped. G/S sao proxy puro — Cleveland/Dallas nao publicam decomposicao.
 > - Diffusion no SQL: **9 series** = 4 YoY>3% + 1 6m-ann>3% (headline) + 4 MoM>0% (adicionado 2026-10-29). MoM>0 mede impulso corrente, YoY>3 mede escala estrutural — analises diferentes.
 > - Breadth no SQL: 3 series `PCE:breadth_{above_3pct,0_to_3pct,below_0pct}` (peso = nominais BEA U20405 do proprio mes; soma = 100% por data).
+> - Altas distribution no SQL: 5 series `PCE:altas_dist_{0_2,2_3,3_5,5_10,gt_10}` (mesmo pesos, mas em bins de MoM SAAR em vez de YoY — estilo Dallas pcedata.xlsx; bin `zero_or_below` fica so no CSV, nao sobe pro SQL).
 > - Dallas IDs renomeados em 2026-10 (`PCETRIM1M158SFRBDAL` + `PCETRIM12M159SFRBDAL`) — antigos `680SFRBDAL` retornavam 404.
 > - Dallas `pcedata.xlsx` NAO e benchmark comparavel direto do breadth: Dallas mede MoM annualized sobre universe Trimmed Mean customizado (nao YoY sobre U20404). Correlacao observada ~0 em 2026-10-28.
 > - Diffusion 6m-ann > 3% so e publicada pra Headline (bate `build_diffusion.py`); Goods/Services nao tem essa metrica.
@@ -118,3 +119,16 @@ Cross-section de 190 leaves BEA U20404, agrupados em 3 bins de YoY e ponderados 
 | YoY < 0% | 11.30 | 13.91 | 12.22 | 9.35 | 11.76 | 12.00 | 9.70 | 10.23 | 10.04 | 11.30 | 11.48 | 11.44 |
 | 0% ≤ YoY ≤ 3% | 35.21 | 35.59 | 41.47 | 42.62 | 34.96 | 37.74 | 30.23 | 28.83 | 29.87 | 27.63 | 27.33 | 27.56 |
 | YoY > 3% | 53.50 | 50.50 | 46.32 | 48.03 | 53.29 | 50.26 | 60.07 | 60.93 | 60.08 | 61.08 | 61.19 | 61.00 |
+
+### Altas distribution — share do peso por bin MoM SAAR (%)
+
+Decomposição do share positivo em 5 bins Dallas-style (0-2 / 2-3 / 3-5 / 5-10 / >10%) + bin complemento `≤ 0`. Mesmos 190 leaves + nominais, mas em magnitude de MoM SAAR em vez de YoY. Soma 6 bins = 100%. Pros 5 bins positivos vão pro SQL `PCE:altas_dist_*`; `zero_or_below` fica só no CSV (derivável = 100 − Σ(5)).
+
+| Série | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-02 | 2026-03 | 2026-04 | 2026-05 | 2026-06 | 2026-07 | 2026-08 |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0-2% MoM SAAR | 33.28 | 36.06 | 32.01 | 19.89 | 15.88 | 11.45 | 11.71 | 16.07 | 14.81 | 23.46 | 19.68 | 15.09 |
+| 2-3% | 18.02 | 6.78 | 8.89 | 2.69 | 17.46 | 20.57 | 14.90 | 12.64 | 11.49 | 13.92 | 4.06 | 23.09 |
+| 3-5% | 12.27 | 13.77 | 11.85 | 23.96 | 16.97 | 11.90 | 22.73 | 6.62 | 25.92 | 7.32 | 26.31 | 6.05 |
+| 5-10% | 11.44 | 4.68 | 12.82 | 11.61 | 8.79 | 7.48 | 13.99 | 24.17 | 13.08 | 16.35 | 14.71 | 16.44 |
+| >10% | 10.39 | 13.09 | 7.79 | 14.90 | 18.38 | 18.53 | 16.13 | 12.42 | 11.69 | 8.62 | 7.26 | 12.13 |
+| ≤ 0% (deflationary) | 14.60 | 25.63 | 26.65 | 26.94 | 22.51 | 30.06 | 20.55 | 28.08 | 23.01 | 30.32 | 27.96 | 27.20 |
