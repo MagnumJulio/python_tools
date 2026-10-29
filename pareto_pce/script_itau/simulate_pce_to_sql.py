@@ -51,6 +51,27 @@ SERIES_MAP: dict[tuple[str, str], tuple[str, str, str]] = {
         "PCE: Diffusion Goods ex Cars (YoY > 3%)",
         "Share of PCE Goods (ex motor vehicles) com YoY > 3%.",
     ),
+    # MoM > 0 — adicionado 2026-10-29. Impulso corrente do mes.
+    ("Headline", "diffusion_mom_above_0"): (
+        "PCE:diffusion_headline_mom_above_0",
+        "PCE: Diffusion Headline (MoM > 0%)",
+        "Share dos leaves U20404 com MoM positiva.",
+    ),
+    ("Goods", "diffusion_mom_above_0"): (
+        "PCE:diffusion_goods_mom_above_0",
+        "PCE: Diffusion Goods (MoM > 0%)",
+        "Share dos leaves Goods U20404 com MoM positiva.",
+    ),
+    ("Services", "diffusion_mom_above_0"): (
+        "PCE:diffusion_services_mom_above_0",
+        "PCE: Diffusion Services (MoM > 0%)",
+        "Share dos leaves Services U20404 com MoM positiva.",
+    ),
+    ("Goods_ex_cars", "diffusion_mom_above_0"): (
+        "PCE:diffusion_goods_ex_cars_mom_above_0",
+        "PCE: Diffusion Goods ex Cars (MoM > 0%)",
+        "Share dos leaves Goods ex motor vehicles U20404 com MoM positiva.",
+    ),
 }
 
 SERIES_COLS = ["series_id", "country", "subject", "indicator", "series_name",

@@ -257,32 +257,46 @@ def compute_diffusion(df: pd.DataFrame, leaves: pd.DataFrame) -> pd.DataFrame:
     lm["yoy"] = lm.groupby("line_number")["value"].pct_change(12) * 100
     m6 = lm.groupby("line_number")["value"].pct_change(6)
     lm["m6_ann"] = ((1 + m6) ** 2 - 1) * 100
+    # MoM SA direto — U20404 e SA; sinal mensal corrente, diferente do YoY
+    # que carrega 12m de bagagem. Threshold 0 = share em inflacao positiva
+    # vs deflationary (impulso marginal do mes).
+    lm["mom"] = lm.groupby("line_number")["value"].pct_change() * 100
 
     # Cobertura minima 70% pra evitar valores enganosos em meses com release
     # parcial (ex.: Out-2025 CPI-U so 6/177 items por shutdown do governo).
-    def diffusion(rows: pd.DataFrame, col: str) -> pd.Series:
+    def diffusion(rows: pd.DataFrame, col: str, threshold: float = 3.0) -> pd.Series:
         expected = rows.line_number.nunique()
         min_valid = int(expected * 0.7)
         def _calc(g):
             n_valid = g[col].notna().sum()
             if n_valid < min_valid:
                 return float("nan")
-            return (g[col] > 3).sum() / n_valid * 100
+            return (g[col] > threshold).sum() / n_valid * 100
         return rows.groupby("date").apply(_calc)
 
     out_rows = []
-    def add(rows, col, agg_name, metric):
-        s = diffusion(rows, col).rename("value").reset_index()
+    def add(rows, col, agg_name, metric, threshold=3.0):
+        s = diffusion(rows, col, threshold).rename("value").reset_index()
         s["aggregate"] = agg_name
         s["metric"] = metric
         out_rows.append(s)
 
+    # Diffusion YoY > 3% (metricas tradicionais)
     add(lm, "yoy", "Headline", "diffusion_yoy_3pct")
     add(lm, "m6_ann", "Headline", "diffusion_6ma_ann_3pct")
     add(lm[lm["aggregate"] == "Goods"], "yoy", "Goods", "diffusion_yoy_3pct")
     add(lm[lm["aggregate"] == "Services"], "yoy", "Services", "diffusion_yoy_3pct")
     add(lm[(lm["aggregate"] == "Goods") & (~lm.is_car)], "yoy", "Goods_ex_cars",
         "diffusion_yoy_3pct")
+
+    # Diffusion MoM > 0 (impulso corrente do mes — share em inflacao positiva)
+    add(lm, "mom", "Headline", "diffusion_mom_above_0", threshold=0.0)
+    add(lm[lm["aggregate"] == "Goods"], "mom", "Goods",
+        "diffusion_mom_above_0", threshold=0.0)
+    add(lm[lm["aggregate"] == "Services"], "mom", "Services",
+        "diffusion_mom_above_0", threshold=0.0)
+    add(lm[(lm["aggregate"] == "Goods") & (~lm.is_car)], "mom", "Goods_ex_cars",
+        "diffusion_mom_above_0", threshold=0.0)
 
     out = pd.concat(out_rows, ignore_index=True)[
         ["date", "aggregate", "metric", "value"]

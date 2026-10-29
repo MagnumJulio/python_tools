@@ -67,6 +67,29 @@ SERIES_MAP: dict[tuple[str, str], tuple[str, str, str]] = {
         "Share of PCE Goods (excluindo motor vehicles: New autos, New light "
         "trucks, Used autos, Used light trucks, Tires, Accessories) com YoY > 3%.",
     ),
+    # MoM > 0 — share em inflacao POSITIVA (threshold 0, nao 3). Sinal
+    # mensal corrente (impulso do mes), nao estrutural como YoY.
+    ("Headline", "diffusion_mom_above_0"): (
+        "PCE:diffusion_headline_mom_above_0",
+        "PCE: Diffusion Headline (MoM > 0%)",
+        "Share dos leaves U20404 com variacao MoM positiva. "
+        "Impulso corrente do mes vs deflationary.",
+    ),
+    ("Goods", "diffusion_mom_above_0"): (
+        "PCE:diffusion_goods_mom_above_0",
+        "PCE: Diffusion Goods (MoM > 0%)",
+        "Share dos leaves Goods U20404 com MoM positiva.",
+    ),
+    ("Services", "diffusion_mom_above_0"): (
+        "PCE:diffusion_services_mom_above_0",
+        "PCE: Diffusion Services (MoM > 0%)",
+        "Share dos leaves Services U20404 com MoM positiva.",
+    ),
+    ("Goods_ex_cars", "diffusion_mom_above_0"): (
+        "PCE:diffusion_goods_ex_cars_mom_above_0",
+        "PCE: Diffusion Goods ex Cars (MoM > 0%)",
+        "Share dos leaves Goods ex motor vehicles U20404 com MoM positiva.",
+    ),
 }
 
 
