@@ -104,10 +104,26 @@ def _rebase_jan2000(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_proxy_measures(df_prices: pd.DataFrame, df_nominais: pd.DataFrame,
-                            leaves: pd.DataFrame) -> pd.DataFrame:
+                            leaves: pd.DataFrame,
+                            scope: str = "headline") -> pd.DataFrame:
     """Pra cada data, computa MoM SAAR por leaf, aplica weighted median +
-    weighted trim mean 24/31. Retorna long df (date, measure, ann_1mo)."""
-    leaf_lines = set(leaves["line_number"].astype(int))
+    weighted trim mean 24/31. Retorna long df (date, measure, ann_1mo).
+
+    scope: 'headline' (todos 190 leaves), 'goods' (so Goods, 90 leaves),
+           'services' (so Services, 100 leaves). Afeta label do measure
+           (`_goods` / `_services` sufixo) e universe de leaves usados.
+    """
+    assert scope in {"headline", "goods", "services"}, f"scope invalido: {scope}"
+
+    # Filtra leaves pelo scope (headline usa todos)
+    if scope == "goods":
+        leaves_scope = leaves[leaves["aggregate"] == "Goods"]
+    elif scope == "services":
+        leaves_scope = leaves[leaves["aggregate"] == "Services"]
+    else:
+        leaves_scope = leaves
+    leaf_lines = set(leaves_scope["line_number"].astype(int))
+
     px = df_prices[df_prices["line_number"].isin(leaf_lines)].copy()
     nm = df_nominais[df_nominais["line_number"].isin(leaf_lines)].copy()
 
@@ -123,7 +139,7 @@ def compute_proxy_measures(df_prices: pd.DataFrame, df_nominais: pd.DataFrame,
     )
     df = df.dropna(subset=["mom_saar", "nominal"])
 
-    # Guard de cobertura (release parcial)
+    # Guard de cobertura (release parcial) — relativo ao universe do scope
     total_nominal_per_date = nm.groupby("date")["nominal"].sum().rename("total_nom")
     df = df.merge(total_nominal_per_date, left_on="date", right_index=True)
     df["coverage_pct"] = df.groupby("date")["nominal"].transform("sum") / df["total_nom"] * 100
@@ -131,9 +147,14 @@ def compute_proxy_measures(df_prices: pd.DataFrame, df_nominais: pd.DataFrame,
     if len(low_cov) > 0:
         for d in sorted(low_cov):
             c = df[df["date"] == d]["coverage_pct"].iloc[0]
-            print(f"[WARN] {pd.Timestamp(d).date()}: cobertura {c:.1f}% < "
-                  f"{COVERAGE_THRESHOLD_PCT}% — descartada")
+            print(f"[WARN] {scope} {pd.Timestamp(d).date()}: cobertura "
+                  f"{c:.1f}% < {COVERAGE_THRESHOLD_PCT}% — descartada")
         df = df[~df["date"].isin(low_cov)]
+
+    # Label dos measures depende do scope: headline sem sufixo, G/S com sufixo
+    suffix = "" if scope == "headline" else f"_{scope}"
+    label_median = f"median_pce{suffix}_proxy"
+    label_trim   = f"trimmed_mean_pce{suffix}_proxy"
 
     out_rows = []
     for d, g in df.groupby("date"):
@@ -141,8 +162,7 @@ def compute_proxy_measures(df_prices: pd.DataFrame, df_nominais: pd.DataFrame,
         w = g["nominal"].values
         med = weighted_median(v, w)
         trm = weighted_trim_mean(v, w, TRIM_LOW_FRAC, TRIM_HIGH_FRAC)
-        out_rows.append({"date": d, "median_pce_proxy": med,
-                         "trimmed_mean_pce_proxy": trm})
+        out_rows.append({"date": d, label_median: med, label_trim: trm})
     wide = pd.DataFrame(out_rows)
 
     # Long format: 1 row por (date, measure) com ann_1mo = valor computado
@@ -175,8 +195,15 @@ def main() -> None:
     print(f"[1] prices: {len(px)} rows, nominais: {len(nm)} rows, "
           f"leaves: {len(leaves)}")
 
-    print(f"[2] Weighted median + trim mean (24/31 Dallas) por data...")
-    long = compute_proxy_measures(px, nm, leaves)
+    print(f"[2] Weighted median + trim mean (24/31 Dallas) por scope...")
+    # 3 scopes: headline (190 leaves), goods (90), services (100). Fed oficial
+    # publica so headline — G/S aqui e proxy puro, sem oficial pra comparar.
+    long = pd.concat(
+        [compute_proxy_measures(px, nm, leaves, scope=s)
+         for s in ["headline", "goods", "services"]],
+        ignore_index=True,
+    )
+    print(f"  measures gerados: {sorted(long['measure'].unique())}")
 
     # value_index: chain universal (idem build_alt_measures_pce.py)
     pieces = []
@@ -231,7 +258,9 @@ def main() -> None:
                   f"Isso e esperado em release day — BEA sai antes de "
                   f"Cleveland/Dallas. Diff mostrado abaixo IGNORA o mes mais "
                   f"recente. Use --skip-benchmark pra suprimir.")
-        print(f"\n[benchmark] vs {official.name} (ultimo overlap)")
+        print(f"\n[benchmark] vs {official.name} (ultimo overlap, so headline)")
+        # Oficial Fed so publica headline (Dallas/Cleveland nao decompoem
+        # Goods/Services), entao G/S proxy nao tem benchmark possivel.
         for proxy_m, off_m in [("median_pce_proxy", "median_pce"),
                                  ("trimmed_mean_pce_proxy", "trimmed_mean_pce")]:
             c = out[out["measure"] == proxy_m][["date", "ann_12mo"]].rename(columns={"ann_12mo": "yoy_proxy"})

@@ -45,8 +45,15 @@ ROOT = Path(__file__).resolve().parent.parent
 IN_CSV = ROOT / "data" / "pce_alt_measures_proxy.csv"
 
 MEASURE_LABELS = {
-    "median_pce_proxy":       ("Median PCE",       "alt_median_pce_proxy"),
-    "trimmed_mean_pce_proxy": ("Trimmed Mean PCE", "alt_trimmed_mean_pce_proxy"),
+    # Headline (ja validado vs oficial — mean|d| YoY <0.11pp)
+    "median_pce_proxy":                 ("Median PCE",                     "alt_median_pce_proxy"),
+    "trimmed_mean_pce_proxy":           ("Trimmed Mean PCE",               "alt_trimmed_mean_pce_proxy"),
+    # Goods (so proxy — Fed oficial nao publica decomposicao G/S)
+    "median_pce_goods_proxy":           ("Median PCE Goods",               "alt_median_pce_goods_proxy"),
+    "trimmed_mean_pce_goods_proxy":     ("Trimmed Mean PCE Goods",         "alt_trimmed_mean_pce_goods_proxy"),
+    # Services
+    "median_pce_services_proxy":        ("Median PCE Services",            "alt_median_pce_services_proxy"),
+    "trimmed_mean_pce_services_proxy":  ("Trimmed Mean PCE Services",      "alt_trimmed_mean_pce_services_proxy"),
 }
 
 CODE_FMT = "PCE:{code_slug}"
@@ -139,13 +146,26 @@ def main():
         if len(q) > 0:
             return int(q["series_id"].iloc[0])
         # Description cap: coluna NVARCHAR 300 chars (600 bytes UTF-16). Short.
-        pair_code = f"PCE:alt_{sp['measure'].replace('_proxy', '')}"
-        desc = (
-            f"PCE alt {sp['measure']} (Index SA, Jan/2000=100). "
-            f"Proxy bottom-up Itau: 190 leaves BEA U20404 ponderados por "
-            f"nominais U20405. Pair com {pair_code} (oficial). "
-            f"mean|d| YoY vs oficial <0.11pp (2026-10)."
-        )
+        m = sp["measure"]
+        is_gs = "_goods_" in m or "_services_" in m
+        if is_gs:
+            # G/S nao tem Fed oficial pra comparar — texto reflete isso.
+            scope = "Goods" if "_goods_" in m else "Services"
+            n_leaves = 90 if scope == "Goods" else 100
+            desc = (
+                f"PCE alt {m} (Index SA, Jan/2000=100). "
+                f"Proxy bottom-up Itau: {n_leaves} leaves {scope} do BEA U20404 "
+                f"ponderados por nominais U20405. Sem oficial Fed pra comparar "
+                f"(Cleveland/Dallas so publicam headline)."
+            )
+        else:
+            pair_code = f"PCE:alt_{m.replace('_proxy', '')}"
+            desc = (
+                f"PCE alt {m} (Index SA, Jan/2000=100). "
+                f"Proxy bottom-up Itau: 190 leaves BEA U20404 ponderados por "
+                f"nominais U20405. Pair com {pair_code} (oficial). "
+                f"mean|d| YoY vs oficial <0.11pp (2026-10)."
+            )
         meta = pd.DataFrame([{
             "country": "US", "subject": "Prices", "indicator": "PCE",
             "series_name": sp["series_name"], "data_type": "SA",
