@@ -76,16 +76,35 @@ então saem juntos.
 
 ## Fluxo de release day — pipeline completo
 
+**Importante — timing BEA vs Fed**: BEA publica U20404/U20405 ~08:30 ET;
+Cleveland CSV e Dallas FRED atualizam **algumas horas depois** (às vezes dia
+seguinte). Isso tem implicação direta pros builds:
+
+| Build | Depende de que fonte publicou? |
+|---|---|
+| `fetch_pce.py` + `build_diffusion.py` + `build_breadth_pce.py` + `build_altas_distribution_pce.py` | **só BEA** — podem rodar logo após 08:30 ET |
+| `build_alt_measures_pce_proxy.py` | **só BEA** — mesma coisa, roda cedo |
+| `build_alt_measures_pce.py` (scraped) | BEA + Cleveland + Dallas — **espera as 3 publicarem** |
+
+Ou seja: **as 2 series proxy e todas as outras (diffusion, breadth, altas
+dist) estão disponíveis já na manhã do release**, antes do scraped. É
+exatamente o propósito do proxy: dar leitura das alt measures imediatamente,
+sem esperar Fed. Scraped vem depois no mesmo dia como validação/overwrite.
+
 ```cmd
 cd pareto_pce
 
-:: Fase 1 — fetchers (ordem importa: diffusion precisa dos leaves)
+:: Fase 1a — pos release BEA (manha, ~08:35 ET)
 python scripts/fetch_pce.py                          :: ~30-60s (U20404 + U20405)
 python scripts/build_diffusion.py                    :: <5s (gera leaves_detected.csv)
 python scripts/build_breadth_pce.py                  :: <5s (precisa leaves_detected + nominais)
 python scripts/build_altas_distribution_pce.py       :: <5s (idem)
+python scripts/build_alt_measures_pce_proxy.py --skip-benchmark   :: <5s, bottom-up BEA puro
+                                                     :: (--skip-benchmark pula print vs scraped stale)
+
+:: Fase 1b — mais tarde no dia (Cleveland + Dallas ja publicaram)
 python scripts/build_alt_measures_pce.py             :: ~30s (Cleveland CSV + Dallas FRED)
-python scripts/build_alt_measures_pce_proxy.py       :: <5s (bottom-up em cima do U20404+U20405)
+python scripts/build_alt_measures_pce_proxy.py       :: re-roda sem flag pra ver benchmark final
 ```
 
 **Sanity automática** entre fase 1 e fase 2:
@@ -99,21 +118,17 @@ python scripts/build_alt_measures_pce_proxy.py       :: <5s (bottom-up em cima d
 **Fase 2 — loaders** (ordem flexível, cada um independente):
 
 ```cmd
-python script_itau/load_pce_to_sql.py --dry-run                            :: diffusion
-python script_itau/load_pce_to_sql.py --no-confirm                         :: 5 series
+:: Grupo A — sobem logo apos fase 1a (manha, independentes do Fed)
+python script_itau/load_pce_to_sql.py --no-confirm                           :: 5 series diffusion
+python script_itau/load_breadth_pce_to_sql.py --no-confirm --full            :: 3 series breadth
+python script_itau/load_altas_distribution_pce_to_sql.py --no-confirm --full :: 5 series altas dist
+python script_itau/load_alt_measures_pce_proxy_to_sql.py --no-confirm        :: 2 series proxy
 
-python script_itau/load_breadth_pce_to_sql.py --dry-run                    :: breadth
-python script_itau/load_breadth_pce_to_sql.py --no-confirm --full          :: 3 series
-
-python script_itau/load_altas_distribution_pce_to_sql.py --dry-run         :: altas dist
-python script_itau/load_altas_distribution_pce_to_sql.py --no-confirm --full :: 5 series
-
-python script_itau/load_alt_measures_pce_to_sql.py --dry-run               :: alt scraped
-python script_itau/load_alt_measures_pce_to_sql.py --no-confirm            :: 2 series + cleanup legadas
-
-python script_itau/load_alt_measures_pce_proxy_to_sql.py --dry-run         :: alt proxy
-python script_itau/load_alt_measures_pce_proxy_to_sql.py --no-confirm      :: 2 series
+:: Grupo B — sobem depois (precisa Cleveland + Dallas publicarem)
+python script_itau/load_alt_measures_pce_to_sql.py --no-confirm              :: 2 series scraped + cleanup
 ```
+
+Cada loader tem `--dry-run` pra listar o escopo sem abrir conexao SQL.
 
 Total: 17 series × ~300 obs ≈ 5100 rows novas/atualizadas em
 `OPT_Macro_Series_Data_2` por release. Cada loader faz `DELETE WHERE

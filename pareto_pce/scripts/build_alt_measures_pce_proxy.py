@@ -28,6 +28,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -151,6 +152,17 @@ def compute_proxy_measures(df_prices: pd.DataFrame, df_nominais: pd.DataFrame,
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser(
+        description="Reconstrucao bottom-up Median+Trim Mean PCE.",
+    )
+    ap.add_argument(
+        "--skip-benchmark", action="store_true",
+        help="Pula comparacao com pce_alt_measures.csv (scraped). Util em "
+             "release day quando BEA ja saiu mas Cleveland/Dallas ainda nao, "
+             "evitando print de diff grande vs CSV scraped stale.",
+    )
+    args = ap.parse_args()
+
     for p in (IN_PRICES, IN_NOMINAIS):
         if not p.exists():
             sys.exit(f"[FAIL] {p} nao existe — rode scripts/fetch_pce.py primeiro.")
@@ -201,11 +213,25 @@ def main() -> None:
     )
     print(s.to_string())
 
-    # Quick benchmark vs oficial (se csv existir)
+    # Quick benchmark vs oficial (se csv existir E usuario nao pediu skip).
+    # Pulado em release day: BEA sai manha; Cleveland/Dallas publicam horas
+    # depois. Se o CSV scraped existir mas estiver stale (release anterior),
+    # o print mostra diff grande que NAO reflete problema no proxy — a logica
+    # do proxy nao depende do scraped em nada, so le os raws do BEA.
     official = ROOT / "data" / "pce_alt_measures.csv"
-    if official.exists():
-        print(f"\n[benchmark] vs {official.name} (ultimo overlap)")
+    if args.skip_benchmark:
+        print(f"\n[benchmark] skipped via --skip-benchmark")
+    elif official.exists():
         off = pd.read_csv(official, parse_dates=["date"])
+        off_last = off["date"].max()
+        new_last = out["date"].max()
+        if off_last < new_last:
+            print(f"\n[benchmark] AVISO: {official.name} esta stale "
+                  f"(last={off_last.date()}, proxy last={new_last.date()}). "
+                  f"Isso e esperado em release day — BEA sai antes de "
+                  f"Cleveland/Dallas. Diff mostrado abaixo IGNORA o mes mais "
+                  f"recente. Use --skip-benchmark pra suprimir.")
+        print(f"\n[benchmark] vs {official.name} (ultimo overlap)")
         for proxy_m, off_m in [("median_pce_proxy", "median_pce"),
                                  ("trimmed_mean_pce_proxy", "trimmed_mean_pce")]:
             c = out[out["measure"] == proxy_m][["date", "ann_12mo"]].rename(columns={"ann_12mo": "yoy_proxy"})
