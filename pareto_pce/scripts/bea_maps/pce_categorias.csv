@@ -27,7 +27,7 @@ recreation_services,Recreation Services,direct,209,
 food_services_accom,Food Services & Accommodations,direct,234,
 financial_services_insurance,Financial Services & Insurance,direct,252,
 other_services,Other Services,direct,280,
-all_items_ex_food_energy_housing,PCE excluding Food Energy & Housing,exclude,1,73+371+153
+all_items_ex_food_energy_housing,PCE excluding Food Energy & Housing,exclude,374,153
 food,Food,direct,73,
 energy,Energy,direct,371,
 market_based,Market-based PCE,direct,377,

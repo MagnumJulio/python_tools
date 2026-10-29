@@ -56,9 +56,9 @@ max|d| por categoria sobre os 12 meses. Valores < 0.02pp = diff só de arredonda
 
 | Categoria | max|d| (pp) | mean|d| (pp) |
 |:---|---:|---:|
-| PCE excluding Food Energy & Housing | 0.0076 | 0.0031 |
 | Services ex Energy, Housing, Public Transportation and Medical Services | 0.0067 | 0.0024 |
 | Services ex Energy, Airfare and Healthcare | 0.0063 | 0.0029 |
+| PCE excluding Food Energy & Housing | 0.0054 | 0.0028 |
 | Services ex Energy and Housing | 0.0050 | 0.0027 |
 | Household Consumption Expenditures (Services) | 0.0050 | 0.0018 |
 | Recreational Goods & Vehicles | 0.0050 | 0.0024 |
@@ -204,7 +204,7 @@ Valores próximos de 0 = reconstrução perfeita. Até 0.01pp é esperado pelo a
 | Food Services & Accommodations | 0.00 | 0.00 | 0.00 | 0.00 | -0.00 | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | -0.00 | -0.00 |
 | Financial Services & Insurance | -0.00 | 0.00 | -0.00 | 0.00 | 0.00 | -0.00 | 0.00 | 0.00 | -0.00 | 0.00 | -0.00 | 0.00 |
 | Other Services | -0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 | 0.00 | -0.00 | 0.00 | -0.00 | 0.00 | 0.00 |
-| PCE excluding Food Energy & Housing | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | -0.00 | -0.00 | -0.00 | -0.01 | 0.00 | -0.00 | -0.00 |
+| PCE excluding Food Energy & Housing | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | 0.00 | -0.00 | 0.00 | -0.01 | 0.00 | -0.00 | -0.00 |
 | Food | -0.00 | -0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | 0.00 | -0.00 | 0.00 | 0.00 |
 | Energy | 0.00 | -0.00 | 0.00 | 0.00 | -0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | -0.00 |
 | Market-based PCE | -0.00 | -0.00 | 0.00 | 0.00 | 0.00 | -0.00 | -0.00 | 0.00 | -0.00 | 0.00 | -0.00 | -0.00 |
