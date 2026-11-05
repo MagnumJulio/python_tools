@@ -28,7 +28,7 @@ A configuração fica em `local_settings.json` ao lado do exe (modelo em
 |---|---|---|
 | IPCA | `reconstruct_ipca.R --no-bcb` → `build_pareto_indice.R` → `load_pareto_to_sql.py --only <21 cats>` → idem `--sa` → `_fix_servicos_idx_sa.py` → `_fix_alim_dom_sa.py` | `pareto_ipca/script_itau/RUNBOOK_ATUALIZACAO_DASHBOARD.md` + `RUNBOOK_RELEASE_DAY.md` |
 | IPCA-15 | mesmo esqueleto em `pareto_ipca15` (fix só `servicos`) | `pareto_ipca15/script_itau/RUNBOOK_ATUALIZACAO_21_CATS.md` |
-| CPI-U | `fetch_bls_cpiu.R` → `fetch_bls_pesos.R` → `build_custom_aggregations.R` → `load_cpius_to_sql.py --only <22 cats>` → (extras) alt measures, difusão, breadth → (opcional) OER regional | `pareto_cpius/script_itau/RUNBOOK_ATUALIZACAO_DASHBOARD.md` |
+| CPI-U | `fetch_bls_cpiu.R` → `fetch_bls_pesos.R` → `build_custom_aggregations.R` → `load_cpius_to_sql.py --only <22 cats>` → (extras) alt measures, bottom-up (Trimmed Sym 25%), difusão, breadth → (opcional) OER regional | `pareto_cpius/script_itau/RUNBOOK_ATUALIZACAO_DASHBOARD.md` |
 | PCE | `fetch_pce.py` → builds (categorias, difusão, breadth, altas, proxy) → 5 loaders do grupo A → (opcional) scraped Cleveland/Dallas | `pareto_pce/script_itau/RUNBOOK.md` |
 
 Opções:
@@ -38,7 +38,7 @@ Opções:
   falha vira aviso).
 - **Dry-run** passa `--dry-run` aos loaders (nada é gravado) e pula os `_fix_*`. Os fetches
   rodam normalmente, então ainda precisa de internet/proxy.
-- Os extras do CPI-U (alt measures, difusão, breadth, OER) e o scraped do PCE são grupos
+- Os extras do CPI-U (alt measures, bottom-up, difusão, breadth, OER) e o scraped do PCE são grupos
   opcionais build+load: se o build falha (fonte externa fora do ar, URL mudou), a carga
   correspondente é pulada e o pipeline segue. Os builds do python_tools já preservam o CSV
   anterior nesse caso, e recarregar dado velho não ajuda.

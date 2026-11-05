@@ -95,5 +95,13 @@ listam o que gravariam e nada é escrito.
 - `_fix_servicos_idx_sa.py` (IPCA e IPCA-15) termina com `[FAIL] Var SA de servicos nao
   encontrada`: procura a série de variação SA que o loader deixou de gravar em 27/08. A aba
   trata como aviso e segue.
-- `build_alt_measures_cpi.py`: download do xlsx do Atlanta Fed deu erro HTTP em 05/11; o
-  grupo alt measures é pulado e difusão/breadth seguem.
+- `build_alt_measures_cpi.py`: se FRED/Atlanta/Cleveland falhar, só o grupo alt measures é
+  pulado; bottom-up (Trimmed Sym 25%), difusão e breadth seguem.
+
+## 7. Bottom-up do CPI-U (desde 05/11)
+
+O Trimmed Sym 25% custom saiu do `build_alt_measures_cpi.py` e virou par próprio no
+python_tools: `scripts/build_alt_bottomup_cpi.py` + `script_itau/load_alt_bottomup_cpi_to_sql.py`.
+A aba já roda esse par como grupo independente dentro de "CPI-U: alt measures + bottom-up +
+difusão + breadth". Precisa do `git pull` do python_tools na corp (PR "bottom-up") — sem ele
+o passo "build bottom-up" falha com arquivo não encontrado e a aba segue com aviso.

@@ -918,7 +918,7 @@ class MainWindow(QMainWindow):
 
         self.local_chk_sa = QCheckBox("IPCA / IPCA-15: carregar também idx SA (X-13 + fixes)")
         self.local_chk_sa.setChecked(True)
-        self.local_chk_extras = QCheckBox("CPI-U: alt measures + difusão + breadth")
+        self.local_chk_extras = QCheckBox("CPI-U: alt measures + bottom-up + difusão + breadth")
         self.local_chk_extras.setChecked(True)
         self.local_chk_oer = QCheckBox("CPI-U: OER regional")
         self.local_chk_fed = QCheckBox("PCE: alt measures scraped (Cleveland/Dallas já publicaram)")

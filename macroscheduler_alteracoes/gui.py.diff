@@ -1,5 +1,5 @@
 diff --git a/gui.py b/gui.py
-index df10734..669b230 100644
+index df10734..f21a91d 100644
 --- a/gui.py
 +++ b/gui.py
 @@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
@@ -241,7 +241,7 @@ index df10734..669b230 100644
 +
 +        self.local_chk_sa = QCheckBox("IPCA / IPCA-15: carregar também idx SA (X-13 + fixes)")
 +        self.local_chk_sa.setChecked(True)
-+        self.local_chk_extras = QCheckBox("CPI-U: alt measures + difusão + breadth")
++        self.local_chk_extras = QCheckBox("CPI-U: alt measures + bottom-up + difusão + breadth")
 +        self.local_chk_extras.setChecked(True)
 +        self.local_chk_oer = QCheckBox("CPI-U: OER regional")
 +        self.local_chk_fed = QCheckBox("PCE: alt measures scraped (Cleveland/Dallas já publicaram)")

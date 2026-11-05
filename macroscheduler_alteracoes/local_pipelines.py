@@ -90,7 +90,7 @@ class Step:
 class PipelineOptions:
     scope: str = "dashboard"   # "dashboard" (subset dos runbooks) | "full"
     sa: bool = True            # IPCA/IPCA-15: também carrega idx SA (X-13)
-    cpius_extras: bool = True  # CPI-U: alt measures + difusão + breadth
+    cpius_extras: bool = True  # CPI-U: alt measures + bottom-up + difusão + breadth
     cpius_oer: bool = False    # CPI-U: OER regional
     pce_fed: bool = False      # PCE: alt measures scraped (Cleveland/Dallas já publicaram)
 
@@ -163,6 +163,8 @@ def _cpius(opt: PipelineOptions) -> list[Step]:
         steps += [
             Step("CPI-U: build alt measures (Atlanta/Cleveland)", ["python", "scripts/build_alt_measures_cpi.py"], d, group="cpius_alt"),
             Step("CPI-U: carga alt measures", ["python", "script_itau/load_alt_measures_cpi_to_sql.py"], d, "load", group="cpius_alt"),
+            Step("CPI-U: build bottom-up (Trimmed Sym 25%)", ["python", "scripts/build_alt_bottomup_cpi.py"], d, group="cpius_bottomup"),
+            Step("CPI-U: carga bottom-up", ["python", "script_itau/load_alt_bottomup_cpi_to_sql.py"], d, "load", group="cpius_bottomup"),
             Step("CPI-U: build difusão", ["python", "scripts/build_diffusion_cpius.py"], d, group="cpius_diff"),
             Step("CPI-U: carga difusão", ["python", "script_itau/load_diffusion_to_sql.py"], d, "load", group="cpius_diff"),
             Step("CPI-U: build breadth", ["python", "scripts/build_breadth_cpi.py"], d, group="cpius_breadth"),
