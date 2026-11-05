@@ -6,7 +6,8 @@
 # Estrategia primaria: fetch das series OFICIAIS (match 100% com Fed):
 #   - Cleveland Fed Median CPI       (FRED: MEDCPIM158SFRBCLE)
 #   - Cleveland Fed Trimmed-Mean CPI (FRED: TRMMEANCPIM158SFRBCLE)
-#   - Atlanta Fed Sticky-Price CPI family (xlsx oficial, 6 series)
+#   - Atlanta Fed Sticky-Price CPI family (FRED rid=313, 6 series; fallback xlsx oficial)
+#   ATLANTA_SOURCE=xlsx forca o xlsx (debug)
 #
 # Custom (bottom-up proprio, nao existe oficial):
 #   - Trimmed Symmetric 25% CPI (corta 25% top + 25% cauda, mean do miolo 50%)
@@ -155,24 +156,62 @@ def fetch_fred_csv(fred_id: str) -> pd.Series:
     return df.set_index("date")["value"].dropna()
 
 
+# As 6 series Sticky/Flexible que o Atlanta Fed publica no FRED (release
+# rid=313). Sufixo M158 = "percent change at annual rate" (= coluna
+# "1-mo annualized" do xlsx), M159 = "percent change from year ago" (= "12-mo").
+ATLANTA_FRED_IDS = {
+    "flexible_cpi":               ("FLEXCPIM158SFRBATL",       "FLEXCPIM159SFRBATL"),
+    "core_flexible_cpi":          ("COREFLEXCPIM158SFRBATL",   "COREFLEXCPIM159SFRBATL"),
+    "sticky_cpi":                 ("STICKCPIM158SFRBATL",      "STICKCPIM159SFRBATL"),
+    "core_sticky_cpi":            ("CORESTICKM158SFRBATL",     "CORESTICKM159SFRBATL"),
+    "sticky_cpi_ex_shelter":      ("STICKCPIXSHLTRM158SFRBATL", "STICKCPIXSHLTRM159SFRBATL"),
+    "core_sticky_cpi_ex_shelter": ("CRESTKCPIXSLTRM158SFRBATL", "CRESTKCPIXSLTRM159SFRBATL"),
+}
+
+
+def fetch_atlanta_sticky_fred() -> pd.DataFrame:
+    """Mesmas 6 series do xlsx, mas via FRED (o Atlanta Fed e quem publica
+    la). Fonte primaria porque a corp bloqueia atlantafed.org e libera
+    fred.stlouisfed.org. Falha em qualquer serie -> levanta, e o caller cai
+    pro xlsx."""
+    out_rows = []
+    for name, (id_1mo, id_12mo) in ATLANTA_FRED_IDS.items():
+        s1 = fetch_fred_csv(id_1mo).rename("ann_1mo")
+        s12 = fetch_fred_csv(id_12mo).rename("ann_12mo")
+        if s1.empty:
+            raise RuntimeError(f"FRED {id_1mo} vazio")
+        df = pd.concat([s1, s12], axis=1).reset_index().rename(columns={"index": "date"})
+        df.columns = ["date", "ann_1mo", "ann_12mo"]
+        df["date"] = pd.to_datetime(df["date"]).dt.to_period("M").dt.to_timestamp()
+        df["measure"] = name
+        out_rows.append(df)
+        print(f"  [atlanta/fred] {name}: {len(s1)} obs, ultima {s1.index.max().date()}")
+    return pd.concat(out_rows, ignore_index=True)
+
+
 def fetch_atlanta_sticky() -> pd.DataFrame:
-    """Parse xlsx oficial Atlanta Fed, retorna long df com as 6 series.
-    Atlanta NAO publica index level nativo — cada bloco de 4 cols é:
-    (MoM decimal, 1-mo annualized %, 3-mo a.r., 12-mo %). O index é
+    """6 series Sticky/Flexible do Atlanta Fed, long df (date, ann_1mo,
+    ann_12mo, measure). Ordem: FRED (passa no proxy corp) -> xlsx oficial
+    (download, ou o seed/cache commitado se o download falhar). O index e
     reconstruido em main() via _chain_index(ann_1mo)."""
+    if os.environ.get("ATLANTA_SOURCE", "fred").lower() != "xlsx":
+        try:
+            return fetch_atlanta_sticky_fred()
+        except Exception as e:
+            print(f"[atlanta] FRED falhou ({str(e)[:120]}); tentando xlsx oficial...")
+    return fetch_atlanta_sticky_xlsx()
+
+
+def fetch_atlanta_sticky_xlsx() -> pd.DataFrame:
+    """Parse xlsx oficial Atlanta Fed. Atlanta NAO publica index level
+    nativo — cada bloco de 4 cols é: (MoM decimal, 1-mo annualized %,
+    3-mo a.r., 12-mo %)."""
     url = ("https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/"
            "datafiles/research/inflationproject/stickprice/stickyprice.xlsx")
     _refresh_or_keep(ATLANTA_XLSX, url, "atlanta", timeout=120)
 
     df = pd.read_excel(ATLANTA_XLSX, sheet_name="Data", header=None)
-    SERIES_NAMES = [
-        "flexible_cpi",
-        "core_flexible_cpi",
-        "sticky_cpi",
-        "core_sticky_cpi",
-        "sticky_cpi_ex_shelter",
-        "core_sticky_cpi_ex_shelter",
-    ]
+    SERIES_NAMES = list(ATLANTA_FRED_IDS)   # mesma ordem dos blocos do xlsx
     out_rows = []
     for i, name in enumerate(SERIES_NAMES):
         col_1mo  = 1 + i * 4 + 1
