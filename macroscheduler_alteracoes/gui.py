@@ -6,17 +6,17 @@ from datetime import datetime, date as ddate, time as dtime
 
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QListWidget, QPushButton, QCheckBox, QDateEdit,
+    QLineEdit, QListWidget, QListWidgetItem, QPushButton, QCheckBox, QDateEdit,
     QTextEdit, QProgressBar, QGroupBox, QAbstractItemView,
     QSplitter, QMessageBox, QTabWidget, QTimeEdit,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QInputDialog, QComboBox, QFileDialog,
+    QInputDialog, QComboBox, QFileDialog, QSpinBox, QSizePolicy,
 )
 from PyQt5.QtCore import (
-    Qt, QDate, QTime, QThread, QTimer,
+    Qt, QDate, QTime, QThread, QTimer, QUrl,
     pyqtSignal,
 )
-from PyQt5.QtGui import QTextCursor, QColor
+from PyQt5.QtGui import QTextCursor, QColor, QDesktopServices
 
 from styles import DARK_STYLE
 from engine import (
@@ -29,6 +29,7 @@ from local_pipelines import (
     load_settings, save_settings, plan_steps, settings_path, check_environment,
     pipeline_display_name, pipeline_key_from_display,
 )
+import calendar_books as cal
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -120,6 +121,31 @@ class _EnvCheckWorker(QThread):
             self.result.emit([(False, f"erro ao testar: {e}")])
 
 
+class CalendarLoadWorker(QThread):
+    """Lê OPT_Macro_Calendar + lista de books + calendar_books.csv fora da GUI."""
+    loaded = pyqtSignal(object, object, list)   # df anotado, Mapping, books do dia
+    error = pyqtSignal(str)
+
+    def __init__(self, day: ddate, only_relevant: bool, parent=None):
+        super().__init__(parent)
+        self.day = day
+        self.only_relevant = only_relevant
+
+    def run(self):
+        try:
+            session = get_session()
+            try:
+                df = cal.fetch_calendar(session, self.day, self.only_relevant)
+                known = set(fetch_available_reports(session))
+            finally:
+                session.close()
+            mapping = cal.load_mapping()
+            annotated = cal.annotate(df, mapping, known)
+            self.loaded.emit(annotated, mapping, cal.plan_books(annotated))
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Schedule Job data class
 # ──────────────────────────────────────────────────────────────────────
@@ -127,9 +153,12 @@ class _EnvCheckWorker(QThread):
 class ScheduleJob:
     def __init__(self, job_id: str, report: str, scheduled_date: ddate,
                  scheduled_time: dtime, delete_before: bool, cutoff_date: str,
-                 uk_labor_month: str | None = None, pipeline_key: str | None = None):
+                 uk_labor_month: str | None = None, pipeline_key: str | None = None,
+                 reports: list[str] | None = None):
         self.job_id = job_id
         self.report = report
+        # vários books na mesma rodada (agendados pela aba Calendário)
+        self.reports = reports or [report]
         self.pipeline_key = pipeline_key   # != None → rodagem local (python_tools)
         self.scheduled_date = scheduled_date
         self.scheduled_time = scheduled_time
@@ -159,6 +188,17 @@ class MainWindow(QMainWindow):
         self._local_worker: LocalPipelineWorker | None = None
         self._env_worker: _EnvCheckWorker | None = None
         self._local_settings = load_settings()
+
+        # Calendário
+        self._cal_worker: CalendarLoadWorker | None = None
+        self._cal_update_worker: UpdateWorker | None = None
+        self._cal_df = None
+        self._cal_plans: list = []
+        self._cal_after_load = None        # callback depois de carregar (auto-agendar)
+        self._cal_auto_done_for: ddate | None = None
+        self._cal_auto_timer = QTimer(self)
+        self._cal_auto_timer.setInterval(30_000)
+        self._cal_auto_timer.timeout.connect(self._cal_auto_tick)
 
         # Schedule state
         self._jobs: dict[str, ScheduleJob] = {}
@@ -238,6 +278,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_run_once_tab(), "▶ Run Once")
         self.tabs.addTab(self._build_schedule_tab(), "⏰ Schedule Runs")
         self.tabs.addTab(self._build_local_tab(), "🧪 Rodagem Local")
+        self.tabs.addTab(self._build_calendar_tab(), "📅 Calendário")
 
     # ── Connection Tests ──────────────────────────────────────────────
 
@@ -833,7 +874,7 @@ class MainWindow(QMainWindow):
             worker.log_signal.connect(self._sched_log)
         else:
             config = UpdateConfig(
-                reports=[job.report],
+                reports=list(job.reports),
                 delete_before_update=job.delete_before,
                 cutoff_date=job.cutoff_date,
                 uk_labor_month=job.uk_labor_month,
@@ -1177,6 +1218,441 @@ class MainWindow(QMainWindow):
     def _local_log(self, message: str):
         self.local_log_box.append(message)
         self.local_log_box.moveCursor(QTextCursor.End)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # TAB 4: Calendário (OPT_Macro_Calendar → books)
+    # ──────────────────────────────────────────────────────────────────────
+
+    _CAL_COLORS = {
+        "ok": "#a6e3a1",                # verde: vai atualizar
+        "sem_book": "#6c7086",          # cinza: marcado como sem book
+        "nao_mapeado": "#fab387",       # laranja: falta dizer qual é o book
+        "book_inexistente": "#f38ba8",  # vermelho: nome do book errado no CSV
+    }
+    _CAL_STATUS_TEXT = {
+        "sem_book": "— sem book",
+        "nao_mapeado": "? não mapeado",
+    }
+
+    def _build_calendar_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(8, 12, 8, 8)
+
+        splitter = QSplitter(Qt.Horizontal)
+        layout.addWidget(splitter, stretch=1)
+
+        # LEFT — releases do dia
+        left = QWidget()
+        left_lay = QVBoxLayout(left)
+        left_lay.setContentsMargins(0, 0, 8, 0)
+
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Data:"))
+        self.cal_date = QDateEdit()
+        self.cal_date.setCalendarPopup(True)
+        self.cal_date.setDate(QDate.currentDate())
+        self.cal_date.setDisplayFormat("yyyy-MM-dd")
+        top.addWidget(self.cal_date)
+        self.cal_chk_relevant = QCheckBox("Só High / Very High")
+        self.cal_chk_relevant.setToolTip("Mesmo filtro de relevância do calendário do site")
+        self.cal_chk_relevant.setChecked(bool(self._local_settings.get("calendar_only_relevant", True)))
+        top.addWidget(self.cal_chk_relevant)
+        top.addStretch()
+        self.btn_cal_load = QPushButton("🔄 Carregar calendário")
+        self.btn_cal_load.setObjectName("testConn")
+        self.btn_cal_load.clicked.connect(lambda: self._cal_load())
+        top.addWidget(self.btn_cal_load)
+        left_lay.addLayout(top)
+
+        grp_rel = QGroupBox("Releases do dia (OPT_Macro_Calendar)")
+        rel_lay = QVBoxLayout(grp_rel)
+        self.cal_table = QTableWidget()
+        self.cal_table.setColumnCount(6)
+        self.cal_table.setHorizontalHeaderLabels(["Hora", "País", "Indicador", "Período", "Actual", "Book"])
+        hh = self.cal_table.horizontalHeader()
+        for col in (0, 1, 3, 4):
+            hh.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        hh.setSectionResizeMode(5, QHeaderView.Stretch)
+        self.cal_table.verticalHeader().setVisible(False)
+        self.cal_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.cal_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.cal_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        rel_lay.addWidget(self.cal_table)
+
+        legend = QLabel(
+            "<span style='color:#a6e3a1'>verde</span> = atualiza o book · "
+            "<span style='color:#fab387'>? não mapeado</span> = falta dizer o book · "
+            "<span style='color:#6c7086'>— sem book</span> = ignorado · "
+            "<span style='color:#f38ba8'>vermelho</span> = book não existe no banco"
+        )
+        legend.setObjectName("subtitle")
+        legend.setWordWrap(True)
+        rel_lay.addWidget(legend)
+
+        map_row = QHBoxLayout()
+        btn_link = QPushButton("🔗 Vincular a book…")
+        btn_link.setObjectName("secondary")
+        btn_link.setToolTip("Selecione uma ou mais linhas e escolha o book (grava no calendar_books.csv)")
+        btn_link.clicked.connect(self._cal_link_selected)
+        map_row.addWidget(btn_link)
+        btn_open = QPushButton("📄 Abrir mapeamento")
+        btn_open.setObjectName("secondary")
+        btn_open.setToolTip("Abre o calendar_books.csv (Excel / Bloco de Notas)")
+        btn_open.clicked.connect(self._cal_open_mapping)
+        map_row.addWidget(btn_open)
+        map_row.addStretch()
+        rel_lay.addLayout(map_row)
+        self.lbl_cal_mapping = QLabel(f"mapeamento: {cal.mapping_path()}")
+        self.lbl_cal_mapping.setObjectName("subtitle")
+        self.lbl_cal_mapping.setWordWrap(True)
+        rel_lay.addWidget(self.lbl_cal_mapping)
+        left_lay.addWidget(grp_rel, stretch=1)
+        splitter.addWidget(left)
+
+        # RIGHT — books + ações + log
+        right = QWidget()
+        right_lay = QVBoxLayout(right)
+        right_lay.setContentsMargins(8, 0, 0, 0)
+
+        grp_books = QGroupBox("Books a atualizar")
+        books_lay = QVBoxLayout(grp_books)
+        self.cal_books_list = QListWidget()
+        self.cal_books_list.setSelectionMode(QAbstractItemView.NoSelection)
+        self.cal_books_list.setMinimumHeight(120)
+        books_lay.addWidget(self.cal_books_list)
+
+        delay_row = QHBoxLayout()
+        delay_row.addWidget(QLabel("Rodar"))
+        self.cal_delay = QSpinBox()
+        self.cal_delay.setRange(0, 120)
+        self.cal_delay.setValue(int(self._local_settings.get("calendar_delay_min", 1) or 0))
+        self.cal_delay.setSuffix(" min")
+        delay_row.addWidget(self.cal_delay)
+        delay_row.addWidget(QLabel("depois do 1º release de cada book"))
+        delay_row.addStretch()
+        books_lay.addLayout(delay_row)
+
+        act_row = QHBoxLayout()
+        act_row.setSpacing(8)
+        self.btn_cal_run = QPushButton("▶ Atualizar agora")
+        self.btn_cal_run.setObjectName("primary")
+        self.btn_cal_run.clicked.connect(self._cal_run_now)
+        act_row.addWidget(self.btn_cal_run)
+        self.btn_cal_sched = QPushButton("⏰ Agendar")
+        self.btn_cal_sched.setObjectName("primary")
+        self.btn_cal_sched.setToolTip("Agenda cada book no horário do seu release (aparece na aba Schedule Runs)")
+        self.btn_cal_sched.clicked.connect(lambda: self._cal_schedule(interactive=True))
+        act_row.addWidget(self.btn_cal_sched)
+        self.btn_cal_cancel = QPushButton("■ Cancelar")
+        self.btn_cal_cancel.setObjectName("danger")
+        for b in (self.btn_cal_run, self.btn_cal_sched, self.btn_cal_cancel):
+            # sem o min-width do estilo global: os 3 dividem a largura sem se sobrepor
+            b.setStyleSheet("min-width: 0px; padding: 10px 8px;")
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.btn_cal_cancel.setEnabled(False)
+        self.btn_cal_cancel.clicked.connect(self._cal_cancel)
+        act_row.addWidget(self.btn_cal_cancel)
+        books_lay.addLayout(act_row)
+
+        auto_row = QHBoxLayout()
+        self.cal_chk_auto = QCheckBox("Agendar sozinho todo dia às")
+        self.cal_chk_auto.setToolTip("Com o app aberto, nesse horário ele lê o calendário do dia e agenda os books")
+        self.cal_chk_auto.setChecked(bool(self._local_settings.get("calendar_auto", False)))
+        self.cal_chk_auto.toggled.connect(self._cal_auto_toggled)
+        auto_row.addWidget(self.cal_chk_auto)
+        self.cal_auto_time = QTimeEdit()
+        self.cal_auto_time.setDisplayFormat("HH:mm")
+        self.cal_auto_time.setTime(QTime.fromString(
+            str(self._local_settings.get("calendar_auto_time") or "07:00"), "HH:mm"))
+        self.cal_auto_time.timeChanged.connect(lambda *_: self._cal_save_settings())
+        auto_row.addWidget(self.cal_auto_time)
+        auto_row.addStretch()
+        books_lay.addLayout(auto_row)
+        right_lay.addWidget(grp_books)
+
+        self.cal_progress = QProgressBar()
+        self.cal_progress.setValue(0)
+        right_lay.addWidget(self.cal_progress)
+
+        self.lbl_cal_status = QLabel("Clique em Carregar calendário")
+        self.lbl_cal_status.setObjectName("status")
+        self.lbl_cal_status.setWordWrap(True)
+        self.lbl_cal_status.setAlignment(Qt.AlignCenter)
+        right_lay.addWidget(self.lbl_cal_status)
+
+        grp_log = QGroupBox("Log")
+        log_lay = QVBoxLayout(grp_log)
+        self.cal_log_box = QTextEdit()
+        self.cal_log_box.setObjectName("logBox")
+        self.cal_log_box.setReadOnly(True)
+        log_lay.addWidget(self.cal_log_box)
+        btn_clear = QPushButton("Limpar Log")
+        btn_clear.setObjectName("secondary")
+        btn_clear.clicked.connect(self.cal_log_box.clear)
+        log_lay.addWidget(btn_clear, alignment=Qt.AlignRight)
+        right_lay.addWidget(grp_log, stretch=1)
+
+        right.setMinimumWidth(400)
+        left.setMinimumWidth(420)
+        splitter.addWidget(right)
+        splitter.setChildrenCollapsible(False)
+        splitter.setSizes([560, 480])
+
+        self.cal_chk_relevant.toggled.connect(lambda *_: self._cal_save_settings())
+        self.cal_delay.valueChanged.connect(lambda *_: self._cal_save_settings())
+        if self.cal_chk_auto.isChecked():
+            QTimer.singleShot(0, lambda: self._cal_auto_toggled(True))
+        return tab
+
+    # ── carregar ──────────────────────────────────────────────────────
+
+    def _cal_selected_day(self) -> ddate:
+        qd = self.cal_date.date()
+        return ddate(qd.year(), qd.month(), qd.day())
+
+    def _cal_load(self, after=None):
+        if self._cal_worker and self._cal_worker.isRunning():
+            return
+        self._cal_after_load = after
+        self.btn_cal_load.setEnabled(False)
+        self._cal_set_status("Lendo OPT_Macro_Calendar...")
+        self._cal_worker = CalendarLoadWorker(self._cal_selected_day(), self.cal_chk_relevant.isChecked(), self)
+        self._cal_worker.loaded.connect(self._cal_on_loaded)
+        self._cal_worker.error.connect(self._cal_on_error)
+        self._cal_worker.start()
+
+    def _cal_on_error(self, msg: str):
+        self.btn_cal_load.setEnabled(True)
+        self._cal_after_load = None
+        self._cal_set_status("Erro ao ler o calendário", error=True)
+        self._cal_log(f"✗ Erro ao ler o calendário: {msg}")
+
+    def _cal_on_loaded(self, df, mapping, plans):
+        self.btn_cal_load.setEnabled(True)
+        self._cal_df = df
+        self._cal_plans = plans
+        for w in mapping.warnings:
+            self._cal_log(f"⚠ calendar_books.csv: {w}")
+
+        self.cal_table.setRowCount(0)
+        for _, r in df.iterrows():
+            row = self.cal_table.rowCount()
+            self.cal_table.insertRow(row)
+            ts = r["release_date_time"]
+            hora = ts.strftime("%H:%M") if hasattr(ts, "strftime") else str(r.get("release_time") or "")
+            actual = r.get("actual")
+            vals = [hora, r["country_name"], r["indicator"], str(r.get("period") or ""),
+                    "" if actual is None or actual != actual else f"{actual:g}",
+                    r["book"] or self._CAL_STATUS_TEXT.get(r["status"], "")]
+            if r["status"] == "book_inexistente":
+                vals[5] = f"✗ {r['book']} (não existe)"
+            color = QColor(self._CAL_COLORS.get(r["status"], "#cdd6f4"))
+            for c, v in enumerate(vals):
+                it = QTableWidgetItem(str(v))
+                if c == 5:
+                    it.setForeground(color)
+                self.cal_table.setItem(row, c, it)
+
+        self.cal_books_list.clear()
+        for p in plans:
+            hora = p.first_release.strftime("%H:%M") if p.first_release else "--:--"
+            flag = "  ✓ já divulgado" if p.released else ""
+            n = len(p.indicators)
+            it = QListWidgetItem(f"{hora}  {p.book}  ({n} indicador{'es' if n != 1 else ''}){flag}")
+            it.setToolTip("\n".join(p.indicators))
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            it.setCheckState(Qt.Checked)
+            it.setData(Qt.UserRole, p.book)
+            self.cal_books_list.addItem(it)
+
+        counts = df["status"].value_counts().to_dict() if len(df) else {}
+        n_pend = counts.get("nao_mapeado", 0) + counts.get("book_inexistente", 0)
+        msg = f"{len(df)} releases · {len(plans)} book(s) a atualizar"
+        if n_pend:
+            msg += f" · {n_pend} sem book definido"
+        self._cal_set_status(msg)
+        self._cal_log(f"✓ {self._cal_selected_day():%Y-%m-%d}: {msg}")
+
+        after, self._cal_after_load = self._cal_after_load, None
+        if after:
+            after()
+
+    # ── mapeamento ────────────────────────────────────────────────────
+
+    def _cal_link_selected(self):
+        if self._cal_df is None:
+            QMessageBox.information(self, "Calendário", "Carregue o calendário primeiro.")
+            return
+        rows = sorted({i.row() for i in self.cal_table.selectedIndexes()})
+        if not rows:
+            QMessageBox.information(self, "Calendário",
+                                    "Selecione na tabela os indicadores que quer vincular.")
+            return
+        sel = self._cal_df.iloc[rows]
+        pairs = list(dict.fromkeys(zip(sel["country_name"], sel["indicator"])))
+        none_label = "(sem book — ignorar este indicador)"
+        options = [none_label] + sorted(self._all_reports)
+        names = "\n".join(f"  • {c} — {i}" for c, i in pairs)
+        book, ok = QInputDialog.getItem(
+            self, "Vincular a book", f"Qual book atualiza estes indicadores?\n\n{names}\n",
+            options, 1 if len(options) > 1 else 0, False)
+        if not ok:
+            return
+        book = "" if book == none_label else book
+        try:
+            path = cal.add_mapping_rows([(c, i, book) for c, i in pairs])
+        except Exception as e:
+            QMessageBox.warning(self, "Erro", f"Não foi possível gravar o mapeamento:\n{e}\n\n"
+                                "Se o arquivo estiver aberto no Excel, feche e tente de novo.")
+            return
+        self._cal_log(f"🔗 {len(pairs)} indicador(es) → {book or 'sem book'} (gravado em {path})")
+        self._cal_load()
+
+    def _cal_open_mapping(self):
+        path = cal.ensure_mapping_file()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        self._cal_log(f"📄 Abrindo {path}. Depois de salvar, clique em Carregar calendário.")
+
+    # ── rodar / agendar ───────────────────────────────────────────────
+
+    def _cal_checked_books(self) -> list[str]:
+        out = []
+        for i in range(self.cal_books_list.count()):
+            it = self.cal_books_list.item(i)
+            if it.checkState() == Qt.Checked:
+                out.append(it.data(Qt.UserRole))
+        return out
+
+    def _cal_uk_month(self, books: list[str]) -> str | None:
+        return cal.uk_labor_month_for(self._cal_selected_day()) if UK_LABOR_REPORT_NAME in books else None
+
+    def _cal_run_now(self):
+        books = self._cal_checked_books()
+        if not books:
+            QMessageBox.warning(self, "Atenção", "Nenhum book marcado. Carregue o calendário e marque os books.")
+            return
+        cfg = UpdateConfig(reports=books, uk_labor_month=self._cal_uk_month(books))
+        self._cal_log(f"\n▶ Atualizando {len(books)} book(s): {', '.join(books)}")
+        self.cal_progress.setMaximum(0)
+        self._cal_update_worker = UpdateWorker(cfg)
+        self._cal_update_worker.log_signal.connect(self._cal_log)
+        self._cal_update_worker.summary_signal.connect(self._cal_log)
+        self._cal_update_worker.progress_signal.connect(self._cal_on_progress)
+        self._cal_update_worker.finished_signal.connect(self._cal_on_finished)
+        self.btn_cal_run.setEnabled(False)
+        self.btn_cal_cancel.setEnabled(True)
+        self._cal_set_status("Executando...")
+        self._cal_update_worker.start()
+
+    def _cal_cancel(self):
+        if self._cal_update_worker:
+            self._cal_log("⏳ Solicitando cancelamento...")
+            self._cal_update_worker.cancel()
+
+    def _cal_on_progress(self, current: int, total: int):
+        self.cal_progress.setMaximum(total)
+        self.cal_progress.setValue(current)
+
+    def _cal_on_finished(self, success: bool, message: str):
+        self.btn_cal_run.setEnabled(True)
+        self.btn_cal_cancel.setEnabled(False)
+        if not success and self.cal_progress.maximum() == 0:
+            self.cal_progress.setMaximum(1)
+        self._cal_set_status(f"✓ {message}" if success else f"✗ {message}", error=not success)
+
+    def _cal_schedule(self, interactive: bool):
+        """Um agendamento por horário (1º release do book + atraso), na aba
+        Schedule Runs. Books cujo horário já passou não são agendados."""
+        checked = set(self._cal_checked_books())
+        plans = [p for p in self._cal_plans if p.book in checked]
+        if not plans:
+            if interactive:
+                QMessageBox.warning(self, "Atenção", "Nenhum book marcado. Carregue o calendário primeiro.")
+            else:
+                self._cal_log("⏰ Nenhum book do calendário para agendar hoje.")
+            return
+        slots, past = cal.schedule_slots(plans, self.cal_delay.value())
+
+        already = {(j.scheduled_date, j.scheduled_time, tuple(j.reports)) for j in self._jobs.values()}
+        created = 0
+        for when, books in slots.items():
+            key = (when.date(), when.time(), tuple(books))
+            if key in already:
+                continue
+            job = ScheduleJob(
+                job_id=uuid.uuid4().hex[:8],
+                report="📅 " + " + ".join(books),
+                scheduled_date=when.date(),
+                scheduled_time=when.time(),
+                delete_before=False,
+                cutoff_date="1900-01-01",
+                uk_labor_month=cal.uk_labor_month_for(when) if UK_LABOR_REPORT_NAME in books else None,
+                reports=books,
+            )
+            self._jobs[job.job_id] = job
+            created += 1
+            self._sched_log(f"✓ Agendado pelo calendário: {', '.join(books)} às {when:%H:%M}")
+            self._cal_log(f"⏰ {when:%H:%M} → {', '.join(books)}")
+        if created:
+            self._refresh_schedule_table()
+            if not self._schedule_timer.isActive():
+                self._schedule_timer.start()
+                self._sched_log("⏰ Scheduler iniciado.")
+        if past:
+            self._cal_log(f"⚠ Horário já passou (use ▶ Atualizar agora se precisar): {', '.join(past)}")
+        msg = f"{created} agendamento(s) criado(s) — veja a aba Schedule Runs"
+        self._cal_set_status(msg)
+        if interactive and past and not created:
+            QMessageBox.information(self, "Calendário",
+                                    "Todos os releases marcados já passaram.\nUse ▶ Atualizar agora.")
+
+    # ── modo automático ───────────────────────────────────────────────
+
+    def _cal_auto_toggled(self, on: bool):
+        self._cal_save_settings()
+        if on:
+            self._cal_auto_timer.start()
+            self._cal_log(f"🤖 Automático ligado: todo dia às {self.cal_auto_time.time().toString('HH:mm')} "
+                          "o app lê o calendário e agenda os books (o app precisa ficar aberto).")
+            self._cal_auto_tick()
+        else:
+            self._cal_auto_timer.stop()
+            self._cal_log("🤖 Automático desligado.")
+
+    def _cal_auto_tick(self):
+        now = datetime.now()
+        t = self.cal_auto_time.time()
+        if self._cal_auto_done_for == now.date() or now.time() < dtime(t.hour(), t.minute()):
+            return
+        self._cal_auto_done_for = now.date()
+        self.cal_date.setDate(QDate.currentDate())
+        self._cal_log(f"\n🤖 {now:%Y-%m-%d %H:%M}: lendo o calendário do dia para agendar...")
+        self._cal_load(after=lambda: self._cal_schedule(interactive=False))
+
+    def _cal_save_settings(self):
+        self._local_settings.update({
+            "calendar_auto": self.cal_chk_auto.isChecked(),
+            "calendar_auto_time": self.cal_auto_time.time().toString("HH:mm"),
+            "calendar_delay_min": self.cal_delay.value(),
+            "calendar_only_relevant": self.cal_chk_relevant.isChecked(),
+        })
+        try:
+            save_settings(self._local_settings)
+        except Exception as e:
+            self._cal_log(f"⚠ Não foi possível salvar a configuração: {e}")
+
+    def _cal_set_status(self, text: str, error: bool = False):
+        self.lbl_cal_status.setText(text)
+        self.lbl_cal_status.setObjectName("statusError" if error else "status")
+        self.lbl_cal_status.style().unpolish(self.lbl_cal_status)
+        self.lbl_cal_status.style().polish(self.lbl_cal_status)
+
+    def _cal_log(self, message: str):
+        ts = datetime.now().strftime("%H:%M:%S")
+        self.cal_log_box.append(f"[{ts}] {message}")
+        self.cal_log_box.moveCursor(QTextCursor.End)
 
     # ──────────────────────────────────────────────────────────────────────
     # Helpers

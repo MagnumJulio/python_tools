@@ -105,3 +105,67 @@ python_tools: `scripts/build_alt_bottomup_cpi.py` + `script_itau/load_alt_bottom
 A aba já roda esse par como grupo independente dentro de "CPI-U: alt measures + bottom-up +
 difusão + breadth". Precisa do `git pull` do python_tools na corp (PR "bottom-up") — sem ele
 o passo "build bottom-up" falha com arquivo não encontrado e a aba segue com aviso.
+
+## 8. Aba 📅 Calendário (desde 05/11) — atualizar books pelo calendário Bloomberg
+
+Lê os releases do dia em `OPT_Macro_Calendar` (mesma query do site) e atualiza/agenda os
+books ligados a cada indicador. Uso e manutenção: `CALENDARIO.md`. Pressupõe a aba Rodagem
+Local já copiada (seções 1-7); se for copiar tudo de uma vez, o `gui.py` daqui já tem as duas.
+
+### O que copiar
+
+| Arquivo aqui | Destino no MacroScheduler | Ação |
+|---|---|---|
+| `calendar_books.py` | `calendar_books.py` | **novo** — copiar inteiro |
+| `calendar_books.csv` | `calendar_books.csv` **ao lado do exe** (e do `main.py`) | **novo** — mapeamento indicador → book |
+| `gui.py` | `gui.py` | **substituir** inteiro (ou seção abaixo) |
+| `local_pipelines.py` | `local_pipelines.py` | **substituir** (só ganhou 4 chaves em `DEFAULT_SETTINGS`) |
+| `local_settings.example.json` | idem | substituir (modelo com as chaves novas) |
+| `CALENDARIO.md` | `CALENDARIO.md` | documentação (opcional) |
+| `gui_calendario.diff` | — | referência: diff do `gui.py` da Rodagem Local → este |
+
+Sem dependência nova; `build.spec` não muda (o PyInstaller inclui `calendar_books.py` porque o
+`gui.py` importa). Se o `calendar_books.csv` não estiver ao lado do exe, o app cria um com
+os 4 indicadores de payroll/Michigan.
+
+### `local_pipelines.py` linha a linha
+
+Dentro de `DEFAULT_SETTINGS = {...}`, depois de `"BEA_API_KEY": "",` acrescentar:
+```python
+    "calendar_auto": False,
+    "calendar_auto_time": "07:00",
+    "calendar_delay_min": 1,
+    "calendar_only_relevant": True,
+```
+
+### `gui.py` linha a linha (a partir do `gui.py` da Rodagem Local, 1198 linhas → 1674)
+
+| # | Onde | O que fazer |
+|---|---|---|
+| 1 | `from PyQt5.QtWidgets import (...)` | acrescentar `QListWidgetItem` e `QSpinBox` |
+| 2 | `from PyQt5.QtCore import (...)` | acrescentar `QUrl` |
+| 3 | `from PyQt5.QtGui import ...` | acrescentar `QDesktopServices` |
+| 4 | depois do bloco `from local_pipelines import (...)` | `import calendar_books as cal` |
+| 5 | antes de `class ScheduleJob` | colar a classe `CalendarLoadWorker(QThread)` (25 linhas, no diff) |
+| 6 | `ScheduleJob.__init__` | novo parâmetro `reports: list[str] \| None = None` e a linha `self.reports = reports or [report]` |
+| 7 | `MainWindow.__init__`, depois de `self._local_settings = load_settings()` | bloco `# Calendário` (9 linhas: `_cal_worker`, `_cal_update_worker`, `_cal_df`, `_cal_plans`, `_cal_after_load`, `_cal_auto_done_for`, `_cal_auto_timer`) |
+| 8 | `_build_ui`, depois do `addTab(... "🧪 Rodagem Local")` | `self.tabs.addTab(self._build_calendar_tab(), "📅 Calendário")` |
+| 9 | `_run_scheduled_job`, no `UpdateConfig(` | trocar `reports=[job.report],` por `reports=list(job.reports),` |
+| 10 | antes da seção `# Helpers` | colar o bloco inteiro `# TAB 4: Calendário` (≈430 linhas, do `_CAL_COLORS` até `_cal_log`) |
+
+Mais seguro: substituir o `gui.py` inteiro.
+
+### Conferência rápida
+
+```
+python -c "import calendar_books, gui; print('ok')"
+```
+Abrir o app → aba Calendário → Carregar calendário. Esperado: os releases de hoje com a
+coluna Book colorida e, em dia de payroll, `US Payroll` na lista da direita. A query usa
+`?` (pyodbc), igual ao resto do engine.
+
+### A conferir na corp
+- **Fuso**: o app usa `release_date_time` como está no banco, como hora local da máquina. Se
+  a tabela guardar outro fuso (coluna `timezone`), os agendamentos ficam deslocados: avisar.
+- **Nomes**: os países precisam bater com `country_name` (ex.: `United States`) e os books
+  com `OPT_Macro_Reports` (book inexistente aparece em vermelho na aba).
