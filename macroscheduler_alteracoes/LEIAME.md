@@ -138,7 +138,7 @@ Dentro de `DEFAULT_SETTINGS = {...}`, depois de `"BEA_API_KEY": "",` acrescentar
     "calendar_only_relevant": True,
 ```
 
-### `gui.py` linha a linha (a partir do `gui.py` da Rodagem Local, 1198 linhas → 1662)
+### `gui.py` linha a linha (a partir do `gui.py` da Rodagem Local, 1198 linhas → 1674)
 
 | # | Onde | O que fazer |
 |---|---|---|

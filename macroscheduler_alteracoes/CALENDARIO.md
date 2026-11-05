@@ -15,11 +15,11 @@ deles, sem precisar escolher relatório por relatório.
    no horário do primeiro release.
 4. Daí:
    - **▶ Atualizar agora** roda os books marcados (igual ao Run Once).
-   - **⏰ Agendar nos horários** cria agendamentos na aba *Schedule Runs*, um por horário
+   - **⏰ Agendar** cria agendamentos na aba *Schedule Runs*, um por horário
      (1º release do book + os minutos de atraso). Books com o mesmo horário rodam juntos.
      O engine já tenta de novo até o Haver/Bloomberg trazer o dado novo, então 1 minuto de
      atraso basta.
-   - **Todo dia… agendar sozinho às 07:00**: com o app aberto, todo dia nesse horário ele
+   - **Agendar sozinho todo dia às 07:00**: com o app aberto, todo dia nesse horário ele
      lê o calendário e agenda tudo, sem ninguém clicar. Se o app abrir depois das 07:00, ele
      agenda na hora (releases que já passaram ficam no log, para rodar com *Atualizar agora*).
 

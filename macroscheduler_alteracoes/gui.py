@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QTextEdit, QProgressBar, QGroupBox, QAbstractItemView,
     QSplitter, QMessageBox, QTabWidget, QTimeEdit,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QInputDialog, QComboBox, QFileDialog, QSpinBox,
+    QInputDialog, QComboBox, QFileDialog, QSpinBox, QSizePolicy,
 )
 from PyQt5.QtCore import (
     Qt, QDate, QTime, QThread, QTimer, QUrl,
@@ -1254,7 +1254,8 @@ class MainWindow(QMainWindow):
         self.cal_date.setDate(QDate.currentDate())
         self.cal_date.setDisplayFormat("yyyy-MM-dd")
         top.addWidget(self.cal_date)
-        self.cal_chk_relevant = QCheckBox("Só High / Very High (como no site)")
+        self.cal_chk_relevant = QCheckBox("Só High / Very High")
+        self.cal_chk_relevant.setToolTip("Mesmo filtro de relevância do calendário do site")
         self.cal_chk_relevant.setChecked(bool(self._local_settings.get("calendar_only_relevant", True)))
         top.addWidget(self.cal_chk_relevant)
         top.addStretch()
@@ -1334,25 +1335,30 @@ class MainWindow(QMainWindow):
         books_lay.addLayout(delay_row)
 
         act_row = QHBoxLayout()
+        act_row.setSpacing(8)
         self.btn_cal_run = QPushButton("▶ Atualizar agora")
         self.btn_cal_run.setObjectName("primary")
         self.btn_cal_run.clicked.connect(self._cal_run_now)
         act_row.addWidget(self.btn_cal_run)
-        self.btn_cal_sched = QPushButton("⏰ Agendar nos horários")
+        self.btn_cal_sched = QPushButton("⏰ Agendar")
         self.btn_cal_sched.setObjectName("primary")
-        self.btn_cal_sched.setToolTip("Cria agendamentos na aba Schedule Runs, um por horário de release")
+        self.btn_cal_sched.setToolTip("Agenda cada book no horário do seu release (aparece na aba Schedule Runs)")
         self.btn_cal_sched.clicked.connect(lambda: self._cal_schedule(interactive=True))
         act_row.addWidget(self.btn_cal_sched)
         self.btn_cal_cancel = QPushButton("■ Cancelar")
         self.btn_cal_cancel.setObjectName("danger")
+        for b in (self.btn_cal_run, self.btn_cal_sched, self.btn_cal_cancel):
+            # sem o min-width do estilo global: os 3 dividem a largura sem se sobrepor
+            b.setStyleSheet("min-width: 0px; padding: 10px 8px;")
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_cal_cancel.setEnabled(False)
         self.btn_cal_cancel.clicked.connect(self._cal_cancel)
         act_row.addWidget(self.btn_cal_cancel)
-        act_row.addStretch()
         books_lay.addLayout(act_row)
 
         auto_row = QHBoxLayout()
-        self.cal_chk_auto = QCheckBox("Todo dia, com o app aberto, ler o calendário e agendar sozinho às")
+        self.cal_chk_auto = QCheckBox("Agendar sozinho todo dia às")
+        self.cal_chk_auto.setToolTip("Com o app aberto, nesse horário ele lê o calendário do dia e agenda os books")
         self.cal_chk_auto.setChecked(bool(self._local_settings.get("calendar_auto", False)))
         self.cal_chk_auto.toggled.connect(self._cal_auto_toggled)
         auto_row.addWidget(self.cal_chk_auto)
@@ -1372,6 +1378,7 @@ class MainWindow(QMainWindow):
 
         self.lbl_cal_status = QLabel("Clique em Carregar calendário")
         self.lbl_cal_status.setObjectName("status")
+        self.lbl_cal_status.setWordWrap(True)
         self.lbl_cal_status.setAlignment(Qt.AlignCenter)
         right_lay.addWidget(self.lbl_cal_status)
 
@@ -1387,8 +1394,11 @@ class MainWindow(QMainWindow):
         log_lay.addWidget(btn_clear, alignment=Qt.AlignRight)
         right_lay.addWidget(grp_log, stretch=1)
 
+        right.setMinimumWidth(400)
+        left.setMinimumWidth(420)
         splitter.addWidget(right)
-        splitter.setSizes([620, 480])
+        splitter.setChildrenCollapsible(False)
+        splitter.setSizes([560, 480])
 
         self.cal_chk_relevant.toggled.connect(lambda *_: self._cal_save_settings())
         self.cal_delay.valueChanged.connect(lambda *_: self._cal_save_settings())
@@ -1449,7 +1459,9 @@ class MainWindow(QMainWindow):
         for p in plans:
             hora = p.first_release.strftime("%H:%M") if p.first_release else "--:--"
             flag = "  ✓ já divulgado" if p.released else ""
-            it = QListWidgetItem(f"{hora}  {p.book}   ({', '.join(p.indicators)}){flag}")
+            n = len(p.indicators)
+            it = QListWidgetItem(f"{hora}  {p.book}  ({n} indicador{'es' if n != 1 else ''}){flag}")
+            it.setToolTip("\n".join(p.indicators))
             it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Checked)
             it.setData(Qt.UserRole, p.book)
@@ -1459,7 +1471,7 @@ class MainWindow(QMainWindow):
         n_pend = counts.get("nao_mapeado", 0) + counts.get("book_inexistente", 0)
         msg = f"{len(df)} releases · {len(plans)} book(s) a atualizar"
         if n_pend:
-            msg += f" · {n_pend} sem definição (laranja/vermelho)"
+            msg += f" · {n_pend} sem book definido"
         self._cal_set_status(msg)
         self._cal_log(f"✓ {self._cal_selected_day():%Y-%m-%d}: {msg}")
 
