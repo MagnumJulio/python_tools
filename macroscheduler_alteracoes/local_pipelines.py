@@ -271,24 +271,45 @@ def preflight(cfg: LocalRunConfig) -> list[str]:
         p = PIPELINES[key]
         if not os.path.isdir(os.path.join(root, p.folder)):
             errs.append(f"{p.name}: subpasta '{p.folder}' não existe em {root}")
-    needs_r = any(st.argv[0] == "Rscript" for st in plan_steps(cfg))
-    if needs_r:
-        rcmd = shlex.split(cfg.settings.get("rscript_cmd") or "Rscript")
+    steps = plan_steps(cfg)
+    if any(st.argv[0] == "Rscript" for st in steps):
+        rcmd = split_cmd(cfg.settings.get("rscript_cmd") or "Rscript")
         if not rcmd or not (shutil.which(rcmd[0]) or os.path.isfile(rcmd[0])):
-            errs.append(f"Rscript não encontrado ('{cfg.settings.get('rscript_cmd')}'). Instale o R ou aponte o caminho nas configurações.")
-    pyexe = cfg.settings.get("python_exe") or ""
-    if pyexe and not (shutil.which(pyexe) or os.path.isfile(pyexe)):
-        errs.append(f"Python não encontrado: '{pyexe}'")
+            errs.append(f"Rscript não encontrado ('{cfg.settings.get('rscript_cmd')}'). Instale o R ou aponte o caminho completo do Rscript.exe nas configurações.")
+    if any(st.argv[0] == "python" for st in steps):
+        pycmd = _python_cmd(cfg.settings)
+        if not pycmd:
+            errs.append("Campo 'Python' vazio e o app está rodando como exe: informe o caminho do python.exe "
+                        "do ambiente que tem opt_utils (ex.: C:\\Users\\...\\python.exe).")
+        elif not (shutil.which(pycmd[0]) or os.path.isfile(pycmd[0])):
+            errs.append(f"Python não encontrado: '{pycmd[0]}' (campo 'Python' = '{cfg.settings.get('python_exe')}')")
     return errs
+
+
+def split_cmd(text: str) -> list[str]:
+    """Quebra um comando configurado pelo usuário em argv.
+
+    No Windows NÃO usa o modo POSIX do shlex: ele engole as barras
+    invertidas (C:\\Python\\python.exe viraria C:Pythonpython.exe).
+    Aceita caminho sem aspas, com aspas, ou com argumentos extras.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    if os.path.isfile(text):              # caminho completo, com ou sem espaços
+        return [text]
+    parts = shlex.split(text, posix=(os.name != "nt"))
+    return [p.strip('"') for p in parts]
 
 
 def _python_cmd(settings: dict) -> list[str]:
     exe = settings.get("python_exe") or ""
     if exe:
-        return shlex.split(exe) if " " not in exe or exe.startswith('"') else [exe]
+        return split_cmd(exe)
     if getattr(sys, "frozen", False):
         # Dentro do exe não há interpretador utilizável; exige configuração.
-        return [shutil.which("python") or "python"]
+        found = shutil.which("python")
+        return [found] if found else []
     return [sys.executable]
 
 
@@ -355,12 +376,13 @@ class LocalPipelineRunner:
             root = cfg.settings["python_tools_dir"]
             env = _build_env(cfg.settings)
             pycmd = _python_cmd(cfg.settings)
-            rcmd = shlex.split(cfg.settings.get("rscript_cmd") or "Rscript")
+            rcmd = split_cmd(cfg.settings.get("rscript_cmd") or "Rscript")
 
             names = ", ".join(PIPELINES[k].name for k in cfg.pipelines)
             log("=" * 60)
             log(f"Rodagem local: {names}")
             log(f"  python_tools: {root}")
+            log(f"  python: {' '.join(pycmd)}   |   Rscript: {' '.join(rcmd)}")
             log(f"  escopo: {cfg.options.scope}" + ("   [DRY-RUN: loaders só listam]" if cfg.dry_run else ""))
             log(f"  {len(steps)} passos")
             if env.get("MACRO_DEV_MOCKS"):
@@ -430,8 +452,9 @@ class LocalPipelineRunner:
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace", bufsize=1, **kw,
             )
-        except FileNotFoundError as e:
-            log(f"    ✗ comando não encontrado: {e}")
+        except (FileNotFoundError, OSError) as e:
+            log(f"    ✗ executável não encontrado: '{argv[0]}' ({e})")
+            log("      → confira os campos 'Python' / 'Rscript' na Configuração da aba (caminho completo do .exe)")
             return 127
         assert self._proc.stdout is not None
         for line in self._proc.stdout:
