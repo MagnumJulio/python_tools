@@ -118,6 +118,27 @@ def _curl_get(url: str, timeout: int = 60, retries: int = 3) -> bytes:
     raise RuntimeError(last_err)
 
 
+def _refresh_or_keep(path, url: str, label: str, timeout: int = 60) -> None:
+    """Baixa `url` em `path` quando o cache esta stale. Se o download falhar
+    (corp bloqueia atlantafed/clevelandfed: curl rc=22) e ja existe um
+    arquivo seed/cache, avisa e segue com ele em vez de derrubar o build —
+    o seed Fed esta commitado no repo justamente pra isso (commit f147fbf).
+    Falha de verdade so quando nao ha arquivo nenhum."""
+    import datetime as _dt
+    if _cache_fresh(path):
+        return
+    print(f"[{label}] cache stale/ausente — baixando...")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.write_bytes(_curl_get(url, timeout=timeout))
+    except Exception as e:
+        if path.exists() and path.stat().st_size > 0:
+            age = _dt.datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+            print(f"[{label}] [WARN] download falhou ({e}); usando arquivo existente de {age}: {path.name}")
+        else:
+            raise
+
+
 def fetch_fred_csv(fred_id: str) -> pd.Series:
     """FRED CSV publico. Sem key. Usa requests em vez de curl: no corp
     Itau o curl via proxy Basic-auth dava timeout (rc=28) ou SSL (rc=56)
@@ -139,12 +160,9 @@ def fetch_atlanta_sticky() -> pd.DataFrame:
     Atlanta NAO publica index level nativo — cada bloco de 4 cols é:
     (MoM decimal, 1-mo annualized %, 3-mo a.r., 12-mo %). O index é
     reconstruido em main() via _chain_index(ann_1mo)."""
-    if not _cache_fresh(ATLANTA_XLSX):
-        print(f"[atlanta] cache stale/ausente — baixando xlsx oficial...")
-        ATLANTA_XLSX.parent.mkdir(parents=True, exist_ok=True)
-        url = ("https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/"
-               "datafiles/research/inflationproject/stickprice/stickyprice.xlsx")
-        ATLANTA_XLSX.write_bytes(_curl_get(url, timeout=120))
+    url = ("https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/"
+           "datafiles/research/inflationproject/stickprice/stickyprice.xlsx")
+    _refresh_or_keep(ATLANTA_XLSX, url, "atlanta", timeout=120)
 
     df = pd.read_excel(ATLANTA_XLSX, sheet_name="Data", header=None)
     SERIES_NAMES = [
@@ -366,11 +384,8 @@ def fetch_cleveland_cpi_chartdata() -> pd.DataFrame:
     """Cleveland Fed Median CPI + Trimmed Mean CPI direto do CSV publico
     (chartdata, YoY, ~10 anos). Fonte primaria quando FRED esta indisponivel."""
     csv_path = ROOT / "data" / "raw" / "cleveland" / "cpi_mediancpi_chartdata.csv"
-    if not _cache_fresh(csv_path):
-        print(f"[cleveland] cache stale/ausente — baixando chartdata...")
-        url = "https://www.clevelandfed.org/-/media/files/webcharts/mediancpi/mediancpi_chartdata.csv"
-        csv_path.parent.mkdir(parents=True, exist_ok=True)
-        csv_path.write_bytes(_curl_get(url, timeout=60))
+    url = "https://www.clevelandfed.org/-/media/files/webcharts/mediancpi/mediancpi_chartdata.csv"
+    _refresh_or_keep(csv_path, url, "cleveland", timeout=60)
     df = pd.read_csv(csv_path, parse_dates=["date"])
     # cols: date, mediancpi, trimmedmeancpi, cpi, corecpi — valores em % YoY
     out_rows = []

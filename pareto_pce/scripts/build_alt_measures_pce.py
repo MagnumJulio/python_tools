@@ -89,6 +89,27 @@ def _curl_get(url: str, timeout: int = 60, retries: int = 3) -> bytes:
     raise RuntimeError(last_err)
 
 
+def _refresh_or_keep(path, url: str, label: str, timeout: int = 60) -> None:
+    """Baixa `url` em `path` quando o cache esta stale. Se o download falhar
+    (corp bloqueia atlantafed/clevelandfed: curl rc=22) e ja existe um
+    arquivo seed/cache, avisa e segue com ele em vez de derrubar o build —
+    o seed Fed esta commitado no repo justamente pra isso (commit f147fbf).
+    Falha de verdade so quando nao ha arquivo nenhum."""
+    import datetime as _dt
+    if _cache_fresh(path):
+        return
+    print(f"[{label}] cache stale/ausente — baixando...")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.write_bytes(_curl_get(url, timeout=timeout))
+    except Exception as e:
+        if path.exists() and path.stat().st_size > 0:
+            age = _dt.datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+            print(f"[{label}] [WARN] download falhou ({e}); usando arquivo existente de {age}: {path.name}")
+        else:
+            raise
+
+
 def fetch_fred_csv(fred_id: str) -> pd.Series:
     """FRED CSV publico via requests (trust_env). Fallback curl se dar pau."""
     import requests
@@ -105,11 +126,8 @@ def fetch_fred_csv(fred_id: str) -> pd.Series:
 
 def fetch_cleveland_median_pce() -> pd.DataFrame:
     """CSV Cleveland Fed full history (1977+): Date, MoM%, YoY%."""
-    if not _cache_fresh(CLEV_CSV):
-        print("[cleveland] cache stale/ausente — baixando full history CSV...")
-        CLEV_CSV.parent.mkdir(parents=True, exist_ok=True)
-        url = "https://www.clevelandfed.org/-/media/files/webcharts/medianpce/median-pce-full-history.csv"
-        CLEV_CSV.write_bytes(_curl_get(url, timeout=60))
+    url = "https://www.clevelandfed.org/-/media/files/webcharts/medianpce/median-pce-full-history.csv"
+    _refresh_or_keep(CLEV_CSV, url, "cleveland", timeout=60)
     df = pd.read_csv(CLEV_CSV)
     df.columns = ["date", "ann_1mo_raw", "ann_12mo"]  # MoM% / YoY% direto
     df["date"] = pd.to_datetime(df["date"], format="%m/%d/%Y", errors="coerce")
