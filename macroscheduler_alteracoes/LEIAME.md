@@ -138,7 +138,7 @@ Dentro de `DEFAULT_SETTINGS = {...}`, depois de `"BEA_API_KEY": "",` acrescentar
     "calendar_only_relevant": True,
 ```
 
-### `gui.py` linha a linha (a partir do `gui.py` da Rodagem Local, 1198 linhas → 1621)
+### `gui.py` linha a linha (a partir do `gui.py` da Rodagem Local, 1198 linhas → 1662)
 
 | # | Onde | O que fazer |
 |---|---|---|
@@ -151,7 +151,7 @@ Dentro de `DEFAULT_SETTINGS = {...}`, depois de `"BEA_API_KEY": "",` acrescentar
 | 7 | `MainWindow.__init__`, depois de `self._local_settings = load_settings()` | bloco `# Calendário` (9 linhas: `_cal_worker`, `_cal_update_worker`, `_cal_df`, `_cal_plans`, `_cal_after_load`, `_cal_auto_done_for`, `_cal_auto_timer`) |
 | 8 | `_build_ui`, depois do `addTab(... "🧪 Rodagem Local")` | `self.tabs.addTab(self._build_calendar_tab(), "📅 Calendário")` |
 | 9 | `_run_scheduled_job`, no `UpdateConfig(` | trocar `reports=[job.report],` por `reports=list(job.reports),` |
-| 10 | antes da seção `# Helpers` | colar o bloco inteiro `# TAB 4: Calendário` (≈420 linhas, do `_CAL_COLORS` até `_cal_log`) |
+| 10 | antes da seção `# Helpers` | colar o bloco inteiro `# TAB 4: Calendário` (≈430 linhas, do `_CAL_COLORS` até `_cal_log`) |
 
 Mais seguro: substituir o `gui.py` inteiro.
 
