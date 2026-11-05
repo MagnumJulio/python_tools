@@ -1,0 +1,9 @@
+﻿# Mapeamento indicador do calendário Bloomberg -> book do MacroScheduler.
+# pais = country_name do calendário (* = qualquer país)
+# indicador = coluna indicator (nome do dado como aparece no calendário)
+# book = nome exato do relatório; '-' = sem book (não atualiza e não aparece como pendente)
+pais;indicador;book
+United States;Change in Nonfarm Payrolls;US Payroll
+United States;Change in Manuf. Payrolls;US Payroll
+United States;Unemployment Rate;US Payroll
+United States;U. of Mich. Sentiment;University of Michigan Sentiment

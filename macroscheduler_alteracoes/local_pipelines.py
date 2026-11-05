@@ -36,6 +36,11 @@ DEFAULT_SETTINGS = {
     "rscript_cmd": "Rscript",  # pode ser caminho completo (ex.: C:\\Program Files\\R\\R-4.4\\bin\\Rscript.exe)
     "BLS_API_KEY": "",
     "BEA_API_KEY": "",
+    # Aba Calendário (calendar_books.py)
+    "calendar_auto": False,          # agendar sozinho todo dia
+    "calendar_auto_time": "07:00",   # horário em que o app lê o calendário do dia
+    "calendar_delay_min": 1,         # minutos depois do release para rodar o book
+    "calendar_only_relevant": True,  # só High/Very High, como no site
 }
 
 

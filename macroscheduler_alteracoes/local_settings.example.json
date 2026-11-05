@@ -3,5 +3,9 @@
   "python_exe": "",
   "rscript_cmd": "Rscript",
   "BLS_API_KEY": "",
-  "BEA_API_KEY": ""
+  "BEA_API_KEY": "",
+  "calendar_auto": false,
+  "calendar_auto_time": "07:00",
+  "calendar_delay_min": 1,
+  "calendar_only_relevant": true
 }
