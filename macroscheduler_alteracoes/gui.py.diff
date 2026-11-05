@@ -1,0 +1,464 @@
+diff --git a/gui.py b/gui.py
+index df10734..a4af574 100644
+--- a/gui.py
++++ b/gui.py
+@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
+     QTextEdit, QProgressBar, QGroupBox, QAbstractItemView,
+     QSplitter, QMessageBox, QTabWidget, QTimeEdit,
+     QTableWidget, QTableWidgetItem, QHeaderView,
+-    QInputDialog,
++    QInputDialog, QComboBox, QFileDialog,
+ )
+ from PyQt5.QtCore import (
+     Qt, QDate, QTime, QThread, QTimer,
+@@ -24,6 +24,11 @@ from engine import (
+     test_haver_connection, test_bbg_connection,
+     UK_LABOR_REPORT_NAME,
+ )
++from local_pipelines import (
++    PIPELINES, PipelineOptions, LocalRunConfig, LocalPipelineRunner,
++    load_settings, save_settings, plan_steps, settings_path,
++    pipeline_display_name, pipeline_key_from_display,
++)
+ 
+ 
+ # ──────────────────────────────────────────────────────────────────────
+@@ -78,6 +83,27 @@ class UpdateWorker(QThread):
+         self.engine.cancel()
+ 
+ 
++class LocalPipelineWorker(QThread):
++    """Roda os pipelines do python_tools (subprocessos) fora da thread da GUI."""
++    log_signal = pyqtSignal(str)
++    progress_signal = pyqtSignal(int, int)
++    finished_signal = pyqtSignal(bool, str)
++
++    def __init__(self, config: LocalRunConfig, parent=None):
++        super().__init__(parent)
++        self.runner = LocalPipelineRunner(config)
++
++    def run(self):
++        self.runner.run(
++            on_log=self.log_signal.emit,
++            on_progress=self.progress_signal.emit,
++            on_finished=self.finished_signal.emit,
++        )
++
++    def cancel(self):
++        self.runner.cancel()
++
++
+ # ──────────────────────────────────────────────────────────────────────
+ # Schedule Job data class
+ # ──────────────────────────────────────────────────────────────────────
+@@ -85,16 +111,17 @@ class UpdateWorker(QThread):
+ class ScheduleJob:
+     def __init__(self, job_id: str, report: str, scheduled_date: ddate,
+                  scheduled_time: dtime, delete_before: bool, cutoff_date: str,
+-                 uk_labor_month: str | None = None):
++                 uk_labor_month: str | None = None, pipeline_key: str | None = None):
+         self.job_id = job_id
+         self.report = report
++        self.pipeline_key = pipeline_key   # != None → rodagem local (python_tools)
+         self.scheduled_date = scheduled_date
+         self.scheduled_time = scheduled_time
+         self.delete_before = delete_before
+         self.cutoff_date = cutoff_date
+         self.uk_labor_month = uk_labor_month
+         self.status = "Aguardando"
+-        self.worker: UpdateWorker | None = None
++        self.worker: UpdateWorker | LocalPipelineWorker | None = None
+         self.has_run = False
+ 
+ 
+@@ -113,6 +140,8 @@ class MainWindow(QMainWindow):
+         self._all_reports: list[str] = []
+         self._worker: UpdateWorker | None = None
+         self._conn_worker: ConnectionTestWorker | None = None
++        self._local_worker: LocalPipelineWorker | None = None
++        self._local_settings = load_settings()
+ 
+         # Schedule state
+         self._jobs: dict[str, ScheduleJob] = {}
+@@ -191,6 +220,7 @@ class MainWindow(QMainWindow):
+ 
+         self.tabs.addTab(self._build_run_once_tab(), "▶ Run Once")
+         self.tabs.addTab(self._build_schedule_tab(), "⏰ Schedule Runs")
++        self.tabs.addTab(self._build_local_tab(), "🧪 Rodagem Local")
+ 
+     # ── Connection Tests ──────────────────────────────────────────────
+ 
+@@ -499,6 +529,7 @@ class MainWindow(QMainWindow):
+         self.sched_report_list.clear()
+         for name in reports:
+             self.sched_report_list.addItem(name)
++        self._add_pipelines_to_sched_list()
+ 
+         self._set_status(f"Pronto — {len(reports)} relatórios disponíveis")
+         self._log(f"✓ {len(reports)} relatórios carregados do banco.")
+@@ -506,6 +537,14 @@ class MainWindow(QMainWindow):
+     def _on_reports_error(self, error: str):
+         self._set_status("Erro ao carregar relatórios", error=True)
+         self._log(f"✗ Erro: {error}")
++        self._add_pipelines_to_sched_list()
++
++    def _add_pipelines_to_sched_list(self):
++        existing = {self.sched_report_list.item(i).text() for i in range(self.sched_report_list.count())}
++        for key in PIPELINES:
++            name = pipeline_display_name(key)
++            if name not in existing:
++                self.sched_report_list.addItem(name)
+ 
+     # ── Filtering / selection (Run Once) ──────────────────────────────
+ 
+@@ -630,6 +669,8 @@ class MainWindow(QMainWindow):
+         qd = self.sched_run_date.date()
+         scheduled_date = ddate(qd.year(), qd.month(), qd.day())
+ 
++        pipeline_key = pipeline_key_from_display(report)
++
+         # UK Labor month prompt
+         uk_month: str | None = None
+         if report == UK_LABOR_REPORT_NAME:
+@@ -643,9 +684,10 @@ class MainWindow(QMainWindow):
+             report=report,
+             scheduled_date=scheduled_date,
+             scheduled_time=scheduled_time,
+-            delete_before=self.sched_chk_delete.isChecked(),
+-            cutoff_date=self.sched_date_edit.date().toString("yyyy-MM-dd"),
++            delete_before=False if pipeline_key else self.sched_chk_delete.isChecked(),
++            cutoff_date="—" if pipeline_key else self.sched_date_edit.date().toString("yyyy-MM-dd"),
+             uk_labor_month=uk_month,
++            pipeline_key=pipeline_key,
+         )
+         self._jobs[job_id] = job
+         self._refresh_schedule_table()
+@@ -655,6 +697,8 @@ class MainWindow(QMainWindow):
+         )
+         if uk_month:
+             self._sched_log(f"  🇬🇧 UK month: {uk_month}")
++        if pipeline_key:
++            self._sched_log("  ⚙ Pipeline local: usa as opções da aba 'Rodagem Local' no momento da execução")
+ 
+         if not self._schedule_timer.isActive():
+             self._schedule_timer.start()
+@@ -766,19 +810,22 @@ class MainWindow(QMainWindow):
+         job.has_run = True
+         self._sched_log(f"\n▶ Iniciando execução agendada: '{job.report}'")
+ 
+-        config = UpdateConfig(
+-            reports=[job.report],
+-            delete_before_update=job.delete_before,
+-            cutoff_date=job.cutoff_date,
+-            uk_labor_month=job.uk_labor_month,
+-        )
+-
+-        # Create worker (engine built immediately in __init__)
+-        worker = UpdateWorker(config)
+-        job.worker = worker
+-
+-        worker.log_signal.connect(self._sched_log)
+-        worker.summary_signal.connect(self._sched_log)
++        if job.pipeline_key:
++            worker = LocalPipelineWorker(self._local_run_config([job.pipeline_key]))
++            job.worker = worker
++            worker.log_signal.connect(self._sched_log)
++        else:
++            config = UpdateConfig(
++                reports=[job.report],
++                delete_before_update=job.delete_before,
++                cutoff_date=job.cutoff_date,
++                uk_labor_month=job.uk_labor_month,
++            )
++            # Create worker (engine built immediately in __init__)
++            worker = UpdateWorker(config)
++            job.worker = worker
++            worker.log_signal.connect(self._sched_log)
++            worker.summary_signal.connect(self._sched_log)
+ 
+         jid = job.job_id
+         worker.progress_signal.connect(
+@@ -812,6 +859,283 @@ class MainWindow(QMainWindow):
+             f"{'✓' if success else '✗'} '{job.report}': {message}"
+         )
+ 
++    # ──────────────────────────────────────────────────────────────────────
++    # TAB 3: Rodagem Local (pipelines do python_tools)
++    # ──────────────────────────────────────────────────────────────────────
++
++    def _build_local_tab(self) -> QWidget:
++        tab = QWidget()
++        layout = QVBoxLayout(tab)
++        layout.setContentsMargins(8, 12, 8, 8)
++
++        splitter = QSplitter(Qt.Horizontal)
++        layout.addWidget(splitter, stretch=1)
++
++        # LEFT — pipelines + opções + configuração
++        left = QWidget()
++        left_lay = QVBoxLayout(left)
++        left_lay.setContentsMargins(0, 0, 8, 0)
++
++        grp_pipes = QGroupBox("Pipelines (python_tools)")
++        pipes_lay = QVBoxLayout(grp_pipes)
++        self.local_pipe_checks: dict[str, QCheckBox] = {}
++        for key, p in PIPELINES.items():
++            chk = QCheckBox(f"{p.name}   —   release: {p.release_hint}")
++            chk.stateChanged.connect(self._refresh_local_plan)
++            pipes_lay.addWidget(chk)
++            self.local_pipe_checks[key] = chk
++        left_lay.addWidget(grp_pipes)
++
++        grp_opt = QGroupBox("Opções")
++        opt_lay = QVBoxLayout(grp_opt)
++
++        scope_row = QHBoxLayout()
++        scope_row.addWidget(QLabel("Escopo:"))
++        self.local_scope = QComboBox()
++        self.local_scope.addItem("Dashboard (subset dos runbooks)", "dashboard")
++        self.local_scope.addItem("Full (todas as categorias)", "full")
++        self.local_scope.currentIndexChanged.connect(self._refresh_local_plan)
++        scope_row.addWidget(self.local_scope)
++        scope_row.addStretch()
++        opt_lay.addLayout(scope_row)
++
++        self.local_chk_sa = QCheckBox("IPCA / IPCA-15: carregar também idx SA (X-13 + fixes)")
++        self.local_chk_sa.setChecked(True)
++        self.local_chk_extras = QCheckBox("CPI-U: alt measures + difusão + breadth")
++        self.local_chk_extras.setChecked(True)
++        self.local_chk_oer = QCheckBox("CPI-U: OER regional")
++        self.local_chk_fed = QCheckBox("PCE: alt measures scraped (Cleveland/Dallas já publicaram)")
++        self.local_chk_dry = QCheckBox("Dry-run: loaders só listam, nada é gravado no SQL")
++        for c in (self.local_chk_sa, self.local_chk_extras, self.local_chk_oer,
++                  self.local_chk_fed, self.local_chk_dry):
++            c.stateChanged.connect(self._refresh_local_plan)
++            opt_lay.addWidget(c)
++        left_lay.addWidget(grp_opt)
++
++        grp_cfg = QGroupBox("Configuração")
++        cfg_lay = QVBoxLayout(grp_cfg)
++
++        dir_row = QHBoxLayout()
++        dir_row.addWidget(QLabel("Pasta python_tools:"))
++        self.local_dir_edit = QLineEdit(self._local_settings.get("python_tools_dir", ""))
++        self.local_dir_edit.setPlaceholderText(r"ex.: C:\dev\python_tools")
++        dir_row.addWidget(self.local_dir_edit, stretch=1)
++        btn_browse = QPushButton("…")
++        btn_browse.setObjectName("secondary")
++        btn_browse.setFixedWidth(36)
++        btn_browse.clicked.connect(self._browse_python_tools)
++        dir_row.addWidget(btn_browse)
++        cfg_lay.addLayout(dir_row)
++
++        r_row = QHBoxLayout()
++        r_row.addWidget(QLabel("Rscript:"))
++        self.local_rscript_edit = QLineEdit(self._local_settings.get("rscript_cmd", "Rscript"))
++        self.local_rscript_edit.setPlaceholderText("Rscript  (ou caminho completo do Rscript.exe)")
++        r_row.addWidget(self.local_rscript_edit, stretch=1)
++        cfg_lay.addLayout(r_row)
++
++        py_row = QHBoxLayout()
++        py_row.addWidget(QLabel("Python:"))
++        self.local_python_edit = QLineEdit(self._local_settings.get("python_exe", ""))
++        self.local_python_edit.setPlaceholderText("vazio = o Python que está rodando o app")
++        py_row.addWidget(self.local_python_edit, stretch=1)
++        cfg_lay.addLayout(py_row)
++
++        keys_row = QHBoxLayout()
++        keys_row.addWidget(QLabel("BLS_API_KEY:"))
++        self.local_bls_edit = QLineEdit(self._local_settings.get("BLS_API_KEY", ""))
++        self.local_bls_edit.setEchoMode(QLineEdit.Password)
++        keys_row.addWidget(self.local_bls_edit, stretch=1)
++        keys_row.addWidget(QLabel("BEA_API_KEY:"))
++        self.local_bea_edit = QLineEdit(self._local_settings.get("BEA_API_KEY", ""))
++        self.local_bea_edit.setEchoMode(QLineEdit.Password)
++        keys_row.addWidget(self.local_bea_edit, stretch=1)
++        cfg_lay.addLayout(keys_row)
++
++        save_row = QHBoxLayout()
++        self.lbl_local_cfg = QLabel(f"salvo em {settings_path()}")
++        self.lbl_local_cfg.setObjectName("subtitle")
++        save_row.addWidget(self.lbl_local_cfg, stretch=1)
++        btn_save = QPushButton("💾 Salvar configuração")
++        btn_save.setObjectName("secondary")
++        btn_save.clicked.connect(self._save_local_settings)
++        save_row.addWidget(btn_save)
++        cfg_lay.addLayout(save_row)
++
++        left_lay.addWidget(grp_cfg)
++        left_lay.addStretch()
++        splitter.addWidget(left)
++
++        # RIGHT — plano + botões + progresso + log
++        right = QWidget()
++        right_lay = QVBoxLayout(right)
++        right_lay.setContentsMargins(8, 0, 0, 0)
++
++        action_row = QHBoxLayout()
++        self.btn_local_run = QPushButton("▶ Rodar Pipelines")
++        self.btn_local_run.setObjectName("primary")
++        self.btn_local_run.clicked.connect(self._start_local_run)
++        action_row.addWidget(self.btn_local_run)
++
++        self.btn_local_cancel = QPushButton("■ Cancelar")
++        self.btn_local_cancel.setObjectName("danger")
++        self.btn_local_cancel.setEnabled(False)
++        self.btn_local_cancel.clicked.connect(self._cancel_local_run)
++        action_row.addWidget(self.btn_local_cancel)
++        action_row.addStretch()
++        right_lay.addLayout(action_row)
++
++        self.local_progress = QProgressBar()
++        self.local_progress.setValue(0)
++        self.local_progress.setFormat("%v / %m passos  (%p%)")
++        right_lay.addWidget(self.local_progress)
++
++        self.lbl_local_status = QLabel("Selecione um ou mais pipelines")
++        self.lbl_local_status.setObjectName("status")
++        self.lbl_local_status.setAlignment(Qt.AlignCenter)
++        right_lay.addWidget(self.lbl_local_status)
++
++        grp_plan = QGroupBox("Passos planejados")
++        plan_lay = QVBoxLayout(grp_plan)
++        self.local_plan_list = QListWidget()
++        self.local_plan_list.setSelectionMode(QAbstractItemView.NoSelection)
++        self.local_plan_list.setMaximumHeight(170)
++        plan_lay.addWidget(self.local_plan_list)
++        right_lay.addWidget(grp_plan)
++
++        grp_log = QGroupBox("Log")
++        log_lay = QVBoxLayout(grp_log)
++        self.local_log_box = QTextEdit()
++        self.local_log_box.setObjectName("logBox")
++        self.local_log_box.setReadOnly(True)
++        log_lay.addWidget(self.local_log_box)
++        btn_clear = QPushButton("Limpar Log")
++        btn_clear.setObjectName("secondary")
++        btn_clear.clicked.connect(self.local_log_box.clear)
++        log_lay.addWidget(btn_clear, alignment=Qt.AlignRight)
++        right_lay.addWidget(grp_log, stretch=1)
++
++        splitter.addWidget(right)
++        splitter.setSizes([420, 600])
++        return tab
++
++    def _local_options(self) -> PipelineOptions:
++        return PipelineOptions(
++            scope=self.local_scope.currentData() or "dashboard",
++            sa=self.local_chk_sa.isChecked(),
++            cpius_extras=self.local_chk_extras.isChecked(),
++            cpius_oer=self.local_chk_oer.isChecked(),
++            pce_fed=self.local_chk_fed.isChecked(),
++        )
++
++    def _local_settings_from_form(self) -> dict:
++        cfg = dict(self._local_settings)
++        cfg.update({
++            "python_tools_dir": self.local_dir_edit.text().strip(),
++            "rscript_cmd": self.local_rscript_edit.text().strip() or "Rscript",
++            "python_exe": self.local_python_edit.text().strip(),
++            "BLS_API_KEY": self.local_bls_edit.text().strip(),
++            "BEA_API_KEY": self.local_bea_edit.text().strip(),
++        })
++        return cfg
++
++    def _local_run_config(self, keys: list[str]) -> LocalRunConfig:
++        return LocalRunConfig(
++            pipelines=keys,
++            options=self._local_options(),
++            dry_run=self.local_chk_dry.isChecked(),
++            settings=self._local_settings_from_form(),
++        )
++
++    def _selected_pipelines(self) -> list[str]:
++        return [k for k, c in self.local_pipe_checks.items() if c.isChecked()]
++
++    def _refresh_local_plan(self, *_):
++        self.local_plan_list.clear()
++        keys = self._selected_pipelines()
++        if not keys:
++            return
++        steps = plan_steps(self._local_run_config(keys))
++        for i, st in enumerate(steps, 1):
++            icon = {"load": "💾", "fix": "🔧"}.get(st.kind, "⬇")
++            self.local_plan_list.addItem(f"{i:>2}. {icon} {st.label}")
++        self.lbl_local_status.setText(f"{len(steps)} passos planejados")
++
++    def _browse_python_tools(self):
++        d = QFileDialog.getExistingDirectory(self, "Pasta do python_tools", self.local_dir_edit.text())
++        if d:
++            self.local_dir_edit.setText(d)
++
++    def _save_local_settings(self):
++        self._local_settings = self._local_settings_from_form()
++        try:
++            save_settings(self._local_settings)
++            self._local_log(f"✓ Configuração salva em {settings_path()}")
++        except Exception as e:
++            QMessageBox.warning(self, "Erro", f"Não foi possível salvar a configuração:\n{e}")
++
++    def _start_local_run(self):
++        keys = self._selected_pipelines()
++        if not keys:
++            QMessageBox.warning(self, "Atenção", "Selecione ao menos um pipeline.")
++            return
++        cfg = self._local_run_config(keys)
++        if not cfg.dry_run:
++            names = "\n".join(f"  • {PIPELINES[k].name}" for k in keys)
++            reply = QMessageBox.question(
++                self, "Confirmar carga no SQL",
++                f"Os loaders vão gravar no SQL corp (OPT_Macro_Series_2 / _Data_2):\n\n{names}\n\n"
++                "Escopo: " + ("FULL" if cfg.options.scope == "full" else "dashboard") + ". Continuar?",
++                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
++            )
++            if reply != QMessageBox.Yes:
++                return
++
++        self._local_settings = cfg.settings
++        self.local_log_box.clear()
++        self.local_progress.setValue(0)
++        self.local_progress.setMaximum(0)
++
++        self._local_worker = LocalPipelineWorker(cfg)
++        self._local_worker.log_signal.connect(self._local_log)
++        self._local_worker.progress_signal.connect(self._on_local_progress)
++        self._local_worker.finished_signal.connect(self._on_local_finished)
++        self._set_local_running(True)
++        self._local_worker.start()
++
++    def _cancel_local_run(self):
++        if self._local_worker:
++            self._local_log("\n⏳ Cancelando (encerra o passo em execução)...")
++            self._local_worker.cancel()
++
++    def _on_local_progress(self, current: int, total: int):
++        self.local_progress.setMaximum(total)
++        self.local_progress.setValue(current)
++
++    def _on_local_finished(self, success: bool, message: str):
++        self._set_local_running(False)
++        if not success and self.local_progress.maximum() == 0:
++            self.local_progress.setMaximum(1)
++        self.lbl_local_status.setText(f"✓ {message}" if success else f"✗ {message}")
++        self.lbl_local_status.setObjectName("status" if success else "statusError")
++        self.lbl_local_status.style().unpolish(self.lbl_local_status)
++        self.lbl_local_status.style().polish(self.lbl_local_status)
++
++    def _set_local_running(self, running: bool):
++        self.btn_local_run.setEnabled(not running)
++        self.btn_local_cancel.setEnabled(running)
++        for c in self.local_pipe_checks.values():
++            c.setEnabled(not running)
++        if running:
++            self.lbl_local_status.setText("Executando...")
++            self.lbl_local_status.setObjectName("status")
++            self.lbl_local_status.style().unpolish(self.lbl_local_status)
++            self.lbl_local_status.style().polish(self.lbl_local_status)
++
++    def _local_log(self, message: str):
++        self.local_log_box.append(message)
++        self.local_log_box.moveCursor(QTextCursor.End)
++
+     # ──────────────────────────────────────────────────────────────────────
+     # Helpers
+     # ──────────────────────────────────────────────────────────────────────
