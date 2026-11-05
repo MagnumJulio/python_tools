@@ -6,7 +6,8 @@
 # Estrategia primaria: fetch das series OFICIAIS (match 100% com Fed):
 #   - Cleveland Fed Median CPI       (FRED: MEDCPIM158SFRBCLE)
 #   - Cleveland Fed Trimmed-Mean CPI (FRED: TRMMEANCPIM158SFRBCLE)
-#   - Atlanta Fed Sticky-Price CPI family (xlsx oficial, 6 series)
+#   - Atlanta Fed Sticky-Price CPI family (FRED rid=313, 6 series; fallback xlsx oficial)
+#   ATLANTA_SOURCE=xlsx forca o xlsx (debug)
 #
 # Custom (bottom-up proprio, nao existe oficial):
 #   - Trimmed Symmetric 25% CPI (corta 25% top + 25% cauda, mean do miolo 50%)
@@ -118,6 +119,27 @@ def _curl_get(url: str, timeout: int = 60, retries: int = 3) -> bytes:
     raise RuntimeError(last_err)
 
 
+def _refresh_or_keep(path, url: str, label: str, timeout: int = 60) -> None:
+    """Baixa `url` em `path` quando o cache esta stale. Se o download falhar
+    (corp bloqueia atlantafed/clevelandfed: curl rc=22) e ja existe um
+    arquivo seed/cache, avisa e segue com ele em vez de derrubar o build —
+    o seed Fed esta commitado no repo justamente pra isso (commit f147fbf).
+    Falha de verdade so quando nao ha arquivo nenhum."""
+    import datetime as _dt
+    if _cache_fresh(path):
+        return
+    print(f"[{label}] cache stale/ausente — baixando...")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.write_bytes(_curl_get(url, timeout=timeout))
+    except Exception as e:
+        if path.exists() and path.stat().st_size > 0:
+            age = _dt.datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+            print(f"[{label}] [WARN] download falhou ({e}); usando arquivo existente de {age}: {path.name}")
+        else:
+            raise
+
+
 def fetch_fred_csv(fred_id: str) -> pd.Series:
     """FRED CSV publico. Sem key. Usa requests em vez de curl: no corp
     Itau o curl via proxy Basic-auth dava timeout (rc=28) ou SSL (rc=56)
@@ -134,27 +156,62 @@ def fetch_fred_csv(fred_id: str) -> pd.Series:
     return df.set_index("date")["value"].dropna()
 
 
+# As 6 series Sticky/Flexible que o Atlanta Fed publica no FRED (release
+# rid=313). Sufixo M158 = "percent change at annual rate" (= coluna
+# "1-mo annualized" do xlsx), M159 = "percent change from year ago" (= "12-mo").
+ATLANTA_FRED_IDS = {
+    "flexible_cpi":               ("FLEXCPIM158SFRBATL",       "FLEXCPIM159SFRBATL"),
+    "core_flexible_cpi":          ("COREFLEXCPIM158SFRBATL",   "COREFLEXCPIM159SFRBATL"),
+    "sticky_cpi":                 ("STICKCPIM158SFRBATL",      "STICKCPIM159SFRBATL"),
+    "core_sticky_cpi":            ("CORESTICKM158SFRBATL",     "CORESTICKM159SFRBATL"),
+    "sticky_cpi_ex_shelter":      ("STICKCPIXSHLTRM158SFRBATL", "STICKCPIXSHLTRM159SFRBATL"),
+    "core_sticky_cpi_ex_shelter": ("CRESTKCPIXSLTRM158SFRBATL", "CRESTKCPIXSLTRM159SFRBATL"),
+}
+
+
+def fetch_atlanta_sticky_fred() -> pd.DataFrame:
+    """Mesmas 6 series do xlsx, mas via FRED (o Atlanta Fed e quem publica
+    la). Fonte primaria porque a corp bloqueia atlantafed.org e libera
+    fred.stlouisfed.org. Falha em qualquer serie -> levanta, e o caller cai
+    pro xlsx."""
+    out_rows = []
+    for name, (id_1mo, id_12mo) in ATLANTA_FRED_IDS.items():
+        s1 = fetch_fred_csv(id_1mo).rename("ann_1mo")
+        s12 = fetch_fred_csv(id_12mo).rename("ann_12mo")
+        if s1.empty:
+            raise RuntimeError(f"FRED {id_1mo} vazio")
+        df = pd.concat([s1, s12], axis=1).reset_index().rename(columns={"index": "date"})
+        df.columns = ["date", "ann_1mo", "ann_12mo"]
+        df["date"] = pd.to_datetime(df["date"]).dt.to_period("M").dt.to_timestamp()
+        df["measure"] = name
+        out_rows.append(df)
+        print(f"  [atlanta/fred] {name}: {len(s1)} obs, ultima {s1.index.max().date()}")
+    return pd.concat(out_rows, ignore_index=True)
+
+
 def fetch_atlanta_sticky() -> pd.DataFrame:
-    """Parse xlsx oficial Atlanta Fed, retorna long df com as 6 series.
-    Atlanta NAO publica index level nativo — cada bloco de 4 cols é:
-    (MoM decimal, 1-mo annualized %, 3-mo a.r., 12-mo %). O index é
+    """6 series Sticky/Flexible do Atlanta Fed, long df (date, ann_1mo,
+    ann_12mo, measure). Ordem: FRED (passa no proxy corp) -> xlsx oficial
+    (download, ou o seed/cache commitado se o download falhar). O index e
     reconstruido em main() via _chain_index(ann_1mo)."""
-    if not _cache_fresh(ATLANTA_XLSX):
-        print(f"[atlanta] cache stale/ausente — baixando xlsx oficial...")
-        ATLANTA_XLSX.parent.mkdir(parents=True, exist_ok=True)
-        url = ("https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/"
-               "datafiles/research/inflationproject/stickprice/stickyprice.xlsx")
-        ATLANTA_XLSX.write_bytes(_curl_get(url, timeout=120))
+    if os.environ.get("ATLANTA_SOURCE", "fred").lower() != "xlsx":
+        try:
+            return fetch_atlanta_sticky_fred()
+        except Exception as e:
+            print(f"[atlanta] FRED falhou ({str(e)[:120]}); tentando xlsx oficial...")
+    return fetch_atlanta_sticky_xlsx()
+
+
+def fetch_atlanta_sticky_xlsx() -> pd.DataFrame:
+    """Parse xlsx oficial Atlanta Fed. Atlanta NAO publica index level
+    nativo — cada bloco de 4 cols é: (MoM decimal, 1-mo annualized %,
+    3-mo a.r., 12-mo %)."""
+    url = ("https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/"
+           "datafiles/research/inflationproject/stickprice/stickyprice.xlsx")
+    _refresh_or_keep(ATLANTA_XLSX, url, "atlanta", timeout=120)
 
     df = pd.read_excel(ATLANTA_XLSX, sheet_name="Data", header=None)
-    SERIES_NAMES = [
-        "flexible_cpi",
-        "core_flexible_cpi",
-        "sticky_cpi",
-        "core_sticky_cpi",
-        "sticky_cpi_ex_shelter",
-        "core_sticky_cpi_ex_shelter",
-    ]
+    SERIES_NAMES = list(ATLANTA_FRED_IDS)   # mesma ordem dos blocos do xlsx
     out_rows = []
     for i, name in enumerate(SERIES_NAMES):
         col_1mo  = 1 + i * 4 + 1
@@ -366,11 +423,8 @@ def fetch_cleveland_cpi_chartdata() -> pd.DataFrame:
     """Cleveland Fed Median CPI + Trimmed Mean CPI direto do CSV publico
     (chartdata, YoY, ~10 anos). Fonte primaria quando FRED esta indisponivel."""
     csv_path = ROOT / "data" / "raw" / "cleveland" / "cpi_mediancpi_chartdata.csv"
-    if not _cache_fresh(csv_path):
-        print(f"[cleveland] cache stale/ausente — baixando chartdata...")
-        url = "https://www.clevelandfed.org/-/media/files/webcharts/mediancpi/mediancpi_chartdata.csv"
-        csv_path.parent.mkdir(parents=True, exist_ok=True)
-        csv_path.write_bytes(_curl_get(url, timeout=60))
+    url = "https://www.clevelandfed.org/-/media/files/webcharts/mediancpi/mediancpi_chartdata.csv"
+    _refresh_or_keep(csv_path, url, "cleveland", timeout=60)
     df = pd.read_csv(csv_path, parse_dates=["date"])
     # cols: date, mediancpi, trimmedmeancpi, cpi, corecpi — valores em % YoY
     out_rows = []
