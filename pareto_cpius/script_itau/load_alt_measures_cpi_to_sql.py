@@ -17,6 +17,10 @@
 # linha CPIUS:alt_% que NAO esteja no plano atual (as 27 variantes antigas
 # _1mo/_mom_sa/_12mo). Idempotente apos o primeiro run.
 #
+# As series bottom-up (sufixo _custom, ex. alt_trimmed_sym_25_cpi_custom)
+# sobem por script_itau/load_alt_bottomup_cpi_to_sql.py desde 2026-11-05 e
+# o cleanup daqui NAO mexe nelas.
+#
 # Uso:
 #   cd pareto_cpius
 #   python script_itau/load_alt_measures_cpi_to_sql.py --dry-run
@@ -37,7 +41,6 @@ IN_CSV = ROOT / "data" / "cpi_cpius_alt_measures.csv"
 MEASURE_LABELS = {
     "median_cpi":                   ("Median (Cleveland Fed)",                     "alt_median_cpi"),
     "trimmed_mean_16_cpi":          ("Trimmed Mean 16% (Cleveland Fed)",           "alt_trimmed_mean_16_cpi"),
-    "trimmed_sym_25_cpi_custom":    ("Trimmed Sym 25% (custom)",                   "alt_trimmed_sym_25_cpi_custom"),
     "sticky_cpi":                   ("Sticky-Price (Atlanta Fed)",                 "alt_sticky_cpi"),
     "core_sticky_cpi":              ("Core Sticky-Price (Atlanta Fed)",            "alt_core_sticky_cpi"),
     "sticky_cpi_ex_shelter":        ("Sticky-Price ex Shelter (Atlanta Fed)",      "alt_sticky_cpi_ex_shelter"),
@@ -56,6 +59,8 @@ def _load_df() -> pd.DataFrame:
     if "value_index" not in df.columns:
         sys.exit(f"[FAIL] {IN_CSV.name} sem coluna 'value_index'. "
                  f"Re-rode scripts/build_alt_measures_cpi.py (sync 2026-10-28).")
+    # CSV de build antigo ainda pode trazer o custom: ignora (sobe pelo bottom-up).
+    df = df[~df["measure"].str.endswith("_custom")]
     missing = set(df["measure"].unique()) - set(MEASURE_LABELS)
     if missing:
         print(f"[WARN] measures no CSV sem label em MEASURE_LABELS: {missing}")
@@ -65,11 +70,14 @@ def _load_df() -> pd.DataFrame:
 def _cleanup_legacy_alt(session, keep_codes: set[str]) -> int:
     """Deleta series CPIUS:alt_% que NAO estao no plano atual. Cobre as
     variantes legadas _1mo / _mom_sa / _12mo (data_type='NSA') removidas no
-    sync 2026-10-28. Deleta data primeiro, depois metadata. Idempotente."""
-    print("\n[cleanup] procurando series CPIUS:alt_% legadas...")
+    sync 2026-10-28. Deleta data primeiro, depois metadata. Idempotente.
+    Series bottom-up (sufixo _custom) pertencem ao loader bottom-up e ficam
+    fora do cleanup."""
+    print("\n[cleanup] procurando series CPIUS:alt_% legadas (exceto _custom)...")
     df = pd.read_sql(
         "SELECT series_id, series_name, data_type, bls_code "
-        "FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'CPIUS:alt_%'",
+        "FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'CPIUS:alt_%' "
+        "AND bls_code NOT LIKE '%_custom'",
         session.conn,
     )
     if df.empty:
@@ -180,9 +188,7 @@ def main():
         )
         if len(q) > 0:
             return int(q["series_id"].iloc[0])
-        origin = ("custom bottom-up Itau (nao e fonte oficial Fed)"
-                  if sp["measure"].endswith("_custom")
-                  else "Fed oficial")
+        origin = "Fed oficial"
         meta = pd.DataFrame([{
             "country": "US", "subject": "Prices", "indicator": "CPI",
             "series_name": sp["series_name"], "data_type": "SA",
