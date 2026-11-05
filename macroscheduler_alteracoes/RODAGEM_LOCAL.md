@@ -53,6 +53,20 @@ Opções:
 
 A lista "Passos planejados" mostra exatamente o que vai rodar antes de clicar em Rodar.
 
+## Para quem vai herdar o sistema
+
+- **Testar ambiente** (botão na Configuração) roda de verdade o Python e o Rscript
+  configurados e lista, item a item, o que está ok e o que falta: pasta dos pipelines,
+  Python com `pandas`/`requests`/`opt_utils`, Rscript, chaves BLS/BEA. Corrija os ✗ e teste
+  de novo. Nada é gravado no SQL nesse teste.
+- O campo **Python** pode ficar vazio: o app usa o próprio interpretador quando roda do
+  fonte e, no exe, procura `python` no PATH e depois o launcher `py -3`. Preencha só se o
+  teste disser que o Python encontrado não tem `opt_utils`.
+- O campo **Rscript** pode ficar `Rscript`: no Windows, se não estiver no PATH, o app
+  procura em `C:\Program Files\R\R-*\bin\Rscript.exe`.
+- Em caso de erro no meio de uma rodada, o log mostra o comando exato, a pasta e o código de
+  saída do passo; o cabeçalho da rodada mostra qual Python e qual Rscript foram usados.
+
 ## Agendamento
 
 Na aba **Schedule Runs** os pipelines aparecem na lista como

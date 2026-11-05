@@ -273,14 +273,14 @@ def preflight(cfg: LocalRunConfig) -> list[str]:
             errs.append(f"{p.name}: subpasta '{p.folder}' não existe em {root}")
     steps = plan_steps(cfg)
     if any(st.argv[0] == "Rscript" for st in steps):
-        rcmd = split_cmd(cfg.settings.get("rscript_cmd") or "Rscript")
+        rcmd = _rscript_cmd(cfg.settings)
         if not rcmd or not (shutil.which(rcmd[0]) or os.path.isfile(rcmd[0])):
             errs.append(f"Rscript não encontrado ('{cfg.settings.get('rscript_cmd')}'). Instale o R ou aponte o caminho completo do Rscript.exe nas configurações.")
     if any(st.argv[0] == "python" for st in steps):
         pycmd = _python_cmd(cfg.settings)
         if not pycmd:
-            errs.append("Campo 'Python' vazio e o app está rodando como exe: informe o caminho do python.exe "
-                        "do ambiente que tem opt_utils (ex.: C:\\Users\\...\\python.exe).")
+            errs.append("Nenhum Python encontrado (campo 'Python' vazio, nada no PATH). Informe o caminho do "
+                        "python.exe do ambiente que tem opt_utils (ex.: C:\\Users\\...\\python.exe).")
         elif not (shutil.which(pycmd[0]) or os.path.isfile(pycmd[0])):
             errs.append(f"Python não encontrado: '{pycmd[0]}' (campo 'Python' = '{cfg.settings.get('python_exe')}')")
     return errs
@@ -303,14 +303,106 @@ def split_cmd(text: str) -> list[str]:
 
 
 def _python_cmd(settings: dict) -> list[str]:
-    exe = settings.get("python_exe") or ""
+    """Python que roda os scripts do python_tools.
+
+    Ordem: campo 'Python' da configuração → variável MACRO_PYTHON → o próprio
+    interpretador (quando o app roda do fonte) → 'python' no PATH → launcher
+    'py -3' (Windows). Dentro do exe (PyInstaller) o interpretador embutido não
+    serve, por isso os fallbacks.
+    """
+    exe = settings.get("python_exe") or os.environ.get("MACRO_PYTHON") or ""
     if exe:
         return split_cmd(exe)
-    if getattr(sys, "frozen", False):
-        # Dentro do exe não há interpretador utilizável; exige configuração.
-        found = shutil.which("python")
-        return [found] if found else []
-    return [sys.executable]
+    if not getattr(sys, "frozen", False):
+        return [sys.executable]
+    found = shutil.which("python") or shutil.which("python3")
+    if found:
+        return [found]
+    py = shutil.which("py")
+    if py:
+        return [py, "-3"]
+    return []
+
+
+def _rscript_cmd(settings: dict) -> list[str]:
+    cmd = split_cmd(settings.get("rscript_cmd") or "Rscript")
+    if cmd and not (shutil.which(cmd[0]) or os.path.isfile(cmd[0])) and os.name == "nt":
+        # Rscript fora do PATH: procura a instalação padrão do R no Windows
+        import glob
+        for base in (r"C:\Program Files\R", r"C:\Program Files (x86)\R",
+                     os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "R")):
+            hits = sorted(glob.glob(os.path.join(base, "R-*", "bin", "Rscript.exe")), reverse=True)
+            if hits:
+                return [hits[0]] + cmd[1:]
+    return cmd
+
+
+def check_environment(settings: dict, pipelines: Optional[list[str]] = None) -> list[tuple[bool, str]]:
+    """Checagens que um usuário não-programador consegue ler: cada item é
+    (ok, mensagem). Roda os executáveis de verdade (python -c / Rscript --version)."""
+    out: list[tuple[bool, str]] = []
+    root = settings.get("python_tools_dir") or ""
+    if root and os.path.isdir(root):
+        missing = [p.folder for p in PIPELINES.values() if not os.path.isdir(os.path.join(root, p.folder))]
+        if missing:
+            out.append((False, f"Pasta dos pipelines: {root} — faltam subpastas: {', '.join(missing)}"))
+        else:
+            out.append((True, f"Pasta dos pipelines: {root}"))
+    else:
+        out.append((False, f"Pasta dos pipelines não encontrada: '{root or '(vazio)'}'. Informe a pasta que contém pareto_ipca, pareto_cpius, etc."))
+
+    env = _build_env(settings)
+    kw = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
+    pycmd = _python_cmd(settings)
+    if not pycmd:
+        out.append((False, "Python: nenhum encontrado. Preencha o campo 'Python' com o caminho do python.exe "
+                           "do ambiente que tem opt_utils (ex.: o que roda os load_*_to_sql.py hoje)."))
+    else:
+        probe = ("import sys, importlib.util; mods = ['pandas', 'requests', 'opt_utils.database']; "
+                 "missing = [m for m in mods if importlib.util.find_spec(m.split('.')[0]) is None]; "
+                 "print(sys.executable); print(','.join(missing))")
+        try:
+            r = subprocess.run(pycmd + ["-c", probe], capture_output=True, text=True, timeout=60, env=env, **kw)
+            lines = (r.stdout or "").strip().splitlines()
+            if r.returncode != 0 or not lines:
+                out.append((False, f"Python: '{' '.join(pycmd)}' não respondeu ({(r.stderr or '').strip()[:200]})"))
+            else:
+                exe_real = lines[0]
+                missing = [m for m in (lines[1] if len(lines) > 1 else "").split(",") if m]
+                if missing:
+                    out.append((False, f"Python: {exe_real} — faltam pacotes: {', '.join(missing)}. "
+                                       "Use o Python do ambiente corporativo (o que tem opt_utils)."))
+                else:
+                    out.append((True, f"Python: {exe_real} (pandas, requests e opt_utils ok)"))
+        except FileNotFoundError:
+            out.append((False, f"Python: executável não encontrado: '{pycmd[0]}'"))
+        except subprocess.TimeoutExpired:
+            out.append((False, f"Python: '{pycmd[0]}' demorou mais de 60s para responder"))
+
+    keys = pipelines if pipelines is not None else list(PIPELINES)
+    needs_r = any(st.argv[0] == "Rscript" for k in keys for st in PIPELINES[k].build(PipelineOptions()))
+    if needs_r:
+        rcmd = _rscript_cmd(settings)
+        try:
+            r = subprocess.run(rcmd + ["--version"], capture_output=True, text=True, timeout=60, env=env, **kw)
+            ver = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
+            if r.returncode == 0:
+                out.append((True, f"Rscript: {rcmd[0]} ({ver[0] if ver else 'ok'})"))
+            else:
+                out.append((False, f"Rscript: '{rcmd[0]}' falhou ao rodar --version"))
+        except FileNotFoundError:
+            out.append((False, f"Rscript não encontrado ('{settings.get('rscript_cmd') or 'Rscript'}'). "
+                               "Instale o R ou informe o caminho completo do Rscript.exe."))
+        except subprocess.TimeoutExpired:
+            out.append((False, "Rscript demorou mais de 60s para responder"))
+
+    for key, who in (("BLS_API_KEY", "CPI-U"), ("BEA_API_KEY", "PCE")):
+        if settings.get(key) or os.environ.get(key):
+            out.append((True, f"{key}: definida ({who})"))
+        else:
+            out.append((False, f"{key}: vazia — o pipeline {who} vai falhar ou cair em rate limit"))
+    return out
 
 
 def _build_env(settings: dict) -> dict:
@@ -376,7 +468,7 @@ class LocalPipelineRunner:
             root = cfg.settings["python_tools_dir"]
             env = _build_env(cfg.settings)
             pycmd = _python_cmd(cfg.settings)
-            rcmd = split_cmd(cfg.settings.get("rscript_cmd") or "Rscript")
+            rcmd = _rscript_cmd(cfg.settings)
 
             names = ", ".join(PIPELINES[k].name for k in cfg.pipelines)
             log("=" * 60)

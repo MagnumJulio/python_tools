@@ -1,5 +1,5 @@
 diff --git a/gui.py b/gui.py
-index df10734..a4af574 100644
+index df10734..669b230 100644
 --- a/gui.py
 +++ b/gui.py
 @@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
@@ -17,13 +17,13 @@ index df10734..a4af574 100644
  )
 +from local_pipelines import (
 +    PIPELINES, PipelineOptions, LocalRunConfig, LocalPipelineRunner,
-+    load_settings, save_settings, plan_steps, settings_path,
++    load_settings, save_settings, plan_steps, settings_path, check_environment,
 +    pipeline_display_name, pipeline_key_from_display,
 +)
  
  
  # ──────────────────────────────────────────────────────────────────────
-@@ -78,6 +83,27 @@ class UpdateWorker(QThread):
+@@ -78,6 +83,43 @@ class UpdateWorker(QThread):
          self.engine.cancel()
  
  
@@ -48,10 +48,26 @@ index df10734..a4af574 100644
 +        self.runner.cancel()
 +
 +
++class _EnvCheckWorker(QThread):
++    """check_environment() fora da thread da GUI (roda subprocessos)."""
++    result = pyqtSignal(list)
++
++    def __init__(self, settings: dict, pipelines, parent=None):
++        super().__init__(parent)
++        self._settings = settings
++        self._pipelines = pipelines
++
++    def run(self):
++        try:
++            self.result.emit(check_environment(self._settings, self._pipelines))
++        except Exception as e:
++            self.result.emit([(False, f"erro ao testar: {e}")])
++
++
  # ──────────────────────────────────────────────────────────────────────
  # Schedule Job data class
  # ──────────────────────────────────────────────────────────────────────
-@@ -85,16 +111,17 @@ class UpdateWorker(QThread):
+@@ -85,16 +127,17 @@ class UpdateWorker(QThread):
  class ScheduleJob:
      def __init__(self, job_id: str, report: str, scheduled_date: ddate,
                   scheduled_time: dtime, delete_before: bool, cutoff_date: str,
@@ -71,16 +87,17 @@ index df10734..a4af574 100644
          self.has_run = False
  
  
-@@ -113,6 +140,8 @@ class MainWindow(QMainWindow):
+@@ -113,6 +156,9 @@ class MainWindow(QMainWindow):
          self._all_reports: list[str] = []
          self._worker: UpdateWorker | None = None
          self._conn_worker: ConnectionTestWorker | None = None
 +        self._local_worker: LocalPipelineWorker | None = None
++        self._env_worker: _EnvCheckWorker | None = None
 +        self._local_settings = load_settings()
  
          # Schedule state
          self._jobs: dict[str, ScheduleJob] = {}
-@@ -191,6 +220,7 @@ class MainWindow(QMainWindow):
+@@ -191,6 +237,7 @@ class MainWindow(QMainWindow):
  
          self.tabs.addTab(self._build_run_once_tab(), "▶ Run Once")
          self.tabs.addTab(self._build_schedule_tab(), "⏰ Schedule Runs")
@@ -88,7 +105,7 @@ index df10734..a4af574 100644
  
      # ── Connection Tests ──────────────────────────────────────────────
  
-@@ -499,6 +529,7 @@ class MainWindow(QMainWindow):
+@@ -499,6 +546,7 @@ class MainWindow(QMainWindow):
          self.sched_report_list.clear()
          for name in reports:
              self.sched_report_list.addItem(name)
@@ -96,7 +113,7 @@ index df10734..a4af574 100644
  
          self._set_status(f"Pronto — {len(reports)} relatórios disponíveis")
          self._log(f"✓ {len(reports)} relatórios carregados do banco.")
-@@ -506,6 +537,14 @@ class MainWindow(QMainWindow):
+@@ -506,6 +554,14 @@ class MainWindow(QMainWindow):
      def _on_reports_error(self, error: str):
          self._set_status("Erro ao carregar relatórios", error=True)
          self._log(f"✗ Erro: {error}")
@@ -111,7 +128,7 @@ index df10734..a4af574 100644
  
      # ── Filtering / selection (Run Once) ──────────────────────────────
  
-@@ -630,6 +669,8 @@ class MainWindow(QMainWindow):
+@@ -630,6 +686,8 @@ class MainWindow(QMainWindow):
          qd = self.sched_run_date.date()
          scheduled_date = ddate(qd.year(), qd.month(), qd.day())
  
@@ -120,7 +137,7 @@ index df10734..a4af574 100644
          # UK Labor month prompt
          uk_month: str | None = None
          if report == UK_LABOR_REPORT_NAME:
-@@ -643,9 +684,10 @@ class MainWindow(QMainWindow):
+@@ -643,9 +701,10 @@ class MainWindow(QMainWindow):
              report=report,
              scheduled_date=scheduled_date,
              scheduled_time=scheduled_time,
@@ -133,7 +150,7 @@ index df10734..a4af574 100644
          )
          self._jobs[job_id] = job
          self._refresh_schedule_table()
-@@ -655,6 +697,8 @@ class MainWindow(QMainWindow):
+@@ -655,6 +714,8 @@ class MainWindow(QMainWindow):
          )
          if uk_month:
              self._sched_log(f"  🇬🇧 UK month: {uk_month}")
@@ -142,7 +159,7 @@ index df10734..a4af574 100644
  
          if not self._schedule_timer.isActive():
              self._schedule_timer.start()
-@@ -766,19 +810,22 @@ class MainWindow(QMainWindow):
+@@ -766,19 +827,22 @@ class MainWindow(QMainWindow):
          job.has_run = True
          self._sched_log(f"\n▶ Iniciando execução agendada: '{job.report}'")
  
@@ -178,7 +195,7 @@ index df10734..a4af574 100644
  
          jid = job.job_id
          worker.progress_signal.connect(
-@@ -812,6 +859,283 @@ class MainWindow(QMainWindow):
+@@ -812,6 +876,308 @@ class MainWindow(QMainWindow):
              f"{'✓' if success else '✗'} '{job.report}': {message}"
          )
  
@@ -279,6 +296,10 @@ index df10734..a4af574 100644
 +        self.lbl_local_cfg = QLabel(f"salvo em {settings_path()}")
 +        self.lbl_local_cfg.setObjectName("subtitle")
 +        save_row.addWidget(self.lbl_local_cfg, stretch=1)
++        self.btn_local_check = QPushButton("🔍 Testar ambiente")
++        self.btn_local_check.setObjectName("testConn")
++        self.btn_local_check.clicked.connect(self._check_local_environment)
++        save_row.addWidget(self.btn_local_check)
 +        btn_save = QPushButton("💾 Salvar configuração")
 +        btn_save.setObjectName("secondary")
 +        btn_save.clicked.connect(self._save_local_settings)
@@ -388,6 +409,27 @@ index df10734..a4af574 100644
 +        d = QFileDialog.getExistingDirectory(self, "Pasta do python_tools", self.local_dir_edit.text())
 +        if d:
 +            self.local_dir_edit.setText(d)
++
++    def _check_local_environment(self):
++        """Roda python -c / Rscript --version com a configuração atual e mostra
++        um resultado legível no log (pensado para quem não programa)."""
++        self.btn_local_check.setEnabled(False)
++        self._local_log("\n🔍 Testando ambiente da Rodagem Local...")
++        settings = self._local_settings_from_form()
++        keys = self._selected_pipelines() or None
++        worker = _EnvCheckWorker(settings, keys, self)
++        worker.result.connect(self._on_local_env_checked)
++        self._env_worker = worker
++        worker.start()
++
++    def _on_local_env_checked(self, results: list):
++        ok_all = True
++        for ok, msg in results:
++            ok_all &= ok
++            self._local_log(f"  {'✓' if ok else '✗'} {msg}")
++        self._local_log("  → Ambiente pronto. Pode rodar." if ok_all
++                        else "  → Corrija os itens com ✗ acima (campos da Configuração) e teste de novo.")
++        self.btn_local_check.setEnabled(True)
 +
 +    def _save_local_settings(self):
 +        self._local_settings = self._local_settings_from_form()

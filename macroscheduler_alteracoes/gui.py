@@ -26,7 +26,7 @@ from engine import (
 )
 from local_pipelines import (
     PIPELINES, PipelineOptions, LocalRunConfig, LocalPipelineRunner,
-    load_settings, save_settings, plan_steps, settings_path,
+    load_settings, save_settings, plan_steps, settings_path, check_environment,
     pipeline_display_name, pipeline_key_from_display,
 )
 
@@ -104,6 +104,22 @@ class LocalPipelineWorker(QThread):
         self.runner.cancel()
 
 
+class _EnvCheckWorker(QThread):
+    """check_environment() fora da thread da GUI (roda subprocessos)."""
+    result = pyqtSignal(list)
+
+    def __init__(self, settings: dict, pipelines, parent=None):
+        super().__init__(parent)
+        self._settings = settings
+        self._pipelines = pipelines
+
+    def run(self):
+        try:
+            self.result.emit(check_environment(self._settings, self._pipelines))
+        except Exception as e:
+            self.result.emit([(False, f"erro ao testar: {e}")])
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Schedule Job data class
 # ──────────────────────────────────────────────────────────────────────
@@ -141,6 +157,7 @@ class MainWindow(QMainWindow):
         self._worker: UpdateWorker | None = None
         self._conn_worker: ConnectionTestWorker | None = None
         self._local_worker: LocalPipelineWorker | None = None
+        self._env_worker: _EnvCheckWorker | None = None
         self._local_settings = load_settings()
 
         # Schedule state
@@ -956,6 +973,10 @@ class MainWindow(QMainWindow):
         self.lbl_local_cfg = QLabel(f"salvo em {settings_path()}")
         self.lbl_local_cfg.setObjectName("subtitle")
         save_row.addWidget(self.lbl_local_cfg, stretch=1)
+        self.btn_local_check = QPushButton("🔍 Testar ambiente")
+        self.btn_local_check.setObjectName("testConn")
+        self.btn_local_check.clicked.connect(self._check_local_environment)
+        save_row.addWidget(self.btn_local_check)
         btn_save = QPushButton("💾 Salvar configuração")
         btn_save.setObjectName("secondary")
         btn_save.clicked.connect(self._save_local_settings)
@@ -1065,6 +1086,27 @@ class MainWindow(QMainWindow):
         d = QFileDialog.getExistingDirectory(self, "Pasta do python_tools", self.local_dir_edit.text())
         if d:
             self.local_dir_edit.setText(d)
+
+    def _check_local_environment(self):
+        """Roda python -c / Rscript --version com a configuração atual e mostra
+        um resultado legível no log (pensado para quem não programa)."""
+        self.btn_local_check.setEnabled(False)
+        self._local_log("\n🔍 Testando ambiente da Rodagem Local...")
+        settings = self._local_settings_from_form()
+        keys = self._selected_pipelines() or None
+        worker = _EnvCheckWorker(settings, keys, self)
+        worker.result.connect(self._on_local_env_checked)
+        self._env_worker = worker
+        worker.start()
+
+    def _on_local_env_checked(self, results: list):
+        ok_all = True
+        for ok, msg in results:
+            ok_all &= ok
+            self._local_log(f"  {'✓' if ok else '✗'} {msg}")
+        self._local_log("  → Ambiente pronto. Pode rodar." if ok_all
+                        else "  → Corrija os itens com ✗ acima (campos da Configuração) e teste de novo.")
+        self.btn_local_check.setEnabled(True)
 
     def _save_local_settings(self):
         self._local_settings = self._local_settings_from_form()
