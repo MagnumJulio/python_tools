@@ -80,15 +80,25 @@ ORDER BY d.date DESC;
 -- valor do mês novo tem que bater CUUR0000SA0 do release BLS Table 1
 ```
 
-## 7. Alt measures (Atlanta Sticky family + Cleveland Median/Trimmed + custom)
+## 7. Alt measures (Atlanta Sticky family + Cleveland Median/Trimmed)
 
 **Pré-req**: proxy corp — scripts já leem `HTTP_PROXY`/`HTTPS_PROXY` do ambiente (corp seta por default). Só se quiser forçar outro, usa `CORP_PROXY_URL` como override.
 
 ```powershell
-python scripts/build_alt_measures_cpi.py        # ~60-120s — 9 cats (6 Atlanta + 2 Cleveland + 1 custom Trim25)
+python scripts/build_alt_measures_cpi.py        # ~30-60s — 8 séries oficiais (6 Atlanta via FRED + 2 Cleveland)
 python script_itau/load_alt_measures_cpi_to_sql.py --no-confirm
 ```
-Grava `CPIUS:alt_*` no SQL corp. Match 100% com Atlanta/Cleveland (fontes oficiais).
+Grava `CPIUS:alt_*` no SQL corp. Match 100% com Atlanta/Cleveland (fontes oficiais). O cleanup deste loader **não** toca nas séries `_custom` (bottom-up, passo 7b).
+
+## 7b. Alt measures bottom-up (Trimmed Sym 25% custom)
+
+Construção própria a partir dos ~70 subitens indent-3 do BLS (SA, com STL nos que só existem NSA). Separado do passo 7 desde 2026-11-05: uma falha no FRED/Atlanta não derruba o bottom-up e vice-versa.
+
+```powershell
+python scripts/build_alt_bottomup_cpi.py                 # ~2-3 min no 1º run (BLS API); depois usa cache de 7 dias
+python script_itau/load_alt_bottomup_cpi_to_sql.py --no-confirm
+```
+Grava `CPIUS:alt_trimmed_sym_25_cpi_custom` (mesmo código/nome de antes — nada muda no dashboard). `FORCE_FETCH=1` força re-baixar os subitens. Precisa de `BLS_API_KEY` no ambiente (sem key a cota diária estoura rápido).
 
 ## 8. Difusão CPI-U
 
