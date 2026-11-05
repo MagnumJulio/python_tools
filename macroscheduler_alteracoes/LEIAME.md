@@ -35,6 +35,9 @@ Arquivos **não alterados**: `engine.py`, `uk_labor.py`, `styles.py`, `main.py`,
      "BEA_API_KEY": "..."
    }
    ```
+   - `python_tools_dir` é a pasta que **contém** `pareto_ipca`, `pareto_ipca15`, `pareto_cpius`
+     e `pareto_pce`. O nome da pasta raiz não importa: na corp é `itau-ty9-testes-sqldash`.
+     A pré-verificação só checa essas quatro subpastas.
    - `python_exe` vazio = o mesmo Python do app. **No exe (PyInstaller) isso não existe**:
      informe o caminho do `python.exe` do ambiente corp que tem `opt_utils`, `pandas`, etc.
      (o mesmo que você usa hoje para rodar `load_*_to_sql.py`).
