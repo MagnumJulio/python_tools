@@ -79,6 +79,11 @@ cat(sprintf("    Batch size: %d (%s BLS_API_KEY)\n",
 # ---------------------------------------------------------------------------
 # 2. Fetcher: POSTa batch pra BLS API v2.
 
+## Retry com backoff exponencial (mesmo padrao do fetch_bls_cpiu.R). BLS v2
+## fica instavel em dia de release (503, timeouts, "Database is locked").
+BLS_MAX_TRIES <- 5
+BLS_BACKOFF_SEC <- c(5, 15, 45, 90)
+
 post_bls_batch <- function(sids, y_start, y_end) {
   body <- list(
     seriesid        = as.list(sids),
@@ -89,19 +94,39 @@ post_bls_batch <- function(sids, y_start, y_end) {
     annualaverage   = FALSE
   )
   if (nzchar(API_KEY)) body$registrationkey <- API_KEY
-  r <- POST(BLS_URL,
-            body = toJSON(body, auto_unbox = TRUE),
-            content_type_json(),
-            accept_json(),
-            timeout(90))
-  stop_for_status(r)
-  parsed <- content(r, as = "parsed", simplifyVector = FALSE)
-  if (!identical(parsed$status, "REQUEST_SUCCEEDED")) {
-    stop(sprintf("BLS API status=%s messages=%s",
-                 parsed$status,
-                 paste(unlist(parsed$message), collapse = "; ")))
+  body_json <- toJSON(body, auto_unbox = TRUE)
+
+  last_err <- NULL
+  for (attempt in seq_len(BLS_MAX_TRIES)) {
+    res <- tryCatch({
+      r <- POST(BLS_URL, body = body_json,
+                content_type_json(), accept_json(), timeout(90))
+      sc <- status_code(r)
+      if (sc >= 500 || sc == 429) {
+        stop(sprintf("HTTP %d transitorio", sc))
+      }
+      stop_for_status(r)
+      parsed <- content(r, as = "parsed", simplifyVector = FALSE)
+      if (!identical(parsed$status, "REQUEST_SUCCEEDED")) {
+        msg <- paste(unlist(parsed$message), collapse = "; ")
+        if (grepl("locked|Daily Threshold|unavailable", msg, ignore.case = TRUE)) {
+          stop(sprintf("BLS msg transitorio: %s", msg))
+        }
+        stop(sprintf("BLS API status=%s messages=%s", parsed$status, msg))
+      }
+      list(ok = TRUE, series = parsed$Results$series)
+    }, error = function(e) list(ok = FALSE, err = conditionMessage(e)))
+
+    if (isTRUE(res$ok)) return(res$series)
+    last_err <- res$err
+    if (attempt < BLS_MAX_TRIES) {
+      wait <- BLS_BACKOFF_SEC[min(attempt, length(BLS_BACKOFF_SEC))]
+      cat(sprintf("      [retry %d/%d] %s - aguardando %ds...\n",
+                  attempt, BLS_MAX_TRIES, last_err, wait))
+      Sys.sleep(wait)
+    }
   }
-  parsed$Results$series
+  stop(sprintf("BLS falhou apos %d tentativas: %s", BLS_MAX_TRIES, last_err))
 }
 
 parse_series_json <- function(sblock) {
