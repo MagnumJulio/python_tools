@@ -171,6 +171,21 @@ joined <- joined[order(joined$area_code, joined$date), ]
 
 compute_vars <- function(df) {
   df <- df[order(df$date), ]
+  # Reindex monthly completo — mesmo motivo do fetch_bls_cpiu.R: se BLS
+  # skip um mes (ex. shutdown Oct-2025 — OER regional NSA afetado tambem),
+  # diff() trataria Nov-25 como 1 mes depois de Sep-25 (sao 2) e lag12
+  # desloca YoY. Reindexando pra grade mensal completa, gap vira value=NA
+  # e diff()/lag12 propagam NA corretamente.
+  full_dates <- seq.Date(from = min(df$date), to = max(df$date), by = "month")
+  if (length(full_dates) != nrow(df)) {
+    meta <- df[1, , drop = FALSE]
+    full <- data.frame(date = full_dates)
+    full$value <- df$value[match(full$date, df$date)]
+    for (col in c("series_id", "area_code", "area_label")) {
+      if (col %in% names(df)) full[[col]] <- meta[[col]]
+    }
+    df <- full
+  }
   df$value_var_mm  <- c(NA_real_, diff(df$value) / head(df$value, -1) * 100)
   n <- nrow(df)
   df$value_var_yoy <- NA_real_
@@ -185,6 +200,8 @@ compute_vars <- function(df) {
 by_key <- split(joined, joined$area_code, drop = TRUE)
 by_key <- lapply(by_key, compute_vars)
 recon <- do.call(rbind, by_key)
+# Drop linhas injetadas pelo reindex (meses sem value real).
+recon <- recon[!is.na(recon$value), ]
 recon <- recon[order(recon$date, recon$area_code), ]
 
 recon_out <- data.frame(
@@ -215,6 +232,8 @@ rebased <- do.call(rbind, lapply(by_key, function(df) {
   df$index <- df$value / ref * 100
   df[, c("date", "area_code", "area_label", "index")]
 }))
+# Drop linhas de gap (index NA pq value era NA pelo reindex).
+rebased <- rebased[!is.na(rebased$index), ]
 rebased <- rebased[order(rebased$date, rebased$area_code), ]
 rebased$index <- round(rebased$index, 6)
 write.csv(rebased, OUT_INDICE, row.names = FALSE, fileEncoding = "UTF-8")

@@ -190,7 +190,19 @@ def compute_breadth(df_sa: pd.DataFrame, df_wgt: pd.DataFrame) -> pd.DataFrame:
     ao filter que build_diffusion_cpius.py ja faz.
     """
     df = df_sa.sort_values(["item_code", "date"]).copy()
-    df["yoy"] = df.groupby("item_code")["value_index"].pct_change(12) * 100
+    # Reindex monthly por item: sem isso, pct_change(12) usa ffill por default
+    # e Nov-25 YoY compara contra Sep-25 ffilled (=Oct-24 por shift), reportando
+    # 13-mo growth como YoY. Reindexando, Oct-25 vira NaN e fill_method=None
+    # propaga NaN nos meses de referencia que caem no gap.
+    full = []
+    for code, g in df.groupby("item_code"):
+        g = g.set_index("date").sort_index()
+        full_idx = pd.date_range(g.index.min(), g.index.max(), freq="MS")
+        g = g.reindex(full_idx).rename_axis("date").reset_index()
+        g["item_code"] = code
+        full.append(g)
+    df = pd.concat(full, ignore_index=True).sort_values(["item_code", "date"])
+    df["yoy"] = df.groupby("item_code")["value_index"].pct_change(12, fill_method=None) * 100
     # Peso = RI Dez do ano anterior
     df["year_for_weight"] = df["date"].dt.year - 1
     w = df_wgt.rename(columns={"year": "year_for_weight", "cpi_u": "weight"})[

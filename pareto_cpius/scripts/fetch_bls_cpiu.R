@@ -187,8 +187,25 @@ joined <- joined[order(joined$category_code, joined$sa_flag, joined$date), ]
 
 compute_vars <- function(df) {
   df <- df[order(df$date), ]
+  # Por que reindex monthly completo: se BLS skip um mes (ex. shutdown
+  # Oct-2025 — 38/41 cats base sem valor), as linhas na serie ficam
+  # ...Sep-25, Nov-25, Dec-25... e diff() silenciosamente trata Nov-25 como
+  # 1 mes depois de Sep-25 (sao 2 meses). lag12 por indice tambem desloca
+  # YoY em 1 mes pelos 12 meses pos-gap. Reindexando pra grade mensal
+  # completa, os meses faltantes viram value=NA e diff()/lag12 propagam
+  # NA corretamente (R diff(NA, x) = NA, x/NA = NA).
+  full_dates <- seq.Date(from = min(df$date), to = max(df$date), by = "month")
+  if (length(full_dates) != nrow(df)) {
+    meta <- df[1, , drop = FALSE]
+    full <- data.frame(date = full_dates)
+    full$value <- df$value[match(full$date, df$date)]
+    for (col in c("series_id", "category_code", "sa_flag", "label")) {
+      if (col %in% names(df)) full[[col]] <- meta[[col]]
+    }
+    df <- full
+  }
   df$value_var_mm  <- c(NA_real_, diff(df$value) / head(df$value, -1) * 100)
-  # yoy: exige 12 meses de defasagem exata.
+  # yoy: exige 12 meses de defasagem exata (meses calendario pq ja reindexamos).
   n <- nrow(df)
   df$value_var_yoy <- NA_real_
   if (n > 12) {
@@ -203,6 +220,11 @@ by_key <- split(joined, list(joined$category_code, joined$sa_flag), drop = TRUE)
 by_key <- lapply(by_key, compute_vars)
 recon <- do.call(rbind, by_key)
 recon <- recon[order(recon$date, recon$category_code, recon$sa_flag), ]
+
+# Drop linhas injetadas pelo reindex (meses sem value real, ex. Oct-2025).
+# Preserva formato do CSV: 1 linha por (date, cat, sa_flag) com dado real.
+# var_mm e var_yoy dos meses vizinhos ao gap ja ficaram NA corretamente.
+recon <- recon[!is.na(recon$value), ]
 
 recon_out <- data.frame(
   date          = recon$date,
@@ -227,11 +249,13 @@ rebased <- do.call(rbind, lapply(by_key, function(df) {
   df <- df[order(df$date), ]
   ref <- df$value[df$date == BASE_DATE]
   if (!length(ref) || is.na(ref) || ref <= 0) {
-    ref <- df$value[which(!is.na(df$value))[1]]  # fallback: 1º valor
+    ref <- df$value[which(!is.na(df$value))[1]]  # fallback: 1º valor nao-NA
   }
   df$index <- df$value / ref * 100
   df[, c("date", "category_code", "sa_flag", "index")]
 }))
+# Drop linhas de gap (index NA pq value era NA pelo reindex monthly).
+rebased <- rebased[!is.na(rebased$index), ]
 rebased <- rebased[order(rebased$date, rebased$category_code, rebased$sa_flag), ]
 rebased$index <- round(rebased$index, 6)
 write.csv(rebased, OUT_INDICE, row.names = FALSE, fileEncoding = "UTF-8")

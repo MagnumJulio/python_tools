@@ -70,7 +70,13 @@ cat(sprintf("[1] %d recipes carregadas\n", nrow(recipe)))
 
 # Loop por sa_flag (NSA e SA)
 sa_flags <- unique(recon$sa_flag)
-datas <- sort(unique(recon$date))
+## datas: sequencia mensal completa do min->max do recon. Se BLS pular um
+## mes (ex. shutdown Oct-2025), ainda mantemos a linha com idx=NA pros cats
+## sem dado, e o var_mm/var_yoy dos vizinhos propaga NA corretamente via
+## os checks is.finite() em k-1/k-12. Fallback robusto caso NENHUM cat
+## tenha dado naquele mes (unique(date) excluiria o mes e causaria o
+## mesmo bug do fetch_bls_cpiu.R pre-fix).
+datas <- seq.Date(min(recon$date), max(recon$date), by = "month")
 cat(sprintf("[2] %d datas x %d sa_flags\n", length(datas), length(sa_flags)))
 
 # Pre-cache: wide matrices por sa_flag
@@ -250,6 +256,11 @@ for (ri in seq_len(nrow(recipe))) {
 }
 
 out <- do.call(rbind, out_rows)
+# Drop linhas de gap (value_index NA pq o cat base nao tem dado naquele mes,
+# ex. Oct-2025 pra customs que excluem/incluem cats sem Oct-25). O var_mm
+# e var_yoy dos vizinhos (Nov-25, Oct-26) ja ficaram NA corretamente pelo
+# is.finite() checks em k-1/k-12.
+out <- out[!is.na(out$value_index), ]
 out <- out[order(out$date, out$category_code, out$sa_flag), ]
 
 dir.create("data", showWarnings = FALSE, recursive = TRUE)

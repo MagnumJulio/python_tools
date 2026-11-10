@@ -233,9 +233,26 @@ def fetch_all(item_codes: list[str], year_range: tuple[int, int]) -> pd.DataFram
 def compute_diffusion(df: pd.DataFrame, leaves: pd.DataFrame) -> pd.DataFrame:
     lm = df.merge(leaves[["item_code", "aggregate", "is_car"]], on="item_code")
     lm = lm.sort_values(["item_code", "date"])
+    # Reindex monthly completo por item: pct_change com default ffill
+    # preencheria silenciosamente meses de gap (ex. Oct-2025 shutdown) com
+    # o valor anterior, fazendo o YoY comparar contra ffill em vez de NaN
+    # (seria 13 meses como se fosse 12). fill_method=None propaga NaN
+    # corretamente nos itens que foram reindexados com NA.
+    full = []
+    for code, g in lm.groupby("item_code"):
+        g = g.set_index("date").sort_index()
+        full_idx = pd.date_range(g.index.min(), g.index.max(), freq="MS")
+        g = g.reindex(full_idx).rename_axis("date").reset_index()
+        g["item_code"] = code
+        full.append(g)
+    lm = pd.concat(full, ignore_index=True).sort_values(["item_code", "date"])
+    # aggregate/is_car viram NaN nas linhas injetadas pelo reindex — propaga
+    # dos vizinhos (constante por item).
+    lm["aggregate"] = lm.groupby("item_code")["aggregate"].ffill().bfill()
+    lm["is_car"]    = lm.groupby("item_code")["is_car"].ffill().bfill()
 
-    lm["yoy"] = lm.groupby("item_code")["value"].pct_change(12) * 100
-    m6 = lm.groupby("item_code")["value"].pct_change(6)
+    lm["yoy"]   = lm.groupby("item_code")["value"].pct_change(12, fill_method=None) * 100
+    m6          = lm.groupby("item_code")["value"].pct_change(6,  fill_method=None)
     lm["m6_ann"] = ((1 + m6) ** 2 - 1) * 100
 
     # Cobertura minima pra evitar valores enganosos em meses com release BLS
