@@ -10,9 +10,18 @@
 #
 # Medidas:
 #   - trimmed_sym_25_cpi_custom: Trimmed Symmetric 25% (corta 25% do topo +
-#     25% da cauda por peso cumulativo, media ponderada do miolo 50%).
-#     Universe: ~70 subitens indent-3 da hierarquia BLS; SA do BLS (CUSR)
-#     com fallback NSA (CUUR) dessazonalizado via STL.
+#     25% da cauda por peso cumulativo, media ponderada do miolo 50%). Nao
+#     existe oficial — Cleveland so publica Median e Trim 16%.
+#   - median_cpi_proxy: Weighted 50th percentile (proxy do Cleveland Median).
+#   - trimmed_mean_16_cpi_proxy: Trimmed Sym 16% (8+8%, def Cleveland Trim 16).
+#   - *_goods_proxy / *_services_proxy pros 2 acima: mesma metodologia
+#     restringindo o universo ao bucket. Fed nao decompoe — sem oficial pra
+#     comparar G/S (igual pacote PCE).
+#
+#   Universe: ~70 subitens indent-3 da hierarquia BLS; SA do BLS (CUSR)
+#   com fallback NSA (CUUR) dessazonalizado via STL. Classificacao G/S
+#   reusa prefixos de scripts/build_diffusion_cpius.py (SE** rule) + manual
+#   pros 4 SA** no universe (SAF11/SAF116=Goods, SAH21/SAE21=Services).
 #
 # Entrada:  data/cpi_cpius_subitem_hierarchy.csv, data/cpi_cpius_pesos_annual_subitem.csv
 # Cache:    data/cpi_cpius_subitem_alt_raw.csv (7 dias; FORCE_FETCH=1 re-baixa)
@@ -52,7 +61,55 @@ RAW_OUT = ROOT / "data" / "cpi_cpius_subitem_alt_raw.csv"
 OUT_CSV = ROOT / "data" / "cpi_cpius_alt_bottomup.csv"
 RAW_TTL_HOURS = 24 * 7   # re-fetch de 70 subitens via BLS leva ~2-3 min
 
-EXPECTED_MEASURES = {"trimmed_sym_25_cpi_custom"}
+EXPECTED_MEASURES = {
+    "trimmed_sym_25_cpi_custom",
+    "median_cpi_proxy", "median_cpi_goods_proxy", "median_cpi_services_proxy",
+    "trimmed_mean_16_cpi_proxy", "trimmed_mean_16_cpi_goods_proxy",
+    "trimmed_mean_16_cpi_services_proxy",
+}
+
+# Classificacao Goods/Services. SE** codes usam prefix rule espelhada do
+# scripts/build_diffusion_cpius.py (fonte de verdade da classificacao a
+# nivel de leaf). Os 4 SA** no universe indent-3 sao aggregates que nao
+# entram naquela regra — mapeio explicito aqui pelo peso dominante:
+#   SAF11  = Food at home                    -> Goods
+#   SAF116 = Alcoholic beverages             -> Goods
+#   SAH21  = Household energy (elec+gas+oil) -> Services (elec+gas dominam)
+#   SAE21  = Info & information processing   -> Services (communication dom.)
+SERVICES_PREFIXES_SE = {
+    "SEHA", "SEHB", "SEHC", "SEHD", "SEHF", "SEHG", "SEHP",
+    "SEMC", "SEMD",
+    "SETD", "SETE", "SETF", "SETG",
+    "SEEB", "SEEC", "SEED",
+    "SEFV",
+    "SEGC", "SEGD",
+}
+# Items que violam a regra SE** → Services. Espelha SERVICES_ITEMS do
+# build_diffusion_cpius.py restrito ao universe indent-3.
+SERVICES_SE_ITEMS_EXPLICIT = {
+    "SERA02", "SERA04", "SERA06",   # cable/satellite, video sub, music sub
+    "SERB02",                        # pet services
+    "SERD02",                        # photo processing
+    "SERF01", "SERF02", "SERF03",   # clubs, admissions, lessons
+    "SEME",                          # health insurance
+}
+SA_EXPLICIT_BUCKET = {
+    "SAF11":  "Goods",
+    "SAF116": "Goods",
+    "SAH21":  "Services",
+    "SAE21":  "Services",
+}
+
+
+def classify_bucket(item_code: str) -> str:
+    """'Goods' ou 'Services' pra cada node do universo bottom-up."""
+    if item_code in SA_EXPLICIT_BUCKET:
+        return SA_EXPLICIT_BUCKET[item_code]
+    if item_code in SERVICES_SE_ITEMS_EXPLICIT:
+        return "Services"
+    if item_code[:4] in SERVICES_PREFIXES_SE:
+        return "Services"
+    return "Goods"
 
 BLS_URL = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = os.environ.get("BLS_API_KEY", "")
@@ -219,36 +276,107 @@ def load_subitems(codes: list[str]) -> pd.DataFrame:
 
 # ----- Medidas -------------------------------------------------------------
 
-def compute_trimmed_sym25(raw: pd.DataFrame, pesos: pd.DataFrame) -> pd.DataFrame:
-    """Trimmed symmetric 25%: ordena subitens por variacao mensal anualizada,
-    corta 25% do peso em cada cauda e tira a media ponderada do miolo.
-    Peso de cada mes = peso anual do ano anterior (RI Table 6)."""
+def _reindex_monthly_by(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+    """Reindexa cada grupo pra grade mensal completa (MS freq), NaN em buracos.
+    Por que: pct_change() opera por linha adjacente. Com o gap Oct-2025 do
+    shutdown BLS, Nov-25 ficaria comparando com Sep-25 (2 meses) como se fosse
+    1 mes. Reindexando, Oct-25 vira NaN e Nov-25 pct_change contra Oct-25 NaN
+    propaga como NaN — correto."""
+    if df.empty: return df
+    out = []
+    for g, part in df.groupby(group_col):
+        part = part.set_index("date").sort_index()
+        full = pd.date_range(part.index.min(), part.index.max(), freq="MS")
+        part = part.reindex(full).rename_axis("date").reset_index()
+        part[group_col] = g
+        out.append(part)
+    return pd.concat(out, ignore_index=True)
+
+
+def _reindex_monthly(df: pd.DataFrame) -> pd.DataFrame:
+    """Reindex mensal sem grupo (1 serie). Versao scalar do helper acima."""
+    if df.empty: return df
+    s = df.set_index("date").sort_index()
+    full = pd.date_range(s.index.min(), s.index.max(), freq="MS")
+    return s.reindex(full).rename_axis("date").reset_index()
+
+
+def _prep_panel(raw: pd.DataFrame, pesos: pd.DataFrame,
+                codes_filter: set[str] | None = None) -> pd.DataFrame:
+    """Cria o painel (date, item_code, ann_mom, weight) merge subitens × peso
+    anual (ano t-1). `codes_filter` restringe o universo (Goods/Services).
+    Reindex monthly complete garante pct_change em intervalo mensal real."""
     df = raw.sort_values(["item_code", "date"]).copy()
-    df["mom"] = df.groupby("item_code")["value_index"].pct_change() * 100
+    if codes_filter is not None:
+        df = df[df["item_code"].isin(codes_filter)]
+    df = _reindex_monthly_by(df, group_col="item_code")
+    # fill_method=None: pct_change nao pode forward-fill o NaN de Oct-25 pq
+    # isso faria Nov-25 comparar silenciosamente com Sep-25 (2 meses) como
+    # se fosse 1 mes. Com None, pct_change(NaN) = NaN — gap propaga correto.
+    df["mom"] = df.groupby("item_code")["value_index"].pct_change(fill_method=None) * 100
     df["ann_mom"] = ((1 + df["mom"] / 100) ** 12 - 1) * 100
     df["year_for_weight"] = df["date"].dt.year - 1
     w = pesos.rename(columns={"year": "year_for_weight", "cpi_u": "weight"})[
         ["year_for_weight", "item_code", "weight"]
     ]
     df = df.merge(w, on=["year_for_weight", "item_code"], how="inner")
+    return df.dropna(subset=["ann_mom"])
 
-    def _trim(g):
-        g = g.dropna(subset=["ann_mom"]).sort_values("ann_mom").copy()
-        if g.empty: return np.nan
-        wtot = g["weight"].sum()
-        g["cum"] = g["weight"].cumsum()
-        lo_w, hi_w = 0.25 * wtot, 0.75 * wtot
-        eff = np.zeros(len(g))
-        for i, (_, row) in enumerate(g.iterrows()):
-            cp = row["cum"] - row["weight"]
-            lo = max(cp, lo_w); hi = min(row["cum"], hi_w)
-            if hi > lo: eff[i] = hi - lo
-        ws = eff.sum()
-        return (eff * g["ann_mom"].values).sum() / ws if ws > 0 else np.nan
 
-    out = df.groupby("date", group_keys=False).apply(_trim).rename("ann_1mo").reset_index()
+def _weighted_trim_mean_month(g: pd.DataFrame, trim_low: float,
+                              trim_high: float) -> float:
+    """Media ponderada aparada; items que straddleiam a boundary contribuem
+    com peso efetivo proporcional ao overlap (padrao Cleveland/Dallas)."""
+    g = g.sort_values("ann_mom")
+    if g.empty: return np.nan
+    wtot = float(g["weight"].sum())
+    cum = g["weight"].cumsum().values
+    cum_prev = cum - g["weight"].values
+    lo, hi = trim_low * wtot, (1.0 - trim_high) * wtot
+    eff = np.maximum(0.0, np.minimum(cum, hi) - np.maximum(cum_prev, lo))
+    ws = eff.sum()
+    return float((eff * g["ann_mom"].values).sum() / ws) if ws > 0 else np.nan
+
+
+def _weighted_median_month(g: pd.DataFrame) -> float:
+    """Weighted 50th percentile (same algo do pareto_pce/scripts/
+    build_alt_measures_pce_proxy.py)."""
+    g = g.sort_values("ann_mom")
+    if g.empty: return np.nan
+    cum = g["weight"].cumsum().values
+    threshold = g["weight"].sum() / 2.0
+    i = int(np.searchsorted(cum, threshold, side="left"))
+    i = min(i, len(g) - 1)
+    return float(g["ann_mom"].iloc[i])
+
+
+def compute_trimmed_sym25(raw: pd.DataFrame, pesos: pd.DataFrame) -> pd.DataFrame:
+    """Trim Sym 25%: universo total, corte 25% em cada cauda (miolo 50%)."""
+    df = _prep_panel(raw, pesos)
+    out = (df.groupby("date", group_keys=False)
+             .apply(lambda g: _weighted_trim_mean_month(g, 0.25, 0.25))
+             .rename("ann_1mo").reset_index())
     out["measure"] = "trimmed_sym_25_cpi_custom"
     return out[["date", "measure", "ann_1mo"]]
+
+
+def compute_proxy_measures(raw: pd.DataFrame, pesos: pd.DataFrame,
+                           scope: str, codes_filter: set[str] | None) -> pd.DataFrame:
+    """Gera median + trim16 pro scope. scope in {'headline','goods','services'}
+    controla o sufixo das measures (`_goods`/`_services`). codes_filter
+    restringe o universo (None = headline, todos 70)."""
+    assert scope in {"headline", "goods", "services"}
+    df = _prep_panel(raw, pesos, codes_filter=codes_filter)
+    suffix = "" if scope == "headline" else f"_{scope}"
+    rows = []
+    for d, g in df.groupby("date"):
+        med = _weighted_median_month(g)
+        t16 = _weighted_trim_mean_month(g, 0.08, 0.08)
+        rows.append({"date": d, f"median_cpi{suffix}_proxy": med,
+                     f"trimmed_mean_16_cpi{suffix}_proxy": t16})
+    wide = pd.DataFrame(rows)
+    long = wide.melt(id_vars=["date"], var_name="measure", value_name="ann_1mo")
+    return long.sort_values(["measure", "date"]).reset_index(drop=True)
 
 
 # ----- Consolidacao (mesmo formato do build_alt_measures_cpi.py) -----------
@@ -278,15 +406,25 @@ def _rebase_jan2000(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def consolidate(measures: list[pd.DataFrame]) -> pd.DataFrame:
+    """Chain + YoY. Reindex mensal completo por measure pra que pct_change(12)
+    e shift(12) opere em 12 meses calendario reais (nao 12 linhas). Gap do
+    shutdown Oct-2025: ann_1mo vira NaN; chain carrega indice (fillna(0))
+    pra nao quebrar o nivel; YoY dos 12 meses em que t-12 cai no gap vira
+    NaN explicito (semanticamente nao comparavel vs mes ausente)."""
     out = pd.concat(measures, ignore_index=True)
-    out["mom_sa"] = ((1 + out["ann_1mo"] / 100) ** (1 / 12) - 1) * 100
-    out["ann_12mo"] = np.nan
     pieces = []
     for measure, g in out.groupby("measure"):
-        g = g.sort_values("date").reset_index(drop=True).copy()
+        g = _reindex_monthly(g.drop(columns=["measure"]))
+        g["measure"] = measure
+        g["mom_sa"] = ((1 + g["ann_1mo"] / 100) ** (1 / 12) - 1) * 100
         g["value_index"] = _chain_index(g["ann_1mo"]).values
-        # YoY a partir do indice encadeado (12 meses atras).
-        g["ann_12mo"] = g["value_index"].pct_change(12) * 100
+        g["ann_12mo"] = g["value_index"].pct_change(12, fill_method=None) * 100
+        # Anula YoY tanto no proprio mes de gap (idx foi carried via fillna(0),
+        # YoY so refletiria o acumulado pre-gap) quanto no mes t cujo t-12 cai
+        # no gap (idx[t-12] carried → comparacao reporta crescimento de 13+ meses
+        # como se fosse YoY). Cobre os 12 meses pos-gap de contaminacao.
+        bad_yoy = g["ann_1mo"].isna() | g["ann_1mo"].shift(12).isna()
+        g["ann_12mo"] = g["ann_12mo"].where(~bad_yoy)
         pieces.append(g)
     out = _rebase_jan2000(pd.concat(pieces, ignore_index=True))
     out = out.sort_values(["measure", "date"]).reset_index(drop=True)
@@ -305,13 +443,18 @@ def main(hier_year: int = 2025) -> None:
     if not codes:
         sys.exit(f"[FAIL] hierarquia sem nodes indent-3 em {hier_year}. "
                  f"Checar {HIER_CSV.name} (ou atualizar hier_year).")
-    print(f"[bottom-up] universe indent-3 em {hier_year}: {len(codes)} subitens")
+    goods_codes    = {c for c in codes if classify_bucket(c) == "Goods"}
+    services_codes = {c for c in codes if classify_bucket(c) == "Services"}
+    print(f"[bottom-up] universe indent-3 em {hier_year}: {len(codes)} subitens "
+          f"(Goods {len(goods_codes)}, Services {len(services_codes)})")
 
     print("[1] Subitens BLS (SA + fallback NSA/STL)...")
     raw = load_subitems(codes)
 
-    print("[2] Trimmed Sym 25%...")
+    print("[2] Medidas...")
     measures = []
+
+    # 2a. Trim Sym 25% custom (headline only — contratado desde 2026-10).
     try:
         tsm25 = compute_trimmed_sym25(raw, pesos)
         measures.append(tsm25)
@@ -319,6 +462,19 @@ def main(hier_year: int = 2025) -> None:
               f"{tsm25.date.min().date()} -> {tsm25.date.max().date()}")
     except Exception as e:
         print(f"  [FAIL] trimmed_sym_25_cpi_custom: {e}")
+
+    # 2b. Median + Trim 16 proxy (headline + goods + services). Padrao PCE
+    # proxy — 6 novas series.
+    for scope, flt in (("headline", None),
+                       ("goods", goods_codes),
+                       ("services", services_codes)):
+        try:
+            prox = compute_proxy_measures(raw, pesos, scope=scope, codes_filter=flt)
+            measures.append(prox)
+            got = sorted(prox["measure"].unique())
+            print(f"  scope={scope}: {got}")
+        except Exception as e:
+            print(f"  [FAIL] scope={scope}: {e}")
 
     print("[3] Consolida...")
     out = consolidate(measures) if measures else pd.DataFrame(columns=["measure", "ann_1mo"])

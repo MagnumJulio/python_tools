@@ -9,12 +9,17 @@
 # oficiais Fed e as bottom-up sobem em cargas independentes, mas usam o
 # MESMO padrao de codigo/nome no SQL (nada muda pro dashboard):
 #
-#   bls_code    = "CPIUS:alt_{measure_slug}"   (sufixo _custom = bottom-up)
+#   bls_code    = "CPIUS:alt_{measure_slug}"
+#     - sufixo _custom  = bottom-up contratado (so Trim Sym 25, nao oficial)
+#     - sufixo _proxy   = bottom-up espelhando serie oficial Fed, pra
+#                         decomposicao G/S (iteracao 2026-11, mesmo padrao
+#                         do pareto_pce/.../load_alt_measures_pce_proxy)
 #   series_name = "CPI-U: {label} (Index)"
 #   data_type = "SA", indicator = "CPI", country = "US", subject = "Prices"
 #
-# Este loader so mexe nas series CPIUS:alt_%_custom. O cleanup do loader das
-# oficiais ignora o sufixo _custom, entao um nao apaga o que o outro gravou.
+# Este loader so mexe nas series CPIUS:alt_%_custom e CPIUS:alt_%_proxy.
+# O cleanup do loader das oficiais ignora os sufixos _custom/_proxy, entao
+# um nao apaga o que o outro gravou.
 #
 # Uso:
 #   cd pareto_cpius
@@ -33,9 +38,16 @@ ROOT = Path(__file__).resolve().parent.parent
 IN_CSV = ROOT / "data" / "cpi_cpius_alt_bottomup.csv"
 
 # Mapa measure -> (label legivel, slug no bls_code). Chave bate com measure no CSV.
-# Todo slug termina em _custom: e isso que separa bottom-up de Fed oficial no SQL.
+# Slugs _custom = bottom-up puro (nao existe oficial). Slugs _proxy =
+# bottom-up espelhando oficial Fed (pacote G/S, iteracao 2026-11).
 MEASURE_LABELS = {
-    "trimmed_sym_25_cpi_custom": ("Trimmed Sym 25% (custom)", "alt_trimmed_sym_25_cpi_custom"),
+    "trimmed_sym_25_cpi_custom":            ("Trimmed Sym 25% (custom)",                "alt_trimmed_sym_25_cpi_custom"),
+    "median_cpi_proxy":                     ("Median CPI (proxy bottom-up)",            "alt_median_cpi_proxy"),
+    "median_cpi_goods_proxy":               ("Median CPI Goods (proxy bottom-up)",      "alt_median_cpi_goods_proxy"),
+    "median_cpi_services_proxy":            ("Median CPI Services (proxy bottom-up)",   "alt_median_cpi_services_proxy"),
+    "trimmed_mean_16_cpi_proxy":            ("Trimmed Mean 16% CPI (proxy bottom-up)",          "alt_trimmed_mean_16_cpi_proxy"),
+    "trimmed_mean_16_cpi_goods_proxy":      ("Trimmed Mean 16% CPI Goods (proxy bottom-up)",    "alt_trimmed_mean_16_cpi_goods_proxy"),
+    "trimmed_mean_16_cpi_services_proxy":   ("Trimmed Mean 16% CPI Services (proxy bottom-up)", "alt_trimmed_mean_16_cpi_services_proxy"),
 }
 
 CODE_FMT = "CPIUS:{code_slug}"
@@ -53,13 +65,14 @@ def _load_df() -> pd.DataFrame:
     return df
 
 
-def _cleanup_stale_custom(session, keep_codes: set[str]) -> int:
-    """Deleta series CPIUS:alt_%_custom que NAO estao no plano atual (medida
-    bottom-up descontinuada). Nao toca nas series Fed oficiais."""
-    print("\n[cleanup] procurando series CPIUS:alt_%_custom fora do plano...")
+def _cleanup_stale_bottomup(session, keep_codes: set[str]) -> int:
+    """Deleta series CPIUS:alt_%_custom e CPIUS:alt_%_proxy que NAO estao no
+    plano atual. Nao toca nas series Fed oficiais (sem sufixo)."""
+    print("\n[cleanup] procurando series CPIUS:alt_%_custom / _proxy fora do plano...")
     df = pd.read_sql(
         "SELECT series_id, series_name, data_type, bls_code "
-        "FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'CPIUS:alt_%_custom'",
+        "FROM OPT_Macro_Series_2 "
+        "WHERE bls_code LIKE 'CPIUS:alt_%_custom' OR bls_code LIKE 'CPIUS:alt_%_proxy'",
         session.conn,
     )
     to_drop = df[~df["bls_code"].isin(keep_codes)] if not df.empty else df
@@ -127,7 +140,7 @@ def main():
 
     if args.dry_run:
         print(f"\n[DRY RUN] plano: {len(series_plan)} series; "
-              f"cleanup apagaria qualquer CPIUS:alt_%_custom fora de {sorted(keep_codes)}.")
+              f"cleanup apagaria qualquer CPIUS:alt_%_custom / _proxy fora de {sorted(keep_codes)}.")
         return
 
     if not args.no_confirm:
@@ -145,7 +158,7 @@ def main():
     session = SQLConnector(connector="pyodbc")
     today = date.today()
 
-    _cleanup_stale_custom(session, keep_codes)
+    _cleanup_stale_bottomup(session, keep_codes)
 
     def _ensure_series(sp: dict) -> int:
         """Lookup ou INSERT em OPT_Macro_Series_2. Retorna series_id."""

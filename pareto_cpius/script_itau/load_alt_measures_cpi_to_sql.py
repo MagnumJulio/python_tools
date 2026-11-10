@@ -59,8 +59,9 @@ def _load_df() -> pd.DataFrame:
     if "value_index" not in df.columns:
         sys.exit(f"[FAIL] {IN_CSV.name} sem coluna 'value_index'. "
                  f"Re-rode scripts/build_alt_measures_cpi.py (sync 2026-10-28).")
-    # CSV de build antigo ainda pode trazer o custom: ignora (sobe pelo bottom-up).
+    # CSV de build antigo ainda pode trazer custom/proxy: ignora (sobem pelo bottom-up loader).
     df = df[~df["measure"].str.endswith("_custom")]
+    df = df[~df["measure"].str.endswith("_proxy")]
     missing = set(df["measure"].unique()) - set(MEASURE_LABELS)
     if missing:
         print(f"[WARN] measures no CSV sem label em MEASURE_LABELS: {missing}")
@@ -71,13 +72,14 @@ def _cleanup_legacy_alt(session, keep_codes: set[str]) -> int:
     """Deleta series CPIUS:alt_% que NAO estao no plano atual. Cobre as
     variantes legadas _1mo / _mom_sa / _12mo (data_type='NSA') removidas no
     sync 2026-10-28. Deleta data primeiro, depois metadata. Idempotente.
-    Series bottom-up (sufixo _custom) pertencem ao loader bottom-up e ficam
-    fora do cleanup."""
-    print("\n[cleanup] procurando series CPIUS:alt_% legadas (exceto _custom)...")
+    Series bottom-up (sufixos _custom e _proxy) pertencem ao loader
+    bottom-up e ficam fora do cleanup."""
+    print("\n[cleanup] procurando series CPIUS:alt_% legadas (exceto _custom / _proxy)...")
     df = pd.read_sql(
         "SELECT series_id, series_name, data_type, bls_code "
         "FROM OPT_Macro_Series_2 WHERE bls_code LIKE 'CPIUS:alt_%' "
-        "AND bls_code NOT LIKE '%_custom'",
+        "AND bls_code NOT LIKE '%_custom' "
+        "AND bls_code NOT LIKE '%_proxy'",
         session.conn,
     )
     if df.empty:

@@ -29,10 +29,12 @@ cd python_tools
 # Python
 pip install -r requirements.txt
 
-# R (3 pacotes)
-Rscript -e "install.packages(c('httr','jsonlite'), repos='https://cran.r-project.org')"
-# Opcional (só IPCA/IPCA-15 full load com fix DP/medio SA):
-Rscript -e "install.packages('seasonal', repos='https://cran.r-project.org')"
+# R (idempotente — só instala o que faltar)
+Rscript install_r_packages.R
+#   Reinstalar tudo:              Rscript install_r_packages.R --force
+#   Mirror custom:                REPO=https://cran-r.c3sl.ufpr.br Rscript install_r_packages.R
+#   Pacotes cobertos: httr, jsonlite, seasonal, openxlsx (ver cabecalho do script)
+#   `seasonal` precisa do binario X-13ARIMA-SEATS separado (ver nota ao final do script).
 ```
 
 **Corp**: `opt_utils` já vem com o ambiente corporativo (não é pip-installable). Confere `python -c "from opt_utils.database import SQLConnector"`.
